@@ -46,6 +46,20 @@
       "license": "MIT",
       "keywords": ["review", "spec", "code-review", "handoff", "agent-loop"],
       "category": "review"
+    },
+    {
+      "name": "digest",
+      "source": "./plugins/digest",
+      "description": "Summarize AI-generated branches, PRs, diffs, and design docs into icon-rich structured cards",
+      "version": "1.0.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": ["digest", "summary", "explain", "changelog", "diff", "PR"],
+      "category": "analysis"
     }
   ]
 }
