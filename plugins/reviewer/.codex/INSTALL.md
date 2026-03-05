@@ -1,0 +1,75 @@
+# Codex Installation Guide
+
+Install the reviewer plugin for use with Codex via native skill discovery.
+
+## Prerequisites
+
+- [Codex](https://github.com/openai/codex) installed and configured
+- Git
+
+## Install
+
+### Unix / macOS
+
+```bash
+# Clone the repository (skip if already cloned for another plugin)
+git clone https://github.com/shdennlin/agent-plugins.git ~/.codex/shdennlin-agent-plugins
+
+# Create the skills directory if it doesn't exist
+mkdir -p ~/.agents/skills
+
+# Symlink the agents into Codex's skill discovery path
+ln -s ~/.codex/shdennlin-agent-plugins/plugins/reviewer/agents ~/.agents/skills/reviewer
+```
+
+### Windows (PowerShell)
+
+```powershell
+# Clone the repository (skip if already cloned for another plugin)
+git clone https://github.com/shdennlin/agent-plugins.git "$env:USERPROFILE\.codex\shdennlin-agent-plugins"
+
+# Create the skills directory if it doesn't exist
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills"
+
+# Symlink the agents into Codex's skill discovery path
+New-Item -ItemType SymbolicLink `
+  -Path "$env:USERPROFILE\.agents\skills\reviewer" `
+  -Target "$env:USERPROFILE\.codex\shdennlin-agent-plugins\plugins\reviewer\agents"
+```
+
+## Verify
+
+Confirm the symlink resolves correctly:
+
+```bash
+ls -la ~/.agents/skills/reviewer/
+# Should list: spec-reviewer.md  result-reviewer.md
+```
+
+## Update
+
+```bash
+cd ~/.codex/shdennlin-agent-plugins && git pull
+```
+
+The symlink ensures updates are picked up automatically.
+
+## Uninstall
+
+### Unix / macOS
+
+```bash
+rm ~/.agents/skills/reviewer
+
+# Only remove the repo if no other plugins are in use
+rm -rf ~/.codex/shdennlin-agent-plugins
+```
+
+### Windows (PowerShell)
+
+```powershell
+Remove-Item "$env:USERPROFILE\.agents\skills\reviewer"
+
+# Only remove the repo if no other plugins are in use
+Remove-Item -Recurse -Force "$env:USERPROFILE\.codex\shdennlin-agent-plugins"
+```
