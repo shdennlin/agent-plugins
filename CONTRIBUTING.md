@@ -1,4 +1,4 @@
-# Contributing to Claude Code Plugins
+# Contributing to Agent Plugins
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to this plugin collection.
 
@@ -9,8 +9,8 @@ Thank you for your interest in contributing! This document provides guidelines f
 3. **Create a branch** for your contribution
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-code-plugins.git
-cd claude-code-plugins
+git clone https://github.com/YOUR_USERNAME/agent-plugins.git
+cd agent-plugins
 git checkout -b feature/your-plugin-name
 ```
 

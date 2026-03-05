@@ -14,7 +14,7 @@ A Claude Code plugin that validates and **fixes** Mermaid diagram syntax in Mark
 
 ```bash
 # Add marketplace
-/plugin marketplace add shdennlin/claude-code-plugins
+/plugin marketplace add shdennlin/agent-plugins
 
 # Install plugin
 /plugin install mermaid-validator@shdennlin-plugins
