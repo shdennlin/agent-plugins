@@ -43,7 +43,7 @@ Confirm the symlink resolves correctly:
 
 ```bash
 ls -la ~/.agents/skills/git-workflow/
-# Should list: merge/
+# Should list: merge/  commit/  status/  sync/
 ```
 
 ## Update

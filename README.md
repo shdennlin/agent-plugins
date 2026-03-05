@@ -7,7 +7,7 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 | Plugin | Description | Type | Command |
 |--------|-------------|------|---------|
 | [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent | `/mermaid-validator:check` |
-| [git-workflow](./plugins/git-workflow) | Git workflow automation with Conventional Commits support | Command + Agent + Skill | `/git-workflow:merge` |
+| [git-workflow](./plugins/git-workflow) | Git workflow automation with Conventional Commits support | Command + Agent + Skill | `/git-workflow:merge`, `/git-workflow:commit`, `/git-workflow:status`, `/git-workflow:sync` |
 | [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff | Command + Agent | `/reviewer:spec`, `/reviewer:result` |
 | [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into icon-rich structured cards | Command + Agent + Skill | `/digest:digest`, `/digest:release` |
 
