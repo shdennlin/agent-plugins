@@ -1,28 +1,43 @@
 ---
-name: merge
-description: This skill should be used when the user asks to "merge this branch", "merge into develop", "merge into main", "ready to merge", "merge feature branch", or mentions merging branches with commit messages.
+name: git-workflow:merge
+description: "Merge git branches with auto-generated Conventional Commits messages. Use when merging branches, finishing feature work, or creating merge commits."
 ---
 
-# Git Merge Skill
+# Git Merge
 
-When the user expresses intent to merge branches, use the `/git-workflow:merge` command.
+Merge branches with auto-generated Conventional Commits messages.
 
-## Quick Reference
+## Usage
 
-| Intent | Command |
-|--------|---------|
-| Merge current branch | `/git-workflow:merge` |
-| Merge specific source | `/git-workflow:merge feature/auth` |
-| Merge source into target | `/git-workflow:merge develop main` |
-| With issue reference | `/git-workflow:merge -i "#123"` |
-| With spec name | `/git-workflow:merge -s auth-flow` |
-| Skip confirmation | `/git-workflow:merge -y` |
-| All sub-repos | `/git-workflow:merge --all` |
+```
+$merge                              # Merge current branch into develop/main
+$merge feature/auth                 # Merge specific source branch
+$merge develop main                 # Merge develop into main
+$merge -i "#123" -s auth-flow       # With issue and spec references
+$merge --yes                        # Skip confirmation
+$merge --all                        # Merge across all sub-repos
+```
 
-## When to Suggest
+## Options
 
-Suggest this command when the user:
-- Says "merge this branch", "merge into develop/main"
-- Says "ready to merge", "done with this branch"
-- Asks to create a merge commit with a good message
-- Wants to merge across multiple repositories
+| Flag | Description |
+|------|-------------|
+| `-i, --issue <id>` | Issue ID for commit message |
+| `-s, --spec <name>` | Spec name for commit message |
+| `--all` | Merge across all git repos in subdirectories |
+| `-y, --yes` | Skip confirmation prompt |
+
+## Process
+
+1. Detect source and target branches
+2. Dispatch the merge agent using the prompt template in `merge.md` (in this skill directory)
+3. Generate Conventional Commits message from commit history
+4. Execute `git merge --no-ff`
+
+## Agent Dispatch
+
+Use the companion `merge.md` in this directory as the agent prompt. Provide it with:
+- Source and target branches
+- Issue and spec references (if any)
+- Flags (--all, --yes)
+- The current working directory

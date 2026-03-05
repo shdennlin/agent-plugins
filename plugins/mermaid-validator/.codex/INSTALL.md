@@ -18,8 +18,8 @@ git clone https://github.com/shdennlin/agent-plugins.git ~/.codex/shdennlin-agen
 # Create the skills directory if it doesn't exist
 mkdir -p ~/.agents/skills
 
-# Symlink the agents into Codex's skill discovery path
-ln -s ~/.codex/shdennlin-agent-plugins/plugins/mermaid-validator/agents ~/.agents/skills/mermaid-validator
+# Symlink the skills into Codex's skill discovery path
+ln -s ~/.codex/shdennlin-agent-plugins/plugins/mermaid-validator/skills ~/.agents/skills/mermaid-validator
 ```
 
 ### Windows (PowerShell)
@@ -31,10 +31,10 @@ git clone https://github.com/shdennlin/agent-plugins.git "$env:USERPROFILE\.code
 # Create the skills directory if it doesn't exist
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills"
 
-# Symlink the agents into Codex's skill discovery path
+# Symlink the skills into Codex's skill discovery path
 New-Item -ItemType SymbolicLink `
   -Path "$env:USERPROFILE\.agents\skills\mermaid-validator" `
-  -Target "$env:USERPROFILE\.codex\shdennlin-agent-plugins\plugins\mermaid-validator\agents"
+  -Target "$env:USERPROFILE\.codex\shdennlin-agent-plugins\plugins\mermaid-validator\skills"
 ```
 
 ## Verify
@@ -43,7 +43,7 @@ Confirm the symlink resolves correctly:
 
 ```bash
 ls -la ~/.agents/skills/mermaid-validator/
-# Should list: mermaid-validator.md
+# Should list: check/
 ```
 
 ## Update
