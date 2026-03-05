@@ -19,17 +19,27 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 /plugin marketplace add shdennlin/agent-plugins
 
 # Install a plugin
-/plugin install mermaid-validator@shdennlin-plugins
+/plugin install reviewer@shdennlin-plugins
 
 # List available plugins
 /plugin list shdennlin-plugins
 
 # Update a plugin
-/plugin update mermaid-validator@shdennlin-plugins
+/plugin update reviewer@shdennlin-plugins
 
 # Remove a plugin
-/plugin uninstall mermaid-validator@shdennlin-plugins
+/plugin uninstall reviewer@shdennlin-plugins
 ```
+
+### Codex
+
+Tell Codex to fetch and follow the install instructions for the plugin you want:
+
+| Plugin | Install command |
+|--------|----------------|
+| reviewer | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/reviewer/.codex/INSTALL.md` |
+| git-workflow | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/git-workflow/.codex/INSTALL.md` |
+| mermaid-validator | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/mermaid-validator/.codex/INSTALL.md` |
 
 ## Contributing
 

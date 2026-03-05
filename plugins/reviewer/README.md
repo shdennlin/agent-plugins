@@ -48,6 +48,16 @@ The plugin outputs a **Handoff block** designed for copy-pasting between agents:
 5. `/reviewer:result` → re-review
 6. Repeat until Verdict = PASS
 
+## Installation
+
+### Claude Code
+
+Install as a Claude Code plugin following the main project README.
+
+### Codex
+
+See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation via symlinked skill discovery.
+
 ## Agents
 
 | Agent | Model | Purpose |
