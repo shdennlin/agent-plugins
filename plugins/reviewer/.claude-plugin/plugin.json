@@ -1,0 +1,9 @@
+{
+  "name": "reviewer",
+  "version": "1.0.0",
+  "description": "Structured spec and implementation review with agent-loop handoff support",
+  "author": {
+    "name": "shdennlin"
+  },
+  "keywords": ["review", "spec", "code-review", "handoff", "agent-loop"]
+}

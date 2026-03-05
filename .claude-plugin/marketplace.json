@@ -32,6 +32,20 @@
       "license": "MIT",
       "keywords": ["git", "merge", "workflow", "conventional-commits"],
       "category": "workflow"
+    },
+    {
+      "name": "reviewer",
+      "source": "./plugins/reviewer",
+      "description": "Structured spec and implementation review with agent-loop handoff support",
+      "version": "1.0.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": ["review", "spec", "code-review", "handoff", "agent-loop"],
+      "category": "review"
     }
   ]
 }
