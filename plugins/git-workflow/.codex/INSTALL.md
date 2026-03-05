@@ -31,11 +31,11 @@ git clone https://github.com/shdennlin/agent-plugins.git "$env:USERPROFILE\.code
 # Create the skills directory if it doesn't exist
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills"
 
-# Symlink the skills into Codex's skill discovery path
-New-Item -ItemType SymbolicLink `
-  -Path "$env:USERPROFILE\.agents\skills\git-workflow" `
-  -Target "$env:USERPROFILE\.codex\shdennlin-agent-plugins\plugins\git-workflow\skills"
+# Symlink the skills into Codex's skill discovery path (no admin required)
+cmd /c mklink /J "$env:USERPROFILE\.agents\skills\git-workflow" "$env:USERPROFILE\.codex\shdennlin-agent-plugins\plugins\git-workflow\skills"
 ```
+
+3. **Restart Codex** (quit and relaunch the CLI) to discover the skills.
 
 ## Verify
 
@@ -68,7 +68,7 @@ rm -rf ~/.codex/shdennlin-agent-plugins
 ### Windows (PowerShell)
 
 ```powershell
-Remove-Item "$env:USERPROFILE\.agents\skills\git-workflow"
+cmd /c rmdir "$env:USERPROFILE\.agents\skills\git-workflow"
 
 # Only remove the repo if no other plugins are in use
 Remove-Item -Recurse -Force "$env:USERPROFILE\.codex\shdennlin-agent-plugins"

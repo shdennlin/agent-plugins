@@ -41,6 +41,8 @@ Tell Codex to fetch and follow the install instructions for the plugin you want:
 | git-workflow | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/git-workflow/.codex/INSTALL.md` |
 | mermaid-validator | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/mermaid-validator/.codex/INSTALL.md` |
 
+Restart Codex after installation to discover the skills.
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
@@ -53,6 +55,8 @@ Contributions are welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for g
    plugins/your-plugin/
    ├── .claude-plugin/
    │   └── plugin.json
+   ├── .codex/
+   │   └── INSTALL.md   # (optional) - Codex installation guide
    ├── commands/        # (optional) - slash commands
    ├── agents/          # (optional) - proactive agents
    ├── hooks/           # (optional) - event hooks
