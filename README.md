@@ -1,30 +1,21 @@
-# Claude Code Plugins
+# Agent Plugins
 
-A collection of plugins for [Claude Code](https://code.claude.com/docs/en/) - Anthropic's official CLI for Claude.
-
-## Installation
-
-```bash
-# Step 1: Add this marketplace to Claude Code
-/plugin marketplace add shdennlin/claude-code-plugins
-
-# Step 2: Install a plugin
-/plugin install mermaid-validator@shdennlin-plugins
-```
-
-That's it! The plugin is now installed and ready to use.
+A collection of plugins for AI coding agents including [Claude Code](https://code.claude.com/docs/en/), [Codex](https://github.com/openai/codex), and other agentic development tools.
 
 ## Plugin Catalog
 
-| Plugin | Description | Type |
-|--------|-------------|------|
-| [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent |
+| Plugin | Description | Type | Command |
+|--------|-------------|------|---------|
+| [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent | `/mermaid-validator:check` |
+| [git-workflow](./plugins/git-workflow) | Git workflow automation with Conventional Commits support | Command + Agent + Skill | `/git-workflow:merge` |
 
-## Commands
+## Getting Started
+
+### Claude Code
 
 ```bash
-# Add this marketplace
-/plugin marketplace add shdennlin/claude-code-plugins
+# Add this marketplace to Claude Code
+/plugin marketplace add shdennlin/agent-plugins
 
 # Install a plugin
 /plugin install mermaid-validator@shdennlin-plugins
@@ -38,38 +29,6 @@ That's it! The plugin is now installed and ready to use.
 # Remove a plugin
 /plugin uninstall mermaid-validator@shdennlin-plugins
 ```
-
-## Plugin Details
-
-### mermaid-validator
-
-Validates and **fixes** Mermaid diagram syntax in Markdown files.
-
-**Components:**
-- 🔍 **Command** (`/mermaid-validator:check`): On-demand validation with fix capability
-- 🤖 **Agent**: Proactive validation after editing `.md` files
-
-**Usage:**
-```bash
-# Check mermaid diagrams
-/mermaid-validator:check
-
-# Check and auto-fix
-/mermaid-validator:check --fix
-
-# Check specific file
-/mermaid-validator:check README.md
-
-# Check all files
-/mermaid-validator:check --all
-```
-
-**Optional (for deep validation):**
-```bash
-npm install -g @mermaid-js/mermaid-cli
-```
-
-[View full documentation](./plugins/mermaid-validator/README.md)
 
 ## Contributing
 
