@@ -43,6 +43,8 @@ Tell Codex to fetch and follow the install instructions for the plugin you want:
 
 Restart Codex after installation to discover the skills.
 
+**Update:** `cd ~/.codex/shdennlin-agent-plugins && git pull` — skills update instantly through the symlink.
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
