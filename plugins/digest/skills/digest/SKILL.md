@@ -15,6 +15,8 @@ $digest feat/new-auth                # specific branch
 $digest #42                          # PR number
 $digest docs/plans/auth.md           # design doc
 $digest --detail                     # detailed output
+$digest --simple                     # plain-language output
+$digest -s -d                        # both: plain + technical detail
 ```
 
 ## Options
@@ -22,6 +24,9 @@ $digest --detail                     # detailed output
 | Flag | Description |
 |------|-------------|
 | `-d, --detail` | Detailed output with file breakdown and audience sections |
+| `-s, --simple` | Plain, non-technical language (easy to understand for everyone) |
+
+Flags can be combined. `--simple --detail` gives both a plain-language summary and technical detail in one output.
 
 ## Process
 
@@ -35,4 +40,5 @@ $digest --detail                     # detailed output
 Use the companion `digest-agent.md` in this directory as the agent prompt. Provide it with:
 - Input type and target
 - Detail mode flag
+- Simple mode flag
 - The current working directory

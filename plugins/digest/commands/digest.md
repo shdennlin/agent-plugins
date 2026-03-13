@@ -7,7 +7,7 @@ allowed-tools:
   - Task
   - AskUserQuestion
 description: Summarize a branch, PR, diff, or design doc into an icon-rich structured card
-argument-hint: "[target] [--detail/-d] [--help/-h]"
+argument-hint: "[target] [--detail/-d] [--simple/-s] [--help/-h]"
 ---
 
 # Digest Command
@@ -20,7 +20,10 @@ Parse the following from `$ARGUMENTS`:
 
 - `[target]` — A branch name, PR number (`#42`), file path, or omit for current branch
 - `--detail` or `-d` — Produce detailed output with file-level breakdown and audience sections
+- `--simple` or `-s` — Use plain, non-technical language (easy to understand for everyone)
 - `--help` or `-h` — Show usage information and exit
+
+Flags can be combined: `--simple --detail` produces detailed output written in plain language.
 
 ## Instructions
 
@@ -30,6 +33,7 @@ From `$ARGUMENTS`, extract:
 1. **help**: if `--help` or `-h` is present, show usage info below and stop. Do NOT delegate to the agent.
 2. **target**: the positional argument (branch, `#<number>`, file path, or empty)
 3. **detail**: whether `--detail` or `-d` flag is present
+4. **simple**: whether `--simple` or `-s` flag is present
 
 ### Help Output
 
@@ -45,7 +49,11 @@ Positional arguments:
 
 Options:
   -d, --detail          Detailed output with file breakdown and audience sections
+  -s, --simple          Plain, non-technical language (easy to understand for everyone)
   -h, --help            Show this help message
+
+Flags can be combined:
+  /digest:digest -s -d            # detailed output in plain language
 
 Input detection:
   #<number>             PR number (uses gh pr view)
@@ -84,6 +92,7 @@ Task tool:
     Input type: <PR | Branch | Design doc | Current branch>
     Target: <target value or "current branch">
     Detail mode: <true | false>
+    Simple mode: <true | false>
 
     Working directory: <current directory>
 ```
@@ -107,4 +116,10 @@ Report the agent's output back to the user.
 
 # Detailed output for current branch
 /digest:digest --detail
+
+# Simple, plain-language summary
+/digest:digest --simple
+
+# Detailed + simple combined
+/digest:digest feat/auth -s -d
 ```

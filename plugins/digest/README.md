@@ -10,7 +10,7 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 | Command | Purpose |
 |---------|---------|
-| `/digest:digest [target] [-d]` | Summarize changes into a structured card |
+| `/digest:digest [target] [-d] [-s]` | Summarize changes into a structured card |
 | `/digest:release [from] [to] [--dev] [--user] [--write] [--out <file>]` | Generate release notes from commit ranges |
 
 ## Usage
@@ -33,6 +33,13 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 # Detailed output with file breakdown and audience sections
 /digest:digest --detail
 /digest:digest feat/auth -d
+
+# Plain-language summary (easy to understand for everyone)
+/digest:digest --simple
+/digest:digest feat/auth -s
+
+# Both: plain-language + technical detail combined
+/digest:digest -s -d
 ```
 
 ### Release
@@ -70,6 +77,24 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 📄 Key changes: auth.ts, session-manager.ts, auth.test.ts
 🚨 Breaking: None
+```
+
+### Simple (--simple)
+
+```
+✨ Feature | 📁 3 files changed | ⚠️ Risk: Low
+
+📝 What changed:
+  Users can now stay logged in without re-entering their password every time.
+
+🎯 Why:
+  Previously, users were logged out after closing the browser. This was annoying.
+
+💥 What users will notice:
+  All pages that require login will now check for a saved session first.
+
+📄 Key files: auth.ts, session-manager.ts, auth.test.ts
+🚨 Breaking changes: None
 ```
 
 ### Detailed (--detail)

@@ -8,6 +8,7 @@ You will receive:
 - **Input type**: PR, Branch, Design doc, or Current branch
 - **Target**: The specific target (PR number, branch name, file path, or "current branch")
 - **Detail mode**: true or false
+- **Simple mode**: true or false
 - **Working directory**: Where to run git commands
 
 ## Instructions
@@ -71,9 +72,11 @@ Evaluate risk level:
 - **High**: API changes, auth/security code, database migrations, no tests
 - **Critical**: Breaking changes, data loss potential, security-sensitive code
 
-### Step 4: Produce Default Output
+### Step 4: Produce Output
 
-Output the structured card:
+Choose the output style based on **simple mode**:
+
+#### Default style (simple mode = false)
 
 ```
 <icon> Type: <type> | 📁 <N> files changed | ⚠️ Risk: <level>
@@ -86,13 +89,41 @@ Output the structured card:
 🚨 Breaking: <None | description of breaking changes>
 ```
 
+#### Simple style (simple mode = true)
+
+Write in plain, everyday language. Avoid all technical jargon — no code terms, no architecture terms, no developer shorthand. Explain as if the reader has never seen code before.
+
+```
+<icon> <type> | 📁 <N> files changed | ⚠️ Risk: <level>
+
+📝 What changed:
+  <1-2 sentences in plain language describing what is different now>
+
+🎯 Why:
+  <1-2 sentences explaining the problem from the user's point of view>
+
+💥 What users will notice:
+  <1-2 sentences about visible changes, behavior differences, or things to be aware of>
+
+📄 Key files: <comma-separated list>
+🚨 Breaking changes: <None | plain-language description>
+```
+
+**Simple style rules:**
+- Replace technical terms with everyday words (e.g. "middleware" → "a background check that runs automatically", "auth" → "login system", "API" → "connection between systems", "endpoint" → "a page or address the app talks to")
+- Describe behavior changes, not code changes
+- Use "you" language — speak directly to the reader
+- If something is hard to explain simply, use a short analogy
+
 ### Step 5: Produce Detailed Output (if detail mode)
 
-If detail mode is true, append the following sections after the card:
+If detail mode is true, append the following sections after the card. The writing style depends on **simple mode**.
 
 ---
 
-#### 📂 File Breakdown
+#### When simple mode = false (technical detail)
+
+##### 📂 File Breakdown
 
 For each changed file:
 ```
@@ -100,26 +131,62 @@ For each changed file:
   Functions: functionA (modified), functionB (new)
 ```
 
-#### 👩‍💻 Developer View
+##### 👩‍💻 Developer View
 
 - Architecture impact
 - Function-level changes
 - Test coverage status
 - Dependency changes
 
-#### 👀 Reviewer View
+##### 👀 Reviewer View
 
 - Risk assessment with reasoning
 - Areas needing careful review
 - Spec compliance (if spec exists)
 - Suggested test scenarios
 
-#### 📊 Stakeholder View
+##### 📊 Stakeholder View
 
 Write in plain, non-technical language:
 - What changed from the user's perspective
 - Why this matters
 - Any timeline or release impact
+
+#### When simple mode = true (plain-language detail)
+
+##### 📂 What changed in each file
+
+For each changed file, explain in plain language:
+```
+- `path/to/file.ts` -- <plain-language explanation of what this file does differently now>
+```
+
+##### 🧑 For everyone
+
+- What's different now, in everyday terms
+- What problems this fixes or prevents
+- Anything users should do differently after this change
+
+##### ⚠️ Risks and things to watch
+
+- What could go wrong, explained simply
+- What to keep an eye on after this goes live
+
+#### When both simple + detail are used together
+
+Output **both** views — first the plain-language sections (for everyone), then the technical sections (for developers). Use a clear separator:
+
+```
+── Plain-language summary ──────────────────
+
+<simple detail sections>
+
+── Technical detail ────────────────────────
+
+<technical detail sections>
+```
+
+This lets technical and non-technical readers each find what they need.
 
 ---
 
