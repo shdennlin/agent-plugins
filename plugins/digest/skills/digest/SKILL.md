@@ -41,4 +41,5 @@ Use the companion `digest-agent.md` in this directory as the agent prompt. Provi
 - Input type and target
 - Detail mode flag
 - Simple mode flag
-- The current working directory
+
+The agent uses `$PROJECT_ROOT` (set by the init hook) or falls back to `git rev-parse --show-toplevel`.

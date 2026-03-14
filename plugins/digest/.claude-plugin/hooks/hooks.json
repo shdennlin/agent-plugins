@@ -1,0 +1,17 @@
+{
+  "description": "Digest plugin initialization hooks",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/init-project-root.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
