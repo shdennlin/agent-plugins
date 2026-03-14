@@ -93,8 +93,6 @@ Task tool:
     Target: <target value or "current branch">
     Detail mode: <true | false>
     Simple mode: <true | false>
-
-    Working directory: <current directory>
 ```
 
 Report the agent's output back to the user.

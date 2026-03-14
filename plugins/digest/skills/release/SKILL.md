@@ -41,4 +41,5 @@ Use the companion `release-agent.md` in this directory as the agent prompt. Prov
 - From and to refs
 - Format (dev, user, or both)
 - Write and output file options
-- The current working directory
+
+The agent uses `$PROJECT_ROOT` (set by the init hook) or falls back to `git rev-parse --show-toplevel`.

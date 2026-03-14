@@ -9,7 +9,13 @@ You will receive:
 - **Target**: The specific target (PR number, branch name, file path, or "current branch")
 - **Detail mode**: true or false
 - **Simple mode**: true or false
-- **Working directory**: Where to run git commands
+
+## Project Root
+
+Use `$PROJECT_ROOT` for all git commands. If not set, detect it:
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+```
 
 ## Instructions
 
@@ -19,28 +25,28 @@ Based on input type:
 
 **PR (`#<number>`):**
 ```bash
-cd <working directory> && gh pr view <number> --json title,body,headRefName,baseRefName,changedFiles,additions,deletions,commits,labels
-cd <working directory> && gh pr diff <number> --stat
+cd "$PROJECT_ROOT" && gh pr view <number> --json title,body,headRefName,baseRefName,changedFiles,additions,deletions,commits,labels
+cd "$PROJECT_ROOT" && gh pr diff <number> --stat
 ```
 If detail mode, also get the full diff:
 ```bash
-cd <working directory> && gh pr diff <number>
+cd "$PROJECT_ROOT" && gh pr diff <number>
 ```
 
 **Branch:**
 ```bash
-cd <working directory> && git log main..<branch> --oneline --no-merges 2>/dev/null || git log develop..<branch> --oneline --no-merges
-cd <working directory> && git diff main...<branch> --stat 2>/dev/null || git diff develop...<branch> --stat
+cd "$PROJECT_ROOT" && git log main..<branch> --oneline --no-merges 2>/dev/null || git log develop..<branch> --oneline --no-merges
+cd "$PROJECT_ROOT" && git diff main...<branch> --stat 2>/dev/null || git diff develop...<branch> --stat
 ```
 If detail mode, also get the full diff:
 ```bash
-cd <working directory> && git diff main...<branch> 2>/dev/null || git diff develop...<branch>
+cd "$PROJECT_ROOT" && git diff main...<branch> 2>/dev/null || git diff develop...<branch>
 ```
 
 **Current branch:**
 ```bash
-cd <working directory> && git rev-parse --abbrev-ref HEAD
-cd <working directory> && git rev-parse --verify develop 2>/dev/null && echo "develop" || echo "main"
+cd "$PROJECT_ROOT" && git rev-parse --abbrev-ref HEAD
+cd "$PROJECT_ROOT" && git rev-parse --verify develop 2>/dev/null && echo "develop" || echo "main"
 ```
 Then use the detected base branch and follow the Branch strategy above.
 

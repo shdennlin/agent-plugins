@@ -92,8 +92,6 @@ Task tool:
     Format: <dev | user | both>
     Write to CHANGELOG: <true | false>
     Output file: <file path or "none">
-
-    Working directory: <current directory>
 ```
 
 Report the agent's output back to the user.

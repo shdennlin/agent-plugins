@@ -40,14 +40,26 @@ You will receive:
 - **Format**: dev, user, or both
 - **Write to CHANGELOG**: true or false
 - **Output file**: file path or "none"
-- **Working directory**: Where to run git commands
+
+## Project Root
+
+The `$PROJECT_ROOT` environment variable is set by the digest plugin's init hook. Use it for all git commands:
+
+```bash
+cd "$PROJECT_ROOT" && git ...
+```
+
+If `$PROJECT_ROOT` is not set, fall back to detecting it:
+```bash
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+```
 
 ## Instructions
 
 ### Step 1: Resolve Tag Range
 
 ```bash
-cd <working directory>
+cd "$PROJECT_ROOT"
 ```
 
 **If from is "latest tag":**
@@ -69,12 +81,12 @@ If either ref is invalid, report the error and stop.
 ### Step 2: Gather Commits
 
 ```bash
-cd <working directory> && git log <from>..<to> --oneline --no-merges --format="%h %s"
+cd "$PROJECT_ROOT" && git log <from>..<to> --oneline --no-merges --format="%h %s"
 ```
 
 Also gather stats:
 ```bash
-cd <working directory> && git diff <from>...<to> --stat
+cd "$PROJECT_ROOT" && git diff <from>...<to> --stat
 ```
 
 ### Step 3: Classify Commits
