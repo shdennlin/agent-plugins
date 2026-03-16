@@ -1,0 +1,40 @@
+# Reviewer rules for OpenSpec config.yaml
+# These rules are injected into <rules> XML blocks when OpenSpec generates artifacts.
+# They encode the reviewer's 4 focus areas so specs pass review on first attempt.
+#
+# Artifact IDs map to reviewer focus areas:
+#   proposal → Scope & Intent
+#   specs    → Spec Completeness
+#   design   → Design Soundness
+#   tasks    → Task Readiness
+
+proposal:
+  - "State the problem being solved in one sentence"
+  - "Define an explicit goal that is measurable or verifiable"
+  - "Include a Non-goals section listing what is intentionally excluded"
+  - "Define clear boundaries — what is in scope vs out of scope"
+  - "Identify the target user or system that benefits"
+
+specs:
+  - "Cover all edge cases with explicit expected behavior"
+  - "Define error handling for every failure mode — what happens, what the user sees, how the system recovers"
+  - "Include input validation rules with types, ranges, and formats"
+  - "Address security considerations — authentication, authorization, data sanitization"
+  - "Specify observability — what to log, what metrics to emit, what alerts to set"
+  - "Document state transitions and their triggers"
+  - "Note performance constraints or SLAs if applicable"
+
+design:
+  - "Show how the design fulfills each proposal requirement with explicit traceability"
+  - "List all assumptions and mark which are validated vs hypothetical"
+  - "Identify coupling points between components and justify each dependency"
+  - "Call out risky architectural decisions and provide alternatives considered"
+  - "Include a data flow or sequence diagram for the primary path"
+
+tasks:
+  - "Every spec requirement must map to at least one task"
+  - "Each task must have a clear done criterion that is verifiable without subjective judgment"
+  - "Include tasks for error handling, validation, and edge cases — not just happy path"
+  - "Include tasks for tests that verify the spec requirements"
+  - "Order tasks by dependency — prerequisite tasks come first"
+  - "Each task should be completable independently without undocumented context"
