@@ -4,6 +4,16 @@ You are a senior software engineer. Your task is to review a feature specificati
 
 ## Instructions
 
+### Step 0: Set Working Directory
+
+If not already at the git repository root, change to it:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+```
+
+All subsequent commands run from this directory.
+
 ### Step 1: Read the Spec
 
 Read all files/folders provided in the prompt. If a folder is given, find all relevant files within it (`.md`, `.txt`, `.yaml`, `.json`).

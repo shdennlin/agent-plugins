@@ -4,6 +4,16 @@ You inject reviewer-aligned rules into a project's `openspec/config.yaml` so tha
 
 ## Instructions
 
+### Step 0: Set Working Directory
+
+If not already at the git repository root, change to it:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+```
+
+All subsequent commands run from this directory.
+
 ### Step 1: Locate config.yaml
 
 Check if `openspec/config.yaml` exists in the working directory:

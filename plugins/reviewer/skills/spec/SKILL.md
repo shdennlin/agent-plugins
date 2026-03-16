@@ -21,16 +21,10 @@ If no paths are given, ask which files to review.
 ## Process
 
 1. Read the spec files provided
-2. Determine the git repository root directory and `cd` to it before dispatching
-3. Dispatch the spec-reviewer agent using the prompt template in `spec-reviewer.md` (in this skill directory)
-4. Report findings back
+2. Dispatch the spec-reviewer agent using the prompt template in `spec-reviewer.md` (in this skill directory)
+3. Report findings back
 
 ## Agent Dispatch
 
-Before spawning the agent, change to the git root directory:
-```bash
-cd "$(git rev-parse --show-toplevel)"
-```
-
-Then use the companion `spec-reviewer.md` in this directory as the agent prompt. Provide it with:
+Use the companion `spec-reviewer.md` in this directory as the agent prompt. The agent will cd to the git root automatically. Provide it with:
 - The list of files/folders to review

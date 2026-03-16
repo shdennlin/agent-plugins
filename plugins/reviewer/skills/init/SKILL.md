@@ -16,20 +16,14 @@ $init --dry-run
 
 ## Process
 
-1. Determine the git repository root directory and `cd` to it before dispatching
-2. Check that `openspec/config.yaml` exists in the working directory
-3. Read the reviewer rules template
-4. Compare against existing rules (dedup by exact match)
-5. Append only new rules (or preview in dry-run mode)
-6. Report what was added
+1. Check that `openspec/config.yaml` exists in the working directory
+2. Read the reviewer rules template
+3. Compare against existing rules (dedup by exact match)
+4. Append only new rules (or preview in dry-run mode)
+5. Report what was added
 
 ## Agent Dispatch
 
-Before spawning the agent, change to the git root directory:
-```bash
-cd "$(git rev-parse --show-toplevel)"
-```
-
-Then use the companion `init-reviewer.md` in this directory as the agent prompt. Provide it with:
+Use the companion `init-reviewer.md` in this directory as the agent prompt. The agent will cd to the git root automatically. Provide it with:
 - Whether dry_run mode is enabled
 - The full content of the reviewer rules template
