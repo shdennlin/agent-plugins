@@ -15,11 +15,7 @@ Summarize:
 - Key requirements (as a checklist for later)
 - Constraints and assumptions
 
-### Step 2: Set Working Directory
-
-All git commands must run from the working directory provided in the prompt.
-
-### Step 3: Verify Git Repository
+### Step 2: Verify Git Repository
 
 ```bash
 git rev-parse --is-inside-work-tree 2>&1
@@ -27,7 +23,7 @@ git rev-parse --is-inside-work-tree 2>&1
 
 If this fails, report "Not a git repository" and stop.
 
-### Step 4: Determine Diff Strategy
+### Step 3: Determine Diff Strategy
 
 Based on the prompt parameters:
 
@@ -47,7 +43,7 @@ git rev-parse --verify main 2>/dev/null && echo "main exists" || echo "no main"
 - If on `main` or `develop`: use working tree diffs (`git diff` + `git diff --cached`)
 - If on detached HEAD: report the situation and ask the user to specify `--base`
 
-### Step 5: Analyze the Diff
+### Step 4: Analyze the Diff
 
 **Start with the summary to assess diff size:**
 ```bash
@@ -78,14 +74,14 @@ Identify:
 - Which functions/classes were changed
 - What behavior was added or altered
 
-### Step 6: Cross-Reference Spec vs Implementation
+### Step 5: Cross-Reference Spec vs Implementation
 
 For each requirement from the spec:
 - Check if it appears in the diff
 - Note whether the implementation matches the spec's intent
 - Flag any divergence
 
-### Step 7: Produce Report
+### Step 6: Produce Report
 
 Output the following sections exactly:
 
