@@ -60,6 +60,20 @@
       "license": "MIT",
       "keywords": ["digest", "summary", "explain", "changelog", "diff", "PR"],
       "category": "analysis"
+    },
+    {
+      "name": "ralph-loop",
+      "source": "./plugins/ralph-loop",
+      "description": "Continuous self-referential AI loops for iterative development with session isolation fix",
+      "version": "1.0.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": ["ralph-loop", "loop", "iteration", "self-referential", "session-isolation"],
+      "category": "workflow"
     }
   ]
 }
