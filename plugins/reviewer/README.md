@@ -58,13 +58,35 @@ Use with [ralph-loop](../ralph-loop/) to automatically review and fix specs unti
 
 ```bash
 # Review and fix a spec folder (max 2 iterations)
-/ralph-loop:ralph-loop --max-iterations 2 "Review the spec at openspec/changes/<CHANGE_NAME>/ with /reviewer:spec. If it FAILs, fix the spec files based on the handoff directives, then re-review."
+/ralph-loop:ralph-loop --max-iterations 2 --completion-promise "SPEC READY" \
+  "Review the spec at openspec/changes/<CHANGE_NAME>/ with /reviewer:spec. \
+   If FAIL: fix the spec files based on the handoff directives, then re-review. \
+   If PASS: output <promise>SPEC READY</promise>"
 
 # Review and fix specific files
-/ralph-loop:ralph-loop --max-iterations 2 "Review the spec at docs/plans/<SPEC_NAME>/ with /reviewer:spec. If it FAILs, fix the spec files based on the handoff directives, then re-review."
+/ralph-loop:ralph-loop --max-iterations 2 --completion-promise "SPEC READY" \
+  "Review the spec at docs/plans/<SPEC_NAME>/ with /reviewer:spec. \
+   If FAIL: fix the spec files based on the handoff directives, then re-review. \
+   If PASS: output <promise>SPEC READY</promise>"
 ```
 
 Replace `<CHANGE_NAME>` or `<SPEC_NAME>` with your actual spec path.
+
+For implementation review loops, use `reviewer:result` to iteratively fix code until it matches the spec:
+
+```bash
+# Review and fix implementation against a spec (max 5 iterations)
+/ralph-loop:ralph-loop --max-iterations 5 --completion-promise "IMPL COMPLETE" \
+  "Review implementation against the spec at openspec/changes/<CHANGE_NAME>/ with /reviewer:result. \
+   If FAIL: fix the code based on the handoff directives, then re-review. \
+   If PASS: output <promise>IMPL COMPLETE</promise>"
+
+# Review against a specific base branch
+/ralph-loop:ralph-loop --max-iterations 5 --completion-promise "IMPL COMPLETE" \
+  "Review implementation against the spec at docs/plans/<SPEC_NAME>/ with /reviewer:result --base develop. \
+   If FAIL: fix the code based on the handoff directives, then re-review. \
+   If PASS: output <promise>IMPL COMPLETE</promise>"
+```
 
 ## Agent-Loop Workflow
 
