@@ -18,7 +18,7 @@ else
 fi
 
 # Extract session_id from hook input
-SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty')
+SESSION_ID=$(echo "$HOOK_INPUT" | jq -r '.session_id // empty' 2>/dev/null || echo "")
 if [[ -z "$SESSION_ID" ]]; then
   # No session ID available - allow exit
   exit 0
