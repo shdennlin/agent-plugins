@@ -8,8 +8,9 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 |--------|-------------|------|---------|
 | [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent | `/mermaid-validator:check` |
 | [git-workflow](./plugins/git-workflow) | Git workflow automation with Conventional Commits support | Command + Agent + Skill | `/git-workflow:merge`, `/git-workflow:commit`, `/git-workflow:status`, `/git-workflow:sync` |
-| [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff | Command + Agent | `/reviewer:spec`, `/reviewer:result` |
+| [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff | Command + Agent + Skill | `/reviewer:spec`, `/reviewer:result`, `/reviewer:init` |
 | [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into icon-rich structured cards | Command + Agent + Skill | `/digest:digest`, `/digest:release` |
+| [ralph-loop](./plugins/ralph-loop) | Continuous self-referential AI loops with session isolation | Command + Hook | `/ralph-loop:ralph-loop`, `/ralph-loop:cancel-ralph` |
 
 ## Getting Started
 
@@ -42,6 +43,7 @@ Tell Codex to fetch and follow the install instructions for the plugin you want:
 | git-workflow | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/git-workflow/.codex/INSTALL.md` |
 | mermaid-validator | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/mermaid-validator/.codex/INSTALL.md` |
 | digest | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/digest/.codex/INSTALL.md` |
+| ralph-loop | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/ralph-loop/.codex/INSTALL.md` |
 
 Restart Codex after installation to discover the skills.
 

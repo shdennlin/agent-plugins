@@ -10,7 +10,7 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 | Command | Purpose |
 |---------|---------|
-| `/digest:digest [target] [-d] [-s]` | Summarize changes into a structured card |
+| `/digest:digest [target] [-s] [-r] [--export]` | Summarize changes into a structured card |
 | `/digest:release [from] [to] [--dev] [--user] [--write] [--out <file>]` | Generate release notes from commit ranges |
 
 ## Usage
@@ -30,16 +30,16 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 # Summarize a design doc
 /digest:digest docs/plans/auth.md
 
-# Detailed output with file breakdown and audience sections
-/digest:digest --detail
-/digest:digest feat/auth -d
-
 # Plain-language summary (easy to understand for everyone)
 /digest:digest --simple
 /digest:digest feat/auth -s
 
-# Both: plain-language + technical detail combined
-/digest:digest -s -d
+# Full report with architecture, design decisions, risks, recommendations
+/digest:digest --report
+/digest:digest feat/auth -r
+
+# Export report as markdown file with Mermaid diagrams (requires -r)
+/digest:digest -r --export
 ```
 
 ### Release
@@ -97,13 +97,18 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 🚨 Breaking changes: None
 ```
 
-### Detailed (--detail)
+### Report (--report)
 
-Adds:
-- File-by-file breakdown with function-level changes
-- Developer view (architecture, tests, dependencies)
-- Reviewer view (risk assessment, spec compliance)
-- Stakeholder view (plain language, user-facing impact)
+Adds (~5 min read):
+- Architecture impact with module dependencies and blast radius
+- Design decisions with trade-off analysis
+- Breaking changes and migration steps
+- Risk assessment and recommendations
+- Questions for the author
+
+### Export (--export)
+
+Requires `--report`. Writes the full report to a markdown file with Mermaid diagrams instead of ASCII art. File is named `digest-report-<target>-<YYYY-MM-DD>.md`.
 
 ## Change Type Icons
 
