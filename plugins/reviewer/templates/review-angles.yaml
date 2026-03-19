@@ -1,0 +1,62 @@
+# Review angle definitions for parallel multi-angle review
+# Used by spec-fix-orchestrator and result-fix-orchestrator agents.
+# Each angle constrains the reviewer to a specific focus area,
+# improving single-round coverage when run in parallel.
+#
+# Angle IDs map to reviewer focus areas:
+#   spec angles  → scope, completeness, tasks
+#   result angles → coverage, robustness, correctness
+
+spec:
+  scope:
+    label: "Scope & Boundaries"
+    focus: |
+      Focus EXCLUSIVELY on scope and intent clarity.
+      Review for: problem statement clarity, measurable goals, non-goals section,
+      scope boundaries (in vs out), target user identification, and ambiguous boundaries.
+      Do NOT review design details, spec completeness, or task coverage — other reviewers handle those.
+
+  completeness:
+    label: "Completeness & Edge Cases"
+    focus: |
+      Focus EXCLUSIVELY on spec completeness and missing elements.
+      Review for: missing edge cases, error handling gaps, input validation rules,
+      security considerations, observability (logging/metrics/alerts),
+      state transitions and triggers, and performance constraints.
+      Do NOT review scope clarity or task coverage — other reviewers handle those.
+
+  tasks:
+    label: "Task Coverage & Done Criteria"
+    focus: |
+      Focus EXCLUSIVELY on task readiness and coverage.
+      Review for: every spec requirement mapping to at least one task,
+      clear and verifiable done criteria, tasks for error/edge cases (not just happy path),
+      test tasks, dependency ordering, and independent completability.
+      Do NOT review scope clarity or spec completeness — other reviewers handle those.
+
+result:
+  coverage:
+    label: "Spec Coverage"
+    focus: |
+      Focus EXCLUSIVELY on whether each spec requirement has a corresponding implementation.
+      For each requirement in the spec, check if it appears in the diff.
+      Flag requirements that are NOT FOUND in the diff.
+      Do NOT review code quality, error handling, or logic correctness — other reviewers handle those.
+
+  robustness:
+    label: "Robustness & Security"
+    focus: |
+      Focus EXCLUSIVELY on error handling, validation, and security in the implementation.
+      Review for: missing error handling, input validation gaps, security vulnerabilities,
+      edge case handling, missing try/catch blocks, unvalidated user input,
+      and authentication/authorization gaps.
+      Do NOT review spec coverage or logic correctness — other reviewers handle those.
+
+  correctness:
+    label: "Correctness & Logic"
+    focus: |
+      Focus EXCLUSIVELY on whether the implementation logic matches the spec intent.
+      Review for: algorithm correctness, data flow accuracy, state management,
+      off-by-one errors, race conditions, incorrect assumptions,
+      and divergence between spec intent and actual behavior.
+      Do NOT review spec coverage or robustness concerns — other reviewers handle those.

@@ -4,7 +4,7 @@ allowed-tools:
   - Task
   - AskUserQuestion
 description: Review implementation against a spec using git diffs to catch mismatches, missing work, and bugs
-argument-hint: "[path...] [--base/-b <branch>] [--help/-h]"
+argument-hint: "[path...] [--base/-b <branch>] [--fix] [--fix-all] [--no-parallel] [--parallel angles] [-n N] [--help/-h]"
 ---
 
 # Result Review Command
@@ -17,6 +17,11 @@ Parse the following from `$ARGUMENTS`:
 
 - `[path...]` — One or more spec file or folder paths (positional args)
 - `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`
+- `--fix` — Enable iterative review → fix loop with parallel multi-angle review
+- `--fix-all` — Auto-fix all severities including critical/high (requires `--fix`)
+- `--no-parallel` — Disable parallel multi-angle review (requires `--fix`)
+- `--parallel <angles>` — Custom review angles, comma-separated (requires `--fix`)
+- `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
 - `--help` or `-h` — Show usage information and exit
 
 ## Instructions
@@ -27,6 +32,11 @@ From `$ARGUMENTS`, extract:
 1. **help**: if `--help` or `-h` is present, show the usage information below and stop. Do NOT delegate to the agent.
 2. **paths**: collect all positional arguments (not flags or flag values)
 3. **base**: value after `--base` or `-b` (if provided)
+4. **fix**: true if `--fix` is present
+5. **fix_all**: true if `--fix-all` is present
+6. **no_parallel**: true if `--no-parallel` is present
+7. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
+8. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 
 ### Help Output
 
@@ -38,21 +48,38 @@ Usage: /reviewer:result [path...] [options]
 Review implementation against a spec using git diffs.
 
 Positional arguments:
-  path...               Spec files or folders to review against
+  path...                       Spec files or folders to review against
 
 Options:
-  -b, --base <branch>   Compare <branch>...HEAD (default: auto-detect)
-  -h, --help            Show this help message
+  -b, --base <branch>           Compare <branch>...HEAD (default: auto-detect)
+  -h, --help                    Show this help message
 
 Diff strategy:
-  With --base:          git diff <base>...HEAD
-  Without --base:       Auto-detect base branch, or use git diff + git diff --cached
+  With --base:                  git diff <base>...HEAD
+  Without --base:               Auto-detect base branch, or use git diff + git diff --cached
+
+Fix mode options:
+  --fix                         Enable iterative review → fix loop
+  --fix-all                     Auto-fix all severities (default: ask for critical/high)
+  --no-parallel                 Use single-agent review instead of multi-angle parallel
+  --parallel <angles>           Custom review angles (comma-separated)
+                                Default angles: coverage, robustness, correctness
+  -n, --max-iterations <N>      Maximum rounds (default: 3)
 
 Examples:
   /reviewer:result docs/plans/auth-flow/
   /reviewer:result spec.md tasks.md --base develop
   /reviewer:result docs/plan/ -b main
-  /reviewer:result                                  # asks which spec to review
+  /reviewer:result                                    # asks which spec to review
+
+  # Iterative review + auto-fix (default: 3 rounds, parallel multi-angle)
+  /reviewer:result docs/plan/ --fix
+
+  # With base branch, single-agent, max 5 rounds
+  /reviewer:result docs/plan/ --fix --base main --no-parallel -n 5
+
+  # Custom angles, fix all severities
+  /reviewer:result docs/plan/ --fix --parallel "security,coverage" --fix-all
 ```
 
 ### Step 2: Resolve Paths
@@ -60,7 +87,9 @@ Examples:
 - If paths were provided: use them directly
 - If no paths provided: use AskUserQuestion to ask "Which spec files or folder should I review the implementation against?"
 
-### Step 3: Delegate to Agent
+### Step 3: Route and Delegate
+
+**If `--fix` is NOT set** (default — backward compatible):
 
 Launch the `result-reviewer` agent:
 
@@ -80,12 +109,41 @@ Task tool:
     Working directory: <current directory>
 ```
 
+**If `--fix` IS set:**
+
+First, read the review angles template:
+```
+Read tool: ${CLAUDE_PLUGIN_ROOT}/templates/review-angles.yaml
+```
+
+Then launch the `result-fix-orchestrator` agent:
+
+```
+Task tool:
+- subagent_type: "reviewer:result-fix-orchestrator"
+- description: "Iterative result review with auto-fix"
+- prompt: |
+    Review implementation against spec and fix issues iteratively.
+
+    ## Parameters
+    - spec_paths: <list each path>
+    - working_directory: <current directory>
+    - base_branch: <base branch or "auto-detect">
+    - max_iterations: <N, default 3>
+    - parallel: <true if --no-parallel is NOT set, false otherwise>
+    - angles: <value from --parallel flag, or "default">
+    - fix_all: <true if --fix-all is set, false otherwise>
+
+    ## Review Angle Templates (result section)
+    <paste the result section content from review-angles.yaml>
+```
+
 Report the agent's findings back to the user.
 
 ## Examples
 
 ```bash
-# Review implementation against spec (auto-detect base branch)
+# Review implementation against spec (single pass, same as before)
 /reviewer:result docs/plans/auth-flow/
 
 # Compare against specific branch
@@ -96,4 +154,10 @@ Report the agent's findings back to the user.
 
 # Interactive (asks which spec)
 /reviewer:result
+
+# Iterative review + auto-fix
+/reviewer:result docs/plan/ --fix
+
+# With base branch, custom angles, fix all
+/reviewer:result docs/plan/ --fix -b main --parallel "security,coverage" --fix-all -n 5
 ```

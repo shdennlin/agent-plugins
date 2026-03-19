@@ -1,9 +1,9 @@
 {
   "name": "reviewer",
-  "version": "1.1.2",
-  "description": "Structured spec and implementation review with agent-loop handoff support",
+  "version": "1.2.0",
+  "description": "Structured spec and implementation review with iterative fix loops and parallel multi-angle review",
   "author": {
     "name": "shdennlin"
   },
-  "keywords": ["review", "spec", "code-review", "handoff", "agent-loop", "openspec", "spectra", "init"]
+  "keywords": ["review", "spec", "code-review", "handoff", "agent-loop", "openspec", "spectra", "init", "iterative-fix", "parallel-review", "orchestrator"]
 }

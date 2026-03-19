@@ -1,13 +1,13 @@
 # Reviewer Plugin
 
-Structured spec and implementation review with agent-loop handoff support.
+Structured spec and implementation review with iterative fix loops and parallel multi-angle review.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/reviewer:spec [path...]` | Review specs before implementation |
-| `/reviewer:result [path...] [--base branch]` | Review implementation against specs |
+| `/reviewer:spec [path...] [--fix]` | Review specs before implementation |
+| `/reviewer:result [path...] [--base branch] [--fix]` | Review implementation against specs |
 | `/reviewer:init [--dry-run/-n]` | Inject reviewer rules into openspec/config.yaml |
 
 ## Usage
@@ -52,41 +52,92 @@ Inject reviewer-aligned rules into your project's `openspec/config.yaml` so spec
 
 Rules are appended per artifact ID (`proposal`, `specs`, `design`, `tasks`). Existing rules are preserved — only new rules are added (dedup by exact match). Run from any project root with an `openspec/config.yaml`.
 
-### Auto Review + Fix Loop
+### Iterative Review + Fix (`--fix` mode)
 
-Use with [ralph-loop](../ralph-loop/) to automatically review and fix specs until they pass:
+Add `--fix` to either command to enable an iterative review → fix loop. The orchestrator automatically:
+1. Runs parallel multi-angle review (3 specialized reviewers by default)
+2. Merges findings into a unified report
+3. Auto-fixes MEDIUM/LOW issues, asks about CRITICAL/HIGH
+4. Repeats until PASS or max iterations reached
 
 ```bash
-# Review and fix a spec folder (max 2 iterations)
-/ralph-loop:ralph-loop --max-iterations 2 --completion-promise "SPEC READY" \
-  "Review the spec at openspec/changes/<CHANGE_NAME>/ with /reviewer:spec. \
-   If FAIL: fix the spec files based on the handoff directives, then re-review. \
-   If PASS: output <promise>SPEC READY</promise>"
+# Spec: iterative review + auto-fix (default: 3 rounds, parallel)
+/reviewer:spec docs/plan/ --fix
 
-# Review and fix specific files
+# Result: iterative review + auto-fix with base branch
+/reviewer:result docs/plan/ --fix --base main
+
+# Custom: 5 rounds, fix all severities
+/reviewer:result docs/plan/ --fix -n 5 --fix-all
+
+# Custom review angles
+/reviewer:result docs/plan/ --fix --parallel "security,coverage"
+
+# Single-agent mode (no parallel, cheaper)
+/reviewer:spec docs/plan/ --fix --no-parallel
+```
+
+#### Fix Mode Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--fix` | off | Enable iterative review → fix loop |
+| `--fix-all` | off | Auto-fix all severities (skip asking for critical/high) |
+| `--no-parallel` | off | Disable parallel multi-angle review |
+| `--parallel <angles>` | built-in | Custom review angles (comma-separated) |
+| `-n, --max-iterations <N>` | 3 | Maximum iteration rounds |
+
+#### Default Review Angles
+
+| Command | Angles | Focus |
+|---------|--------|-------|
+| `spec` | scope | Problem clarity, goals, boundaries |
+| | completeness | Edge cases, error handling, security, observability |
+| | tasks | Task coverage, done criteria |
+| `result` | coverage | Spec requirements vs implementation |
+| | robustness | Error handling, validation, security |
+| | correctness | Logic matching spec intent |
+
+#### Iteration Flow
+
+```
+Round N:
+  ┌─── Review (parallel) ───┐
+  │ Angle A  Angle B  Angle C│
+  └──────────┬───────────────┘
+             ↓
+       Merge Reports
+             ↓
+     ┌─── Verdict? ───┐
+     │                 │
+    PASS             FAIL
+     │                 │
+    Done         Triage Issues
+                       │
+              ┌────────┴────────┐
+              │                 │
+         MEDIUM/LOW        CRITICAL/HIGH
+         (auto-fix)        (ask user)
+              │                 │
+              └────────┬────────┘
+                       ↓
+                  Fix Agent
+                       ↓
+                  Next Round
+```
+
+### Legacy: Auto Review + Fix Loop with Ralph Loop
+
+You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
+
+```bash
 /ralph-loop:ralph-loop --max-iterations 2 --completion-promise "SPEC READY" \
   "Review the spec at docs/plans/<SPEC_NAME>/ with /reviewer:spec. \
    If FAIL: fix the spec files based on the handoff directives, then re-review. \
    If PASS: output <promise>SPEC READY</promise>"
 ```
 
-Replace `<CHANGE_NAME>` or `<SPEC_NAME>` with your actual spec path.
-
-For implementation review loops, use `reviewer:result` to iteratively fix code until it matches the spec:
-
-```bash
-# Review and fix implementation against a spec (max 5 iterations)
-/ralph-loop:ralph-loop --max-iterations 5 --completion-promise "IMPL COMPLETE" \
-  "Review implementation against the spec at openspec/changes/<CHANGE_NAME>/ with /reviewer:result. \
-   If FAIL: fix the code based on the handoff directives, then re-review. \
-   If PASS: output <promise>IMPL COMPLETE</promise>"
-
-# Review against a specific base branch
-/ralph-loop:ralph-loop --max-iterations 5 --completion-promise "IMPL COMPLETE" \
-  "Review implementation against the spec at docs/plans/<SPEC_NAME>/ with /reviewer:result --base develop. \
-   If FAIL: fix the code based on the handoff directives, then re-review. \
-   If PASS: output <promise>IMPL COMPLETE</promise>"
-```
+The `--fix` flag is recommended for most use cases as it's simpler and runs within a single session.
 
 ## Agent-Loop Workflow
 
@@ -98,6 +149,8 @@ The plugin outputs a **Handoff block** designed for copy-pasting between agents:
 4. Other agent fixes issues
 5. `/reviewer:result` → re-review
 6. Repeat until Verdict = PASS
+
+Or use `--fix` to automate steps 3-6.
 
 ## Installation
 
@@ -116,3 +169,7 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation via s
 | spec-reviewer | sonnet | Analyzes specs for gaps, risks, ambiguities |
 | result-reviewer | sonnet | Compares git diffs against spec requirements |
 | init-reviewer | haiku | Injects reviewer rules into openspec/config.yaml |
+| spec-fix-orchestrator | sonnet | Orchestrates iterative spec review + fix loops |
+| result-fix-orchestrator | sonnet | Orchestrates iterative result review + fix loops |
+| spec-fixer | sonnet | Applies fixes to spec/design documents |
+| result-fixer | sonnet | Applies fixes to implementation code |
