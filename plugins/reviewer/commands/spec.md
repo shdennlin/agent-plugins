@@ -17,7 +17,7 @@ Parse the following from `$ARGUMENTS`:
 
 - `[path...]` — One or more file or folder paths to review (positional args)
 - `--fix` — Enable iterative review → fix loop with parallel multi-angle review
-- `--fix-all` — Auto-fix all severities including critical/high (requires `--fix`)
+- `--fix-all` — Auto-fix all severities including critical/high (implies `--fix`)
 - `--no-parallel` — Disable parallel multi-angle review (requires `--fix`)
 - `--parallel <angles>` — Custom review angles, comma-separated (requires `--fix`)
 - `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
@@ -30,7 +30,7 @@ Parse the following from `$ARGUMENTS`:
 From `$ARGUMENTS`, extract:
 1. **help**: if `--help` or `-h` is present, show the usage information below and stop. Do NOT delegate to the agent.
 2. **paths**: collect all positional arguments (not flags or flag values)
-3. **fix**: true if `--fix` is present
+3. **fix**: true if `--fix` is present, or if `--fix-all` is present
 4. **fix_all**: true if `--fix-all` is present
 5. **no_parallel**: true if `--no-parallel` is present
 6. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
@@ -53,7 +53,7 @@ Options:
 
 Fix mode options:
   --fix                         Enable iterative review → fix loop
-  --fix-all                     Auto-fix all severities (default: ask for critical/high)
+  --fix-all                     Auto-fix all severities (implies --fix)
   --no-parallel                 Use single-agent review instead of multi-angle parallel
   --parallel <angles>           Custom review angles (comma-separated)
                                 Default angles: scope, completeness, tasks
@@ -70,8 +70,11 @@ Examples:
   # Single-agent review + fix, max 5 rounds
   /reviewer:spec docs/plan/ --fix --no-parallel -n 5
 
+  # Fix all severities (implies --fix)
+  /reviewer:spec docs/plan/ --fix-all
+
   # Custom angles, fix all severities
-  /reviewer:spec docs/plan/ --fix --parallel "scope,tasks" --fix-all
+  /reviewer:spec docs/plan/ --fix-all --parallel "scope,tasks"
 ```
 
 ### Step 2: Resolve Paths
@@ -144,5 +147,5 @@ Report the agent's findings back to the user.
 /reviewer:spec docs/plan/ --fix
 
 # Custom: 5 rounds, no parallel, fix everything
-/reviewer:spec docs/plan/ --fix --no-parallel -n 5 --fix-all
+/reviewer:spec docs/plan/ --fix-all --no-parallel -n 5
 ```

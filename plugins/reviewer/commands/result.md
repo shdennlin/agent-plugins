@@ -18,7 +18,7 @@ Parse the following from `$ARGUMENTS`:
 - `[path...]` — One or more spec file or folder paths (positional args)
 - `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`
 - `--fix` — Enable iterative review → fix loop with parallel multi-angle review
-- `--fix-all` — Auto-fix all severities including critical/high (requires `--fix`)
+- `--fix-all` — Auto-fix all severities including critical/high (implies `--fix`)
 - `--no-parallel` — Disable parallel multi-angle review (requires `--fix`)
 - `--parallel <angles>` — Custom review angles, comma-separated (requires `--fix`)
 - `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
@@ -32,7 +32,7 @@ From `$ARGUMENTS`, extract:
 1. **help**: if `--help` or `-h` is present, show the usage information below and stop. Do NOT delegate to the agent.
 2. **paths**: collect all positional arguments (not flags or flag values)
 3. **base**: value after `--base` or `-b` (if provided)
-4. **fix**: true if `--fix` is present
+4. **fix**: true if `--fix` is present, or if `--fix-all` is present
 5. **fix_all**: true if `--fix-all` is present
 6. **no_parallel**: true if `--no-parallel` is present
 7. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
@@ -60,7 +60,7 @@ Diff strategy:
 
 Fix mode options:
   --fix                         Enable iterative review → fix loop
-  --fix-all                     Auto-fix all severities (default: ask for critical/high)
+  --fix-all                     Auto-fix all severities (implies --fix)
   --no-parallel                 Use single-agent review instead of multi-angle parallel
   --parallel <angles>           Custom review angles (comma-separated)
                                 Default angles: coverage, robustness, correctness
@@ -78,8 +78,11 @@ Examples:
   # With base branch, single-agent, max 5 rounds
   /reviewer:result docs/plan/ --fix --base main --no-parallel -n 5
 
+  # Fix all severities (implies --fix)
+  /reviewer:result docs/plan/ --fix-all
+
   # Custom angles, fix all severities
-  /reviewer:result docs/plan/ --fix --parallel "security,coverage" --fix-all
+  /reviewer:result docs/plan/ --fix-all --parallel "security,coverage"
 ```
 
 ### Step 2: Resolve Paths
@@ -159,5 +162,5 @@ Report the agent's findings back to the user.
 /reviewer:result docs/plan/ --fix
 
 # With base branch, custom angles, fix all
-/reviewer:result docs/plan/ --fix -b main --parallel "security,coverage" --fix-all -n 5
+/reviewer:result docs/plan/ --fix-all -b main --parallel "security,coverage" -n 5
 ```
