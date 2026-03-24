@@ -1,6 +1,6 @@
 {
   "name": "ralph-loop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Continuous self-referential AI loops for interactive iterative development with session isolation. Forked from Anthropic's ralph-loop with cross-session bug fix.",
   "author": {
     "name": "shdennlin"
