@@ -130,11 +130,30 @@ Round N:
 
 You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
 
+**Spec review loop:**
+
 ```bash
-/ralph-loop:ralph-loop --max-iterations 2 --completion-promise "SPEC READY" \
-  "Review the spec at docs/plans/<SPEC_NAME>/ with /reviewer:spec. \
-   If FAIL: fix the spec files based on the handoff directives, then re-review. \
-   If PASS: output <promise>SPEC READY</promise>"
+/ralph-loop:ralph-loop --max-iterations 3 --completion-promise "SPEC READY" \
+  "Review the spec at docs/plans/<SPEC_NAME>/ with '/reviewer:spec --fix-all'. \
+   After review, check the verdict AND the issue list carefully: \
+   - If verdict is FAIL, OR any MEDIUM or higher severity issues remain: \
+     fix the spec files based on the handoff directives, then re-review. \
+   - If verdict is PASS AND zero MEDIUM/HIGH/CRITICAL issues remain (only LOW or none): \
+     output <promise>SPEC READY</promise>. \
+   Do NOT output the promise if any MEDIUM+ issues exist, even if the reviewer says PASS."
+```
+
+**Result review loop:**
+
+```bash
+/ralph-loop:ralph-loop --max-iterations 3 --completion-promise "IMPL READY" \
+  "Review the implementation against the spec at docs/plans/<SPEC_NAME>/ with '/reviewer:result --fix-all'. \
+   After review, check the verdict AND the issue list carefully: \
+   - If verdict is FAIL, OR any MEDIUM or higher severity issues remain: \
+     fix the implementation based on the handoff directives, then re-review. \
+   - If verdict is PASS AND zero MEDIUM/HIGH/CRITICAL issues remain (only LOW or none): \
+     output <promise>IMPL READY</promise>. \
+   Do NOT output the promise if any MEDIUM+ issues exist, even if the reviewer says PASS."
 ```
 
 The `--fix` flag is recommended for most use cases as it's simpler and runs within a single session.
