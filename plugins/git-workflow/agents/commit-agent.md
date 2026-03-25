@@ -72,7 +72,9 @@ Spec: <name>    (only if --spec provided)
 
 ### Step 4: Present for Confirmation
 
-Show the proposed commit message and ask for confirmation (unless `--dry-run`):
+By default, proceed directly to committing without asking for confirmation (auto-confirm).
+
+If `--no-confirm` flag is set, show the proposal and ask for confirmation before committing:
 
 ```
 ## Commit Proposal
@@ -164,7 +166,9 @@ Skipped (no changes): <sub3>, <sub4>
 
 ### Step 5: Present and Confirm
 
-Show all planned commits (submodule + superproject) for confirmation.
+By default, proceed directly without confirmation (auto-confirm).
+
+If `--no-confirm`, show all planned commits (submodule + superproject) and ask for confirmation.
 
 If `--dry-run`, show all planned commits without executing any.
 

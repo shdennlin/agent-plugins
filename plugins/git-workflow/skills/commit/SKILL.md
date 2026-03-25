@@ -24,6 +24,7 @@ $commit --dry-run                   # Preview without committing
 | `-s, --spec <name>` | Spec name for commit message |
 | `-i, --issue <id>` | Issue ID for commit message |
 | `--dry-run` | Show planned commits without executing |
+| `--no-confirm` | Show proposal and ask for confirmation (default: auto-confirm) |
 
 ## Process
 

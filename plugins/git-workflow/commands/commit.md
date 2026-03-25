@@ -19,6 +19,7 @@ Parse the following from `$ARGUMENTS`:
 - `--spec` or `-s` - Optional: spec name to include in commit message
 - `--issue` or `-i` - Optional: issue ID to include in commit message (e.g., `#123`, `PROJ-456`)
 - `--dry-run` - Optional: show planned commits without executing
+- `--no-confirm` - Optional: show proposal and ask for confirmation before committing (default: auto-confirm)
 - `--help` or `-h` - Show usage information and exit
 
 ## Instructions
@@ -30,6 +31,7 @@ From `$ARGUMENTS`, extract:
 2. **spec**: value after `--spec` or `-s`
 3. **issue**: value after `--issue` or `-i`
 4. **dry-run**: boolean, true if `--dry-run` present
+5. **no-confirm**: boolean, true if `--no-confirm` present
 
 ### Help Output
 
@@ -45,6 +47,7 @@ Options:
   -s, --spec <name>     Spec name to mention in commit message
   -i, --issue <id>      Issue ID to reference in commit message (e.g., #123)
   --dry-run             Show planned commits without executing
+  --no-confirm          Show proposal and ask for confirmation (default: auto-confirm)
   -h, --help            Show this help message
 
 Examples:
@@ -80,6 +83,7 @@ Task tool:
     - Spec: <spec or "none">
     - Issue: <issue or "none">
     - Dry-run: <true/false>
+    - Auto-confirm: <true/false> (true unless --no-confirm)
     - Working directory: <current directory>
 ```
 
