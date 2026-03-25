@@ -4,7 +4,7 @@ allowed-tools:
   - Task
   - AskUserQuestion
 description: Review a spec/proposal/design before implementation to catch gaps, risks, and ambiguities
-argument-hint: "[path...] [--fix] [--fix-all] [--no-parallel] [--parallel angles] [-n N] [--help/-h]"
+argument-hint: "[path...] [--fix] [--fix-all] [--no-explore] [--no-parallel] [--parallel angles] [-n N] [--help/-h]"
 ---
 
 # Spec Review Command
@@ -21,6 +21,7 @@ Parse the following from `$ARGUMENTS`:
 - `--no-parallel` — Disable parallel multi-angle review (requires `--fix`)
 - `--parallel <angles>` — Custom review angles, comma-separated (requires `--fix`)
 - `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
+- `--no-explore` — Skip codebase exploration step (go straight to review)
 - `--help` or `-h` — Show usage information and exit
 
 ## Instructions
@@ -32,9 +33,10 @@ From `$ARGUMENTS`, extract:
 2. **paths**: collect all positional arguments (not flags or flag values)
 3. **fix**: true if `--fix` is present, or if `--fix-all` is present
 4. **fix_all**: true if `--fix-all` is present
-5. **no_parallel**: true if `--no-parallel` is present
-6. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
-7. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
+5. **no_explore**: true if `--no-explore` is present
+6. **no_parallel**: true if `--no-parallel` is present
+7. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
+8. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 
 ### Help Output
 
@@ -50,6 +52,7 @@ Positional arguments:
 
 Options:
   -h, --help                    Show this help message
+  --no-explore                  Skip codebase exploration step
 
 Fix mode options:
   --fix                         Enable iterative review → fix loop
@@ -75,6 +78,9 @@ Examples:
 
   # Custom angles, fix all severities
   /reviewer:spec docs/plan/ --fix-all --parallel "scope,tasks"
+
+  # Skip codebase exploration
+  /reviewer:spec docs/plan/ --no-explore
 ```
 
 ### Step 2: Resolve Paths
@@ -82,7 +88,43 @@ Examples:
 - If paths were provided: use them directly
 - If no paths provided: use AskUserQuestion to ask "Which spec files or folder should I review?"
 
-### Step 3: Route and Delegate
+### Step 3: Explore Codebase
+
+**If `no_explore` is NOT set** (default):
+
+Dispatch the built-in code-explorer agent to scan the codebase for context relevant to the spec:
+
+```
+Task tool:
+- subagent_type: "feature-dev:code-explorer"
+- description: "Explore codebase for spec context"
+- prompt: |
+    Scan the codebase for context relevant to the following spec files.
+
+    ## Spec files/folders to scan for
+    <list each path>
+
+    ## Working directory
+    <current directory>
+
+    Read the spec files first to extract key terms (file paths, module names,
+    function/class names, API endpoints, config keys), then scan the codebase.
+
+    Produce a concise context summary (200-500 lines max) with:
+    - **Relevant Files**: files/dirs related to the spec with 1-line descriptions
+    - **Architecture Patterns**: naming conventions, module organization, key patterns
+    - **Existing Interfaces**: function signatures, types, API contracts the spec must align with
+    - **Dependencies**: external libs or internal modules in the spec area
+
+    Stay focused and efficient — breadth over depth. Do NOT analyze or judge the spec,
+    only report codebase facts.
+```
+
+Capture the code-explorer output as `CODEBASE_CONTEXT`.
+
+**If `no_explore` IS set:** skip this step and set `CODEBASE_CONTEXT` to empty.
+
+### Step 4: Route and Delegate
 
 **If `--fix` is NOT set** (default — backward compatible):
 
@@ -99,6 +141,9 @@ Task tool:
     <list each path>
 
     Working directory: <current directory>
+
+    ## Codebase Context (from code-explorer)
+    <CODEBASE_CONTEXT, or "No codebase context available." if empty>
 ```
 
 **If `--fix` IS set:**
@@ -125,6 +170,9 @@ Task tool:
     - fix_all: <true if --fix-all is set, false otherwise>
     - working_directory: <current directory>
 
+    ## Codebase Context (from code-explorer)
+    <CODEBASE_CONTEXT, or "No codebase context available." if empty>
+
     ## Review Angle Templates (spec section)
     <paste the spec section content from review-angles.yaml>
 ```
@@ -148,4 +196,7 @@ Report the agent's findings back to the user.
 
 # Custom: 5 rounds, no parallel, fix everything
 /reviewer:spec docs/plan/ --fix-all --no-parallel -n 5
+
+# Skip codebase exploration (review spec in isolation)
+/reviewer:spec docs/plan/ --no-explore
 ```

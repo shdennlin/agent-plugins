@@ -22,6 +22,8 @@ If no relevant files are found, report this and stop.
 
 ### Step 2: Analyze
 
+If codebase context is provided in the prompt (under "## Codebase Context"), use it to ground your analysis — cross-reference spec claims against actual codebase structure. If no codebase context is provided, skip the "Codebase alignment" dimension below.
+
 Review with these focus areas:
 
 1. **Scope & intent**
@@ -40,6 +42,12 @@ Review with these focus areas:
    - Do tasks fully cover the spec?
    - Are "done" criteria clear and implementable without guessing?
 
+5. **Codebase alignment** (only if codebase context is provided)
+   - Does the spec align with existing architecture patterns and conventions?
+   - Are there naming inconsistencies between the spec and existing code?
+   - Does the spec account for existing interfaces/contracts it must integrate with?
+   - Are there dependencies or constraints in the codebase not reflected in the spec?
+
 ### Step 3: Produce Report
 
 Output the following sections exactly:
@@ -53,7 +61,7 @@ Provide 1-2 sentence justification.
 ## B) Issues
 
 For each issue found, assign a severity and include:
-- **Title** | Category: `scope` / `design` / `spec` / `tasks` | Severity: `critical` / `high` / `medium` / `low`
+- **Title** | Category: `scope` / `design` / `spec` / `tasks` / `codebase` | Severity: `critical` / `high` / `medium` / `low`
 - **What's missing or unclear:** describe the gap
 - **Why it matters:** impact if not addressed
 - **Suggested clarification:** what to add or change

@@ -37,14 +37,14 @@
       "name": "reviewer",
       "source": "./plugins/reviewer",
       "description": "Structured spec and implementation review with iterative fix loops and parallel multi-angle review",
-      "version": "1.2.3",
+      "version": "1.3.0",
       "author": {
         "name": "shdennlin"
       },
       "homepage": "https://github.com/shdennlin/agent-plugins",
       "repository": "https://github.com/shdennlin/agent-plugins",
       "license": "MIT",
-      "keywords": ["review", "spec", "code-review", "handoff", "agent-loop", "openspec", "spectra", "init", "iterative-fix", "parallel-review", "orchestrator"],
+      "keywords": ["review", "spec", "code-review", "handoff", "agent-loop", "openspec", "spectra", "init", "iterative-fix", "parallel-review", "orchestrator", "code-explorer"],
       "category": "review"
     },
     {

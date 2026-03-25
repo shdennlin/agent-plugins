@@ -27,6 +27,7 @@ The prompt provides these parameters:
 - **parallel**: true/false (default: true)
 - **angles**: comma-separated list of angle names, or "default" for built-in angles
 - **fix_all**: true/false — if true, auto-fix all severities without asking
+- **codebase_context**: summary of relevant codebase architecture and patterns (optional, may be empty)
 - **review_angles**: the full content of review-angles.yaml (spec section)
 
 ## Main Loop
@@ -90,13 +91,19 @@ Agent tool:
     1. **[SEVERITY]** <topic>
        - **Action:** <what to fix>
 
+    ## Codebase Context
+    {codebase_context, or "No codebase context available." if empty}
+
+    If codebase context is provided, cross-reference spec claims against actual
+    codebase structure. Flag misalignments as issues with category `codebase`.
+
     ## Files/folders to review:
     {paths list}
 ```
 
 **If non-parallel mode (--no-parallel):**
 
-Spawn a single Agent that covers all angles. Use the full spec-reviewer methodology (all 4 focus areas: scope & intent, design soundness, spec completeness, task readiness) in the prompt.
+Spawn a single Agent that covers all angles. Use the full spec-reviewer methodology (all 5 focus areas: scope & intent, design soundness, spec completeness, task readiness, codebase alignment) in the prompt. Include the codebase context in the prompt.
 
 ### Step 3: Merge Reports
 
