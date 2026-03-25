@@ -132,28 +132,42 @@ You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
 
 **Spec review loop:**
 
+> **Important:** Use `/reviewer:spec` (review only) inside ralph-loop, NOT `--fix-all`.
+> The `--fix-all` flag runs its own internal fix loop, making the outer ralph-loop redundant
+> and causing premature exit on iteration 1.
+
 ```bash
 /ralph-loop:ralph-loop --max-iterations 3 --completion-promise "SPEC READY" \
-  "Review the spec at docs/plans/<SPEC_NAME>/ with '/reviewer:spec --fix-all'. \
-   After review, check the verdict AND the issue list carefully: \
-   - If verdict is FAIL, OR any MEDIUM or higher severity issues remain: \
-     fix the spec files based on the handoff directives, then re-review. \
-   - If verdict is PASS AND zero MEDIUM/HIGH/CRITICAL issues remain (only LOW or none): \
-     output <promise>SPEC READY</promise>. \
-   Do NOT output the promise if any MEDIUM+ issues exist, even if the reviewer says PASS."
+  "Step 1: Run '/reviewer:spec' on docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
+   Step 2: Check the verdict AND the full issue list: \
+   - If FAIL, or any MEDIUM/HIGH/CRITICAL issues remain: \
+     fix the spec files based on the handoff directives, then go back to Step 1. \
+   - If PASS with only LOW or zero issues: go to Step 3. \
+   Step 3: Output exactly this completion signal on its own line: \
+     <promise>SPEC READY</promise> \
+   RULES: \
+   - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
+   - Do NOT output the signal if any MEDIUM+ issues exist, even if the reviewer says PASS. \
+   - Do NOT use spectra validate or any other tool as a substitute for /reviewer:spec. \
+   - Do NOT use --fix or --fix-all — ralph-loop handles the fix cycle."
 ```
 
 **Result review loop:**
 
 ```bash
 /ralph-loop:ralph-loop --max-iterations 3 --completion-promise "IMPL READY" \
-  "Review the implementation against the spec at docs/plans/<SPEC_NAME>/ with '/reviewer:result --fix-all'. \
-   After review, check the verdict AND the issue list carefully: \
-   - If verdict is FAIL, OR any MEDIUM or higher severity issues remain: \
-     fix the implementation based on the handoff directives, then re-review. \
-   - If verdict is PASS AND zero MEDIUM/HIGH/CRITICAL issues remain (only LOW or none): \
-     output <promise>IMPL READY</promise>. \
-   Do NOT output the promise if any MEDIUM+ issues exist, even if the reviewer says PASS."
+  "Step 1: Run '/reviewer:result' on docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
+   Step 2: Check the verdict AND the full issue list: \
+   - If FAIL, or any MEDIUM/HIGH/CRITICAL issues remain: \
+     fix the implementation based on the handoff directives, then go back to Step 1. \
+   - If PASS with only LOW or zero issues: go to Step 3. \
+   Step 3: Output exactly this completion signal on its own line: \
+     <promise>IMPL READY</promise> \
+   RULES: \
+   - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
+   - Do NOT output the signal if any MEDIUM+ issues exist, even if the reviewer says PASS. \
+   - Do NOT use spectra validate or any other tool as a substitute for /reviewer:result. \
+   - Do NOT use --fix or --fix-all — ralph-loop handles the fix cycle."
 ```
 
 The `--fix` flag is recommended for most use cases as it's simpler and runs within a single session.
