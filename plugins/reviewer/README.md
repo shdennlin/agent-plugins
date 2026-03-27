@@ -143,7 +143,8 @@ You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
    - If FAIL, or any MEDIUM/HIGH/CRITICAL issues remain: \
      fix the spec files based on the handoff directives, then go back to Step 1. \
    - If PASS with only LOW or zero issues: go to Step 3. \
-   Step 3: Output exactly this completion signal on its own line: \
+   Step 3: If any LOW issues remain, fix them (no need to re-review). \
+   Step 4: Output exactly this completion signal on its own line: \
      <promise>SPEC READY</promise> \
    RULES: \
    - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
@@ -161,7 +162,8 @@ You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
    - If FAIL, or any MEDIUM/HIGH/CRITICAL issues remain: \
      fix the implementation based on the handoff directives, then go back to Step 1. \
    - If PASS with only LOW or zero issues: go to Step 3. \
-   Step 3: Output exactly this completion signal on its own line: \
+   Step 3: If any LOW issues remain, fix them (no need to re-review). \
+   Step 4: Output exactly this completion signal on its own line: \
      <promise>IMPL READY</promise> \
    RULES: \
    - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
