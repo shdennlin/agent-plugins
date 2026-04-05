@@ -78,7 +78,6 @@ Show the user:
 2. Merge direction: `<source> -> <target>`
 3. Number of commits being merged
 4. The proposed merge commit message
-5. The exact merge command that will run
 
 Format:
 ```
@@ -87,7 +86,7 @@ Format:
 **Repo:** my-project
 **Merge:** feature/auth -> develop
 **Commits:** 5
-**Command:** `git checkout develop && git merge --no-ff feature/auth`
+**Method:** plumbing (checkout-free, worktree-safe)
 
 ### Proposed Commit Message
 <the generated message>
@@ -99,18 +98,37 @@ If `--yes` flag is set, skip confirmation and proceed directly.
 
 ### Step 6: Execute Merge
 
-```bash
-# Checkout target branch
-git checkout <target>
+Use git plumbing to merge without checkout. This is worktree-safe — it never touches the working tree or index of any worktree.
 
-# Merge with no-ff and the generated message
-git merge --no-ff <source> -m "<commit message>"
+```bash
+# 1. Compute the merged tree (performs real 3-way merge with rename detection)
+TREE=$(git merge-tree --write-tree <target> <source>)
+# Exit code 0 = clean merge, 1 = conflicts
+
+# 2. Create a merge commit with two parents
+COMMIT=$(echo "<commit message>" | git commit-tree "$TREE" -p <target> -p <source> -F -)
+
+# 3. Update the target branch ref to point to the new merge commit (with reflog)
+git update-ref -m "merge <source>: <first line of commit message>" refs/heads/<target> "$COMMIT"
 ```
 
-If merge conflicts occur:
-1. Report the conflicting files
-2. Do NOT attempt to resolve automatically
-3. Ask the user how to proceed
+**If `merge-tree` exits with code 1** (conflict):
+1. Parse the conflict file info from its output (lines after the tree OID)
+2. Report the conflicting files to the user
+3. Do NOT attempt to resolve automatically — ask the user how to proceed
+
+**After successful merge**, if the current working tree has `<target>` checked out, sync it:
+```bash
+CURRENT=$(git rev-parse --abbrev-ref HEAD)
+if [ "$CURRENT" = "<target>" ]; then
+  if git diff --quiet && git diff --cached --quiet; then
+    git reset --hard <target>
+  else
+    # Warn but do NOT destroy uncommitted work
+    echo "⚠ Working tree has uncommitted changes — run 'git reset --hard <target>' manually when ready"
+  fi
+fi
+```
 
 ### Step 7: Report Result
 
@@ -120,7 +138,7 @@ After successful merge:
 
 **Repo:** my-project
 **Target:** develop
-**Command:** git merge --no-ff feature/auth
+**Method:** plumbing (checkout-free)
 **Commit:** <short hash>
 **Message:** feat(auth-flow): add JWT authentication with refresh token support
 ```
@@ -144,4 +162,3 @@ find . -maxdepth 2 -name ".git" -type d | sed 's/\/.git$//'
 - If target branch doesn't exist: report error, skip repo
 - If no commits to merge (already up to date): report and skip
 - If merge conflicts: stop and report, do not force
-- If working directory is dirty: warn user, ask to stash or abort

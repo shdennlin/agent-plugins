@@ -32,7 +32,7 @@ $merge --all                        # Merge across all sub-repos
 1. Detect source and target branches
 2. Dispatch the merge agent using the prompt template in `merge.md` (in this skill directory)
 3. Generate Conventional Commits message from commit history
-4. Execute `git merge --no-ff`
+4. Execute merge via git plumbing (checkout-free, worktree-safe)
 
 ## Agent Dispatch
 
