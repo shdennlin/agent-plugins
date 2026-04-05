@@ -9,7 +9,7 @@
       "name": "mermaid-validator",
       "source": "./plugins/mermaid-validator",
       "description": "Validates and fixes Mermaid diagram syntax in Markdown files with skill and agent",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": {
         "name": "shdennlin"
       },
@@ -23,7 +23,7 @@
       "name": "git-workflow",
       "source": "./plugins/git-workflow",
       "description": "Git workflow automation commands with Conventional Commits support",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": {
         "name": "shdennlin"
       },
@@ -37,7 +37,7 @@
       "name": "reviewer",
       "source": "./plugins/reviewer",
       "description": "Structured spec and implementation review with iterative fix loops and parallel multi-angle review",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "author": {
         "name": "shdennlin"
       },
@@ -51,7 +51,7 @@
       "name": "digest",
       "source": "./plugins/digest",
       "description": "Summarize AI-generated branches, PRs, diffs, and design docs into icon-rich structured cards with full report mode",
-      "version": "1.3.0",
+      "version": "1.3.1",
       "author": {
         "name": "shdennlin"
       },
