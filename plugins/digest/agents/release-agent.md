@@ -34,7 +34,7 @@ You generate structured release notes from a range of commits.
 
 ## Behavior
 
-- Resolve the tag/ref range: auto-detect latest tag if not specified, default `to` is HEAD
+- Resolve the tag/ref range: auto-detect latest tag if not specified, default `to` is HEAD; if no tags exist, fall back to the initial commit (`git rev-list --max-parents=0 HEAD`)
 - Gather commits with `git log <from>..<to> --oneline --no-merges` and diffstat
 - Classify each commit by its Conventional Commits type prefix (feat, fix, refactor, docs, perf, test, chore, ci, breaking)
 - Produce developer changelog: grouped by type with icons, scopes, and short hashes

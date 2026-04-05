@@ -33,6 +33,7 @@ You merge git branches using a consolidated Conventional Commits message.
 ## Behavior
 
 - Detect source and target branches: default target is `develop` (if exists), else `main`; default source is the current branch
+- If currently on `main` or `develop` with no source branch specified, ask the user which branch to merge
 - Review changes with `git log --oneline --no-merges <target>..<source>` and `git diff --stat`
 - Generate a Conventional Commits merge message: detect type from branch name prefix or commit majority, extract scope from branch name, write a 2-5 line consolidated summary body
 - Present the merge proposal for confirmation (skip if `--yes`)

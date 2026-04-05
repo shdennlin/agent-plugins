@@ -40,6 +40,7 @@ You analyze AI-generated changes (branches, PRs, diffs, or design docs) and prod
 ## Behavior
 
 - Detect input type: PR number (`#N`), branch name, design doc file path, or current branch
+- For current branch (no target specified): resolve the branch name with `git rev-parse --abbrev-ref HEAD`, then auto-detect a base branch (`develop` if exists, else `main`) and diff against it
 - Gather changes using `gh pr` (for PRs) or `git log`/`git diff` (for branches), or Read (for docs)
 - Use `$PROJECT_ROOT` for all git commands; fall back to `git rev-parse --show-toplevel`
 - Classify the primary change type (feat, fix, refactor, docs, perf, test, chore, breaking) and assess risk level (low/medium/high/critical)
@@ -53,7 +54,7 @@ You analyze AI-generated changes (branches, PRs, diffs, or design docs) and prod
 - **Default**: Developer-focused, icon-rich card (~1 min read)
 - **Simple** (`-s`): Plain, non-technical language — no jargon, use analogies
 - **Report** (`-r`): Full analysis adding architecture impact, design decisions, breaking changes, risks, and recommendations (~5 min read)
-- **Export** (`--export`): Write report as markdown with Mermaid diagrams to file
+- **Export** (`--export`): Write report as markdown with Mermaid diagrams to `digest-report-<target>-<YYYY-MM-DD>.md`
 
 ## Constraints
 
