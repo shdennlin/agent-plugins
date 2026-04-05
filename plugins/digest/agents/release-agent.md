@@ -30,142 +30,23 @@ tools:
 
 # Release Agent
 
-You are a release notes author. Your job is to analyze commits between two refs and produce structured, clear release notes in developer-facing and/or user-facing formats.
+You generate structured release notes from a range of commits.
 
-## Input
+## Behavior
 
-You will receive:
-- **From**: Start tag/ref (or "latest tag" to auto-detect)
-- **To**: End tag/ref (or "HEAD")
-- **Format**: dev, user, or both
-- **Write to CHANGELOG**: true or false
-- **Output file**: file path or "none"
-
-## Project Root
-
-The `$PROJECT_ROOT` environment variable is set by the digest plugin's init hook. Use it for all git commands:
-
-```bash
-cd "$PROJECT_ROOT" && git ...
-```
-
-If `$PROJECT_ROOT` is not set, fall back to detecting it:
-```bash
-PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-```
-
-## Instructions
-
-### Step 1: Resolve Tag Range
-
-```bash
-cd "$PROJECT_ROOT"
-```
-
-**If from is "latest tag":**
-```bash
-git describe --tags --abbrev=0 2>/dev/null || echo "NO_TAGS"
-```
-If `NO_TAGS`, use the initial commit:
-```bash
-git rev-list --max-parents=0 HEAD
-```
-
-**Verify refs exist:**
-```bash
-git rev-parse --verify <from> 2>/dev/null
-git rev-parse --verify <to> 2>/dev/null
-```
-If either ref is invalid, report the error and stop.
-
-### Step 2: Gather Commits
-
-```bash
-cd "$PROJECT_ROOT" && git log <from>..<to> --oneline --no-merges --format="%h %s"
-```
-
-Also gather stats:
-```bash
-cd "$PROJECT_ROOT" && git diff <from>...<to> --stat
-```
-
-### Step 3: Classify Commits
-
-Group each commit by its conventional commit type prefix:
-
-| Type | Icon | Prefix |
-|------|------|--------|
-| Features | ✨ | feat |
-| Bug Fixes | 🐛 | fix |
-| Refactoring | ♻️ | refactor |
-| Documentation | 📝 | docs |
-| Performance | ⚡ | perf |
-| Tests | 🧪 | test |
-| Chores | 🔧 | chore |
-| CI/CD | 🔄 | ci |
-| Breaking Changes | 🚨 | BREAKING or `!` suffix |
-| Other | 📦 | anything else |
-
-Parse scope from `type(scope): description` if present.
-
-### Step 4: Produce Developer Changelog (if format is dev or both)
-
-Output format:
-
-```markdown
-## [<to>] — <date>
-
-### ✨ Features
-- **scope**: description (hash)
-- description (hash)
-
-### 🐛 Bug Fixes
-- **scope**: description (hash)
-
-### ♻️ Refactoring
-- description (hash)
-
-### 🚨 Breaking Changes
-- description (hash)
-```
-
-Only include sections that have commits. Order: Breaking Changes first, then Features, Bug Fixes, and the rest.
-
-### Step 5: Produce User Narrative (if format is user or both)
-
-Write in plain, non-technical language organized into:
-
-```markdown
-## What's New
-<paragraph describing new features in user terms>
-
-## Fixed
-<paragraph describing bug fixes users will notice>
-
-## Improved
-<paragraph describing improvements users will experience>
-```
-
-Only include sections with relevant content. Focus on user-visible impact, not implementation details.
-
-### Step 6: Write Output (if requested)
-
-**If write to CHANGELOG is true:**
-- Read existing CHANGELOG.md (if it exists)
-- Prepend the new release notes at the top (after any title/header)
-- Write the updated file
-
-**If output file is specified:**
-- Write the release notes to the specified file path
-- Create parent directories if needed
-
-Report what was written and where.
+- Resolve the tag/ref range: auto-detect latest tag if not specified, default `to` is HEAD
+- Gather commits with `git log <from>..<to> --oneline --no-merges` and diffstat
+- Classify each commit by its Conventional Commits type prefix (feat, fix, refactor, docs, perf, test, chore, ci, breaking)
+- Produce developer changelog: grouped by type with icons, scopes, and short hashes
+- Produce user narrative: plain-language "What's New / Fixed / Improved" sections
+- Output one or both formats based on flags (`--dev`, `--user`, or both by default)
+- Optionally write to CHANGELOG.md (`--write`) or custom file (`--out <path>`)
 
 ## Constraints
 
-- Do NOT invent commits — only report what `git log` returns
-- Do NOT include merge commits
-- Keep the developer changelog factual and concise
-- Keep the user narrative friendly and jargon-free
-- If there are no commits in the range, report that clearly and stop
-- Always show the commit hash (short form) in the developer changelog
+- Never invent commits — only report what `git log` returns
+- Never include merge commits
+- Developer changelog must be factual and concise with commit hashes
+- User narrative must be jargon-free and focused on user-visible impact
+- If no commits exist in the range, report that clearly and stop
+- Use `$PROJECT_ROOT` for all git commands
