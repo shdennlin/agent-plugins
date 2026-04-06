@@ -206,6 +206,96 @@ The stop hook uses a bash script that requires Git for Windows to run properly.
 
 **Note**: Use `Git/bin/bash.exe` (the wrapper with proper PATH), not `Git/usr/bin/bash.exe` (raw MinGW bash without utilities in PATH).
 
+## Troubleshooting
+
+### Quick Test
+
+Run this minimal loop to verify ralph-loop is working:
+
+```bash
+/ralph-loop:ralph-loop --max-iterations 2 --completion-promise "HELLO" \
+  "Output exactly this on its own line: <promise>HELLO</promise>"
+```
+
+Expected behavior:
+- **Iteration 1**: Agent outputs `<promise>HELLO</promise>`, stop hook detects it, loop ends
+- If it exits immediately without the "Ralph loop activated" banner → setup failed
+- If it loops forever → stop hook isn't detecting the promise
+
+### Diagnosing Stop Hook Not Firing
+
+If the loop exits without blocking (no `🔄 Ralph iteration` message), check these in order:
+
+**1. Verify session ID is available**
+
+Run this in your Claude Code session:
+
+```bash
+! echo "CLAUDE_SESSION_ID=${CLAUDE_SESSION_ID:-<unset>}"
+```
+
+| Variable | Expected | If `<unset>` |
+|----------|----------|--------------|
+| `CLAUDE_SESSION_ID` | UUID string | SessionStart hook didn't fire. Restart session. |
+
+> **Note:** `CLAUDE_PLUGIN_ROOT` will show `<unset>` in `! echo` — this is normal. It is only injected into hook execution contexts by Claude Code, not into your shell. The scripts use a `$0`-based fallback that resolves correctly.
+
+**2. Verify state file exists**
+
+After starting a loop, find the plugin's installed location and check for your state file:
+
+```bash
+# Find where ralph-loop is installed
+! find ~/.claude/plugins -path "*/ralph-loop/state" -type d 2>/dev/null
+
+# List state files
+! ls -la ~/.claude/plugins/marketplaces/shdennlin-plugins/plugins/ralph-loop/state/
+```
+
+> **Tip:** The plugin root is `~/.claude/plugins/marketplaces/shdennlin-plugins/plugins/ralph-loop/`. If using `--plugin-dir` for local development, it's the local path you specified.
+
+You should see a file named `<your-session-id>.md`. If it's missing:
+- `CLAUDE_SESSION_ID` was empty at setup time → restart session
+- Setup script was never called → check if `/ralph-loop:ralph-loop` was used (not a manual bash call)
+
+**3. Check state file content**
+
+```bash
+! head -10 ~/.claude/plugins/marketplaces/shdennlin-plugins/plugins/ralph-loop/state/<session-id>.md
+```
+
+Verify the YAML frontmatter has valid values:
+
+```yaml
+---
+active: true
+iteration: 1
+session_id: <must match your session>
+max_iterations: <number>
+completion_promise: "<your promise>"
+---
+```
+
+If any field is empty or malformed, the stop hook will treat it as corrupted, **delete the state file**, and allow exit.
+
+**4. Plugin installed mid-session**
+
+If you installed the plugin after the session started, the `SessionStart` hook never fired, so `CLAUDE_SESSION_ID` is not set. Fix: restart your Claude Code session.
+
+### Common Issues
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Loop exits immediately, no banner | Setup script failed (missing session ID) | Restart session to trigger SessionStart hook |
+| Loop runs but stop hook never blocks | State file not found by hook | Verify state file exists (step 2 above) |
+| Loop runs once then stops | State file deleted by error handler | Check state file still exists after first iteration |
+| "State file corrupted" warning | YAML frontmatter parsing failed | Re-run `/ralph-loop` to create fresh state |
+| Loop ignores completion promise | Promise text doesn't match exactly (whitespace, case) | Ensure `<promise>` tag text matches `--completion-promise` exactly |
+
+### Design Note: Fail-Open
+
+All error paths in the stop hook exit with code 0 (allow exit) and delete the state file. This is intentional — a buggy hook should never trap you in an unescapable session. The trade-off is that transient errors (e.g., temporary file system issues) will permanently kill the loop rather than retry.
+
 ## Learn More
 
 - Original technique: https://ghuntley.com/ralph/

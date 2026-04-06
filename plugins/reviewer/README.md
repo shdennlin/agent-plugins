@@ -139,16 +139,19 @@ You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
 ```bash
 /ralph-loop:ralph-loop --max-iterations 3 --completion-promise "SPEC READY" \
   "Step 1: Run '/reviewer:spec' on docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
-   Step 2: Check the verdict AND the full issue list: \
-   - If FAIL, or any MEDIUM/HIGH/CRITICAL issues remain: \
+   Step 2: Count issues by severity from the full issue list (not just the verdict). \
+   BLOCKER RULE: MEDIUM, HIGH, and CRITICAL are ALL blockers. \
+   A PASS verdict with MEDIUM issues is NOT passing — MEDIUM is a blocker just like HIGH. \
+   - If issue count of severity >= MEDIUM is > 0: \
      fix the spec files based on the handoff directives, then go back to Step 1. \
-   - If PASS with only LOW or zero issues: go to Step 3. \
+   - If ONLY LOW or zero issues remain (0 MEDIUM, 0 HIGH, 0 CRITICAL): go to Step 3. \
    Step 3: If any LOW issues remain, fix them (no need to re-review). \
    Step 4: Output exactly this completion signal on its own line: \
      <promise>SPEC READY</promise> \
    RULES: \
    - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
-   - Do NOT output the signal if any MEDIUM+ issues exist, even if the reviewer says PASS. \
+   - Do NOT output the signal if any MEDIUM, HIGH, or CRITICAL issues exist, even if the reviewer verdict says PASS. \
+   - MEDIUM is a blocker. Do not treat MEDIUM as LOW. Do not skip re-review for MEDIUM issues. \
    - Do NOT use spectra validate or any other tool as a substitute for /reviewer:spec. \
    - Do NOT use --fix or --fix-all — ralph-loop handles the fix cycle."
 ```
@@ -158,16 +161,19 @@ You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
 ```bash
 /ralph-loop:ralph-loop --max-iterations 3 --completion-promise "IMPL READY" \
   "Step 1: Run '/reviewer:result' on docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
-   Step 2: Check the verdict AND the full issue list: \
-   - If FAIL, or any MEDIUM/HIGH/CRITICAL issues remain: \
+   Step 2: Count issues by severity from the full issue list (not just the verdict). \
+   BLOCKER RULE: MEDIUM, HIGH, and CRITICAL are ALL blockers. \
+   A PASS verdict with MEDIUM issues is NOT passing — MEDIUM is a blocker just like HIGH. \
+   - If issue count of severity >= MEDIUM is > 0: \
      fix the implementation based on the handoff directives, then go back to Step 1. \
-   - If PASS with only LOW or zero issues: go to Step 3. \
+   - If ONLY LOW or zero issues remain (0 MEDIUM, 0 HIGH, 0 CRITICAL): go to Step 3. \
    Step 3: If any LOW issues remain, fix them (no need to re-review). \
    Step 4: Output exactly this completion signal on its own line: \
      <promise>IMPL READY</promise> \
    RULES: \
    - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
-   - Do NOT output the signal if any MEDIUM+ issues exist, even if the reviewer says PASS. \
+   - Do NOT output the signal if any MEDIUM, HIGH, or CRITICAL issues exist, even if the reviewer verdict says PASS. \
+   - MEDIUM is a blocker. Do not treat MEDIUM as LOW. Do not skip re-review for MEDIUM issues. \
    - Do NOT use spectra validate or any other tool as a substitute for /reviewer:result. \
    - Do NOT use --fix or --fix-all — ralph-loop handles the fix cycle."
 ```
