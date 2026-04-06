@@ -65,7 +65,7 @@
       "name": "ralph-loop",
       "source": "./plugins/ralph-loop",
       "description": "Continuous self-referential AI loops for iterative development with session isolation fix",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": {
         "name": "shdennlin"
       },
