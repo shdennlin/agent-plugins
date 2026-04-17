@@ -4,7 +4,7 @@
 # improving single-round coverage when run in parallel.
 #
 # Angle IDs map to reviewer focus areas:
-#   spec angles  → scope, completeness, tasks
+#   spec angles  → scope, completeness, tasks, platform, composition
 #   result angles → coverage, robustness, correctness
 
 spec:
@@ -33,6 +33,29 @@ spec:
       clear and verifiable done criteria, tasks for error/edge cases (not just happy path),
       test tasks, dependency ordering, and independent completability.
       Do NOT review scope clarity or spec completeness — other reviewers handle those.
+
+  platform:
+    label: "Platform & Tool Feasibility"
+    focus: |
+      Focus EXCLUSIVELY on platform, runtime, and third-party tool assumptions.
+      Review for: OS/architecture/runtime dependencies, cloud region or service
+      limitations, tool capability disclaimers ("Linux-only", "requires root"),
+      unverified platform assumptions, and missing pre-implementation validation
+      options (act, docker dry-run, sandbox flags).
+      Always suggest the cheapest possible runtime dry-run for any platform/tool
+      integration (CI, cloud, runtime, container).
+      Do NOT review scope clarity, task coverage, or code alignment — other reviewers handle those.
+
+  composition:
+    label: "Cross-Cutting Composition"
+    focus: |
+      Focus EXCLUSIVELY on contradictions between multiple spec units that will be
+      implemented together. For each unit, extract platform/runtime/tool assumptions
+      (MUST/SHALL/"requires"/"uses" statements). Flag any assumption in one unit
+      that breaks another unit at runtime. Category for all issues is `cross-cutting`,
+      severity defaults to CRITICAL.
+      Activate this angle ONLY when ≥2 independent spec units are detected in the
+      review scope. Do NOT review any single-unit concerns — other reviewers handle those.
 
 result:
   coverage:

@@ -1,6 +1,6 @@
 {
   "name": "reviewer",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "description": "Structured spec and implementation review with iterative fix loops and parallel multi-angle review",
   "author": {
     "name": "shdennlin"

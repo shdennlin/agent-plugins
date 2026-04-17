@@ -4,7 +4,7 @@ allowed-tools:
   - Task
   - AskUserQuestion
 description: Review a spec/proposal/design before implementation to catch gaps, risks, and ambiguities
-argument-hint: "[path...] [--fix] [--fix-all] [--no-explore] [--no-parallel] [--parallel angles] [-n N] [--help/-h]"
+argument-hint: "[path...] [--fix] [--fix-all] [--no-explore] [--no-cross-cutting] [--no-parallel] [--parallel angles] [-n N] [--help/-h]"
 ---
 
 # Spec Review Command
@@ -22,6 +22,7 @@ Parse the following from `$ARGUMENTS`:
 - `--parallel <angles>` — Custom review angles, comma-separated (requires `--fix`)
 - `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
 - `--no-explore` — Skip codebase exploration step (go straight to review)
+- `--no-cross-cutting` — Skip cross-cutting composition pass (even when ≥2 spec units are present)
 - `--help` or `-h` — Show usage information and exit
 
 ## Instructions
@@ -34,9 +35,10 @@ From `$ARGUMENTS`, extract:
 3. **fix**: true if `--fix` is present, or if `--fix-all` is present
 4. **fix_all**: true if `--fix-all` is present
 5. **no_explore**: true if `--no-explore` is present
-6. **no_parallel**: true if `--no-parallel` is present
-7. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
-8. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
+6. **no_cross_cutting**: true if `--no-cross-cutting` is present
+7. **no_parallel**: true if `--no-parallel` is present
+8. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
+9. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 
 ### Help Output
 
@@ -53,13 +55,16 @@ Positional arguments:
 Options:
   -h, --help                    Show this help message
   --no-explore                  Skip codebase exploration step
+  --no-cross-cutting            Skip cross-cutting composition pass
+                                (auto-runs when ≥2 spec units are provided)
 
 Fix mode options:
   --fix                         Enable iterative review → fix loop
   --fix-all                     Auto-fix all severities (implies --fix)
   --no-parallel                 Use single-agent review instead of multi-angle parallel
   --parallel <angles>           Custom review angles (comma-separated)
-                                Default angles: scope, completeness, tasks
+                                Default angles: scope, completeness, tasks, platform
+                                (composition auto-added when ≥2 spec units present)
   -n, --max-iterations <N>      Maximum rounds (default: 3)
 
 Examples:
@@ -142,6 +147,9 @@ Task tool:
 
     Working directory: <current directory>
 
+    ## Cross-cutting composition
+    <"Skip cross-cutting composition pass (user passed --no-cross-cutting)." if no_cross_cutting, else "Run the cross-cutting composition pass (Step 2.5) if ≥2 spec units are detected in the review scope.">
+
     ## Codebase Context (from code-explorer)
     <CODEBASE_CONTEXT, or "No codebase context available." if empty>
 ```
@@ -168,6 +176,7 @@ Task tool:
     - parallel: <true if --no-parallel is NOT set, false otherwise>
     - angles: <value from --parallel flag, or "default">
     - fix_all: <true if --fix-all is set, false otherwise>
+    - no_cross_cutting: <true if --no-cross-cutting is set, false otherwise>
     - working_directory: <current directory>
 
     ## Codebase Context (from code-explorer)
@@ -199,4 +208,7 @@ Report the agent's findings back to the user.
 
 # Skip codebase exploration (review spec in isolation)
 /reviewer:spec docs/plan/ --no-explore
+
+# Skip cross-cutting composition pass (force per-spec only)
+/reviewer:spec docs/multi-spec-change/ --no-cross-cutting
 ```

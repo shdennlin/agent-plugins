@@ -86,6 +86,7 @@ Add `--fix` to either command to enable an iterative review → fix loop. The or
 | `--no-parallel` | off | Disable parallel multi-angle review |
 | `--parallel <angles>` | built-in | Custom review angles (comma-separated) |
 | `-n, --max-iterations <N>` | 3 | Maximum iteration rounds |
+| `--no-cross-cutting` | off | Skip cross-cutting composition pass (auto-runs when ≥2 spec units are provided) |
 
 #### Default Review Angles
 
@@ -94,6 +95,8 @@ Add `--fix` to either command to enable an iterative review → fix loop. The or
 | `spec` | scope | Problem clarity, goals, boundaries |
 | | completeness | Edge cases, error handling, security, observability |
 | | tasks | Task coverage, done criteria |
+| | platform | Platform, runtime, and third-party tool feasibility |
+| | composition | Cross-spec contradictions (auto-runs when ≥2 spec units are in scope) |
 | `result` | coverage | Spec requirements vs implementation |
 | | robustness | Error handling, validation, security |
 | | correctness | Logic matching spec intent |

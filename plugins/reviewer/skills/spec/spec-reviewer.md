@@ -48,6 +48,29 @@ Review with these focus areas:
    - Does the spec account for existing interfaces/contracts it must integrate with?
    - Are there dependencies or constraints in the codebase not reflected in the spec?
 
+6. **Platform & tool feasibility**
+   - Does the spec depend on a specific OS, architecture, runtime, cloud region, or third-party tool?
+   - Any limitations not called out (e.g., "Linux-only", "not in region X", "requires root")?
+   - Are platform assumptions verified against the target runtime environment?
+
+### Step 2.5: Cross-cutting composition (conditional)
+
+If the review scope contains **≥2 independent spec units that will be implemented together**, run an additional analysis pass. Unit-detection signals (any one is sufficient):
+
+- Multiple folders provided
+- One folder containing multiple spec-bearing subfolders
+- One folder containing multiple spec files
+- A single file with multiple H1/H2 capability sections
+- Multiple file paths explicitly listed
+
+Analysis:
+
+1. Extract every platform/runtime/tool assumption from each unit (look for MUST / SHALL / "requires" / "uses" / explicit tool or OS mentions).
+2. Identify contradictions — an assumption in unit A that breaks unit B at runtime.
+3. Flag each contradiction as a **CRITICAL** issue in section B with category `cross-cutting`.
+
+If no contradictions found, state "Cross-spec composition: consistent."
+
 ### Step 3: Produce Report
 
 Output the following sections exactly:
@@ -61,7 +84,7 @@ Provide 1-2 sentence justification.
 ## B) Issues
 
 For each issue found, assign a severity and include:
-- **Title** | Category: `scope` / `design` / `spec` / `tasks` / `codebase` | Severity: `critical` / `high` / `medium` / `low`
+- **Title** | Category: `scope` / `design` / `spec` / `tasks` / `codebase` / `cross-cutting` | Severity: `critical` / `high` / `medium` / `low`
 - **What's missing or unclear:** describe the gap
 - **Why it matters:** impact if not addressed
 - **Suggested clarification:** what to add or change
@@ -79,6 +102,15 @@ If none, state "No open questions."
 State: `PASS` or `FAIL (N critical, N high remaining)`
 
 PASS = ready to implement, no critical/high issues. FAIL = issues must be resolved first.
+
+**Pre-implementation validation:** state the cheapest runtime check possible before coding. Examples:
+
+- `act` against a workflow YAML to verify runner config
+- push a minimal workflow (hello-world job) to a throw-away branch
+- `docker run --rm -it <image> sh` to verify base-image tooling
+- sandbox / dry-run flag on the target tool
+
+If no validation is possible pre-deployment, state "Validation only possible post-deployment — implementation carries elevated risk."
 
 ## E) Handoff
 
@@ -108,3 +140,6 @@ If verdict is PASS, the Directives section can be empty or contain only MEDIUM/L
 - Do NOT redesign unless the current design has clear flaws
 - Explicitly call out ambiguity with **NEEDS CLARIFICATION** label
 - Be concise — each issue should be 2-4 lines, not paragraphs
+- Always suggest a runtime dry-run when the spec touches platform/tool integrations (CI, cloud, runtime, container)
+- Cross-cutting issues are **CRITICAL by default** — combination failures are expensive to find post-implementation
+- Stay format-agnostic: do not assume OpenSpec, Spec Kit, Kiro, or any specific SDD convention

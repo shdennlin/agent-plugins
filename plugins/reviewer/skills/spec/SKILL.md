@@ -30,14 +30,21 @@ Skip codebase exploration:
 $spec docs/plan/ --no-explore
 ```
 
+Skip cross-cutting composition check:
+
+```
+$spec docs/plan/ --no-cross-cutting
+```
+
 If no paths are given, ask which files to review.
 
 ## Process
 
 1. Read the spec files provided
 2. Explore the codebase for relevant context (code-explorer agent, unless `--no-explore`)
-3. Dispatch the spec-reviewer agent with codebase context (or spec-fix-orchestrator with `--fix`)
-4. Report findings back
+3. If ≥2 spec units are detected in scope, include a cross-cutting composition pass (unless `--no-cross-cutting`)
+4. Dispatch the spec-reviewer agent with codebase context (or spec-fix-orchestrator with `--fix`)
+5. Report findings back
 
 ## Agent Dispatch
 

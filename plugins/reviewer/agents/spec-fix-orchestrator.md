@@ -27,6 +27,7 @@ The prompt provides these parameters:
 - **parallel**: true/false (default: true)
 - **angles**: comma-separated list of angle names, or "default" for built-in angles
 - **fix_all**: true/false — if true, auto-fix all severities without asking
+- **no_cross_cutting**: true/false (default: false) — if true, skip the `composition` angle even when ≥2 spec units are present
 - **codebase_context**: summary of relevant codebase architecture and patterns (optional, may be empty)
 - **review_angles**: the full content of review-angles.yaml (spec section)
 
@@ -48,8 +49,15 @@ Output:
 **If parallel mode (default):**
 
 Determine which angles to use:
-- If angles is "default": use all angles from the review_angles spec section (scope, completeness, tasks)
+- If angles is "default": use `scope`, `completeness`, `tasks`, and `platform` from the review_angles spec section. Also include `composition` when ≥2 spec units are detected in the review scope (see unit-detection signals below) AND `no_cross_cutting` is false.
 - If angles is a custom list: use only those angle names
+
+**Unit-detection signals for `composition` (any one is sufficient):**
+- Multiple folders provided in `paths`
+- One folder containing multiple spec-bearing subfolders
+- One folder containing multiple spec files
+- A single file with multiple H1/H2 capability sections
+- Multiple file paths explicitly listed in `paths`
 
 For each angle name, look up the matching key under the `spec:` section of `review_angles` and extract its `label:` and `focus:` fields. Use these to construct the sub-agent prompt.
 
@@ -72,7 +80,7 @@ Agent tool:
 
     ### Analyze
     Review the spec ONLY through your assigned angle. For each issue found:
-    - **Title** | Category: scope/design/spec/tasks | Severity: critical/high/medium/low
+    - **Title** | Category: scope/design/spec/tasks/codebase/cross-cutting | Severity: critical/high/medium/low
     - **What's missing or unclear:** describe the gap
     - **Why it matters:** impact if not addressed
     - **Suggested clarification:** what to add or change
@@ -103,7 +111,7 @@ Agent tool:
 
 **If non-parallel mode (--no-parallel):**
 
-Spawn a single Agent that covers all angles. Use the full spec-reviewer methodology (all 5 focus areas: scope & intent, design soundness, spec completeness, task readiness, codebase alignment) in the prompt. Include the codebase context in the prompt.
+Spawn a single Agent that covers all angles. Use the full spec-reviewer methodology (all 6 focus areas: scope & intent, design soundness, spec completeness, task readiness, codebase alignment, platform & tool feasibility). Instruct the agent to also run the cross-cutting composition pass (Step 2.5) when ≥2 spec units are in scope — unless `no_cross_cutting` is true. Include the codebase context in the prompt.
 
 ### Step 3: Merge Reports
 
