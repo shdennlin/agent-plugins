@@ -11,6 +11,7 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 | [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff | Command + Agent + Skill | `/reviewer:spec`, `/reviewer:result`, `/reviewer:init` |
 | [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into icon-rich structured cards | Command + Agent + Skill | `/digest:digest`, `/digest:release` |
 | [ralph-loop](./plugins/ralph-loop) | Continuous self-referential AI loops with session isolation | Command + Hook | `/ralph-loop:ralph-loop`, `/ralph-loop:cancel-ralph` |
+| [project-notes](./plugins/project-notes) | Capture sessions to a structured journal using a 6-field daily template | Command + Agent | `/project-notes:log` |
 
 ## Getting Started
 

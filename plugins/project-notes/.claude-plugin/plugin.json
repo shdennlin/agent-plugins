@@ -1,0 +1,9 @@
+{
+  "name": "project-notes",
+  "version": "0.1.0",
+  "description": "Capture project sessions to a structured journal using a 6-field daily template, then distill highlights to your permanent notes",
+  "author": {
+    "name": "shdennlin"
+  },
+  "keywords": ["journal", "logging", "notes", "obsidian", "zettelkasten", "reflection", "session-log", "learning-log"]
+}
