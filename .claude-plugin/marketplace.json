@@ -78,15 +78,15 @@
     {
       "name": "project-notes",
       "source": "./plugins/project-notes",
-      "description": "Capture project sessions to a structured journal using a 6-field daily template, then distill highlights to your permanent notes",
-      "version": "0.1.0",
+      "description": "Capture project sessions to a structured journal using a 6-field daily template, then harvest ⭐ items into permanent-note drafts grouped by theme",
+      "version": "0.2.0",
       "author": {
         "name": "shdennlin"
       },
       "homepage": "https://github.com/shdennlin/agent-plugins",
       "repository": "https://github.com/shdennlin/agent-plugins",
       "license": "MIT",
-      "keywords": ["journal", "logging", "notes", "obsidian", "zettelkasten", "reflection", "session-log", "learning-log"],
+      "keywords": ["journal", "logging", "notes", "obsidian", "zettelkasten", "reflection", "session-log", "learning-log", "harvest", "distillation"],
       "category": "workflow"
     }
   ]

@@ -12,7 +12,8 @@ The output is a per-project markdown file you append to over time. Highlights wo
 
 ## What you get
 
-- `/project-notes:log` — Append a 6-field entry to the relevant `<Project Name>.md`
+- `/project-notes:log` — Insert a 6-field entry at top of `<Project Name>.md`
+- `/project-notes:harvest` — Find ⭐ items across recent notes, group by theme, draft permanent notes
 - Auto-detects project from git repo basename, or asks you
 - Stateless: no config files, just one env var
 
@@ -165,14 +166,33 @@ Avoid:
 - ❌ Detailed technical playbooks — use `Re-learn if needed` topic instead
 - ❌ Routine work (lint / format / restart) — pure noise
 
-## Distillation workflow (out of scope for plugin v0.1)
+## Distillation workflow
 
-Weekly or monthly:
-1. Open `$PROJECT_NOTES_DIR` and grep for `⭐`
-2. For each starred item still relevant in 6 months, write a topic-organized permanent note
-3. Original entry stays in `<Project Name>.md` as timeline reference
+Weekly ritual (~15 min). Run:
 
-Future plugin versions may add `/project-notes:harvest` to surface ⭐ candidates and draft permanent notes automatically.
+```bash
+# List ⭐ items from last 7 days, grouped by emerging theme
+/project-notes:harvest
+
+# Generate draft files in _harvest/ for review
+/project-notes:harvest --draft
+
+# Wider window
+/project-notes:harvest --since 14d
+
+# Focus on one emerging theme
+/project-notes:harvest --theme rmlint
+```
+
+`--draft` mode writes draft `.md` files to `$PROJECT_NOTES_DIR/_harvest/` — one per theme, with framing + source items. After review:
+
+1. Open each `_harvest/<Title>.md`
+2. Rewrite the framing in your own words (don't just copy)
+3. Add cross-links to related notes
+4. Move to your vault root or chosen folder
+5. Delete the draft from `_harvest/`
+
+Original ⭐ markers in `<Project>.md` stay in place — keep or remove manually as you process.
 
 ## File structure
 
@@ -183,6 +203,8 @@ $PROJECT_NOTES_DIR/
 ├── Homelab Infra.md          # active project
 ├── Adhoc 2026-04.md          # current month's catchall
 ├── Adhoc 2026-03.md          # last month
+├── _harvest/                 # distillation drafts (ephemeral, manually moved to vault)
+│   └── Backup Verification Invariants.md
 └── _archive/                 # finished projects + old adhoc files
     └── Old Project.md
 ```
@@ -197,11 +219,76 @@ $PROJECT_NOTES_DIR/
 
 ## Roadmap
 
-- v0.1 (current): `/project-notes:log` MVP
-- v0.2: `/project-notes:list`, `/project-notes:archive` for project lifecycle
-- v0.3: `/project-notes:harvest` for distillation candidate review
-- v0.4: Codex `INSTALL.md` for cross-tool support
-- v1.0: Production-ready, Marketplace-listed
+### v0.1 ✅ — capture MVP
+
+- `/project-notes:log` — insert 6-field entry at top of `<Project>.md`
+- Auto-detect project from git basename, fuzzy-match existing files, or ask
+- Stateless: env var only, no config file
+- Auto-seeds `_template.md` on first use
+- `-y` / `--yes` flag for auto-confirm
+- Adhoc month catchall (`Adhoc YYYY-MM.md`) for short tasks
+
+### v0.2 ✅ (current) — weekly distillation
+
+- `/project-notes:harvest` — find ⭐ items in time window, group by emerging theme
+- List mode: render markdown report grouped by theme
+- `--draft` mode: write per-theme draft files to `_harvest/`
+- `--since DURATION` (7d / 14d / 1m / all) and `--theme KEYWORD` filters
+- Drafts include framing + source attribution + promotion checklist
+
+### v0.3 ⏳ — lifecycle management
+
+- `/project-notes:list` — overview of all project notes:
+  - Active / paused / done split
+  - Last entry date per project (flag stale `30d+`)
+  - Adhoc month entry counts
+  - Type tag rollup
+- `/project-notes:archive [project]` — move done project to `_archive/`:
+  - Update `status: done` in frontmatter
+  - Move file to `_archive/` subfolder
+  - `--all-stale 60d` batch mode
+  - Reversible (just `mv` back to root)
+- `/project-notes:promote [adhoc-entry]` (stretch goal):
+  - Extract a specific entry from `Adhoc YYYY-MM.md`
+  - Scaffold new `<Project>.md`
+  - Move entry over, leave breadcrumb in original
+
+**Why deferred from v0.2**: `ls` and `mv` cover the same workflow manually. List/archive are convenience, not necessity.
+
+### v0.4 ⏳ — cross-tool compatibility
+
+- Add `.codex/INSTALL.md` for OpenAI Codex / other agentic CLIs
+- Mirror command behavior in Codex skills format
+- Validate plugin works through Codex without Task tool dependency
+- Document any Claude-Code-specific behavior in plugin README
+
+**Why deferred**: focus on dogfooding the workflow first. Cross-tool support adds value once the design stabilizes.
+
+### v0.5 ⏳ — quality-of-life additions
+
+- `/project-notes:search KEYWORD` — full-text search across project notes (skip `_archive`)
+- `/project-notes:stats` — project / entry / ⭐ counts, distillation rate, ritual cadence health
+- `/project-notes:open [project]` — open file in user's default markdown editor
+- Optional `Stop` hook: if user opted-in, gentle reminder at session end (`config flag`)
+
+### v1.0 ⏳ — production-ready
+
+- All commands stabilized through 1+ month of dogfood
+- Comprehensive edge-case coverage (multi-day same-entry, frontmatter migration, etc.)
+- Public marketplace listing
+- Contributor guide for community templates / format extensions
+- Migration path documented for users coming from journal / day-one / similar tools
+- i18n consideration: confirm template + agent prompts work for non-English entries
+
+### Out of scope (intentional)
+
+These are **not** plugin goals:
+
+- ❌ Auto-detection of session-end (manual trigger by design)
+- ❌ Direct write to user's permanent vault (drafts go to `_harvest/`, user curates)
+- ❌ Sync / backup / cloud storage (rely on user's existing setup: git, iCloud, Syncthing)
+- ❌ GUI / dashboard (Obsidian / VS Code / any markdown editor handles browsing)
+- ❌ AI-generated permanent notes without user review (distillation is a thinking ritual, not automation)
 
 ## Author
 
