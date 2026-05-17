@@ -1,0 +1,17 @@
+{
+  "description": "project-notes hooks — gentle reminders to /project-notes:log at session end",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/stop-hook.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

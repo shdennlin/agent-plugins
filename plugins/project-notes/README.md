@@ -76,6 +76,31 @@ export PROJECT_NOTES_ADHOC_PATTERN="Adhoc {YYYY}-{MM}.md"
 export PROJECT_NOTES_TITLE_CASE=1
 ```
 
+### 6. (Optional) Stop hook reminder
+
+A Stop hook is enabled by default. When a session ends in a project that already has a `<Name>.md` in `$PROJECT_NOTES_DIR`, the hook prints a one-line reminder so you don't forget to `/project-notes:log`. Pure bash, zero LLM calls, fail-open. It stays silent unless **all** of these are true:
+
+- `$PROJECT_NOTES_DIR` is set and the current dir is in a git repo
+- A `<DetectedProject>.md` already exists in that dir (auto-detected from git basename, same logic as `/project-notes:log`)
+- The session transcript has ≥ `PROJECT_NOTES_STOP_MIN_LINES` lines
+- The transcript contains at least one `Edit` / `Write` / `NotebookEdit` / `MultiEdit` tool call
+- The last reminder for this project was ≥ `PROJECT_NOTES_STOP_COOLDOWN_MIN` minutes ago
+
+Tunables (all optional):
+
+```bash
+# Disable the hook entirely
+export PROJECT_NOTES_STOP_HOOK=0
+
+# Minimum transcript lines to consider a session non-trivial (default: 30)
+export PROJECT_NOTES_STOP_MIN_LINES=30
+
+# Per-project cooldown in minutes (default: 240 = 4h)
+export PROJECT_NOTES_STOP_COOLDOWN_MIN=240
+```
+
+Cooldown state lives at `${XDG_CACHE_HOME:-$HOME/.cache}/project-notes/<slug>.reminder` — a zero-byte touchfile per project. Delete the file to force the next session to remind.
+
 ## Usage
 
 ### Log the current session
@@ -269,7 +294,7 @@ $PROJECT_NOTES_DIR/
 - `/project-notes:search KEYWORD` — full-text search across project notes (skip `_archive`)
 - `/project-notes:stats` — project / entry / ⭐ counts, distillation rate, ritual cadence health
 - `/project-notes:open [project]` — open file in user's default markdown editor
-- Optional `Stop` hook: if user opted-in, gentle reminder at session end (`config flag`)
+- ✅ Stop hook: gentle reminder at session end (shipped early in v0.2.1, opt-out via env var)
 
 ### v1.0 ⏳ — production-ready
 

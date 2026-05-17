@@ -79,7 +79,7 @@
       "name": "project-notes",
       "source": "./plugins/project-notes",
       "description": "Capture project sessions to a structured journal using a 6-field daily template, then harvest ⭐ items into permanent-note drafts grouped by theme",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "author": {
         "name": "shdennlin"
       },
