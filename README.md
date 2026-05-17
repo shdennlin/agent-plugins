@@ -9,7 +9,7 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 | [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent | `/mermaid-validator:check` |
 | [git-workflow](./plugins/git-workflow) | Git workflow automation with Conventional Commits support | Command + Agent + Skill | `/git-workflow:merge`, `/git-workflow:commit`, `/git-workflow:status`, `/git-workflow:sync` |
 | [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff | Command + Agent + Skill | `/reviewer:spec`, `/reviewer:result`, `/reviewer:init` |
-| [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into icon-rich structured cards | Command + Agent + Skill | `/digest:digest`, `/digest:release` |
+| [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into structured cards, plus multi-project weekly recall digests | Command + Agent + Skill | `/digest:digest`, `/digest:release`, `/digest:weekly` |
 | [ralph-loop](./plugins/ralph-loop) | Continuous self-referential AI loops with session isolation | Command + Hook | `/ralph-loop:ralph-loop`, `/ralph-loop:cancel-ralph` |
 | [project-notes](./plugins/project-notes) | Capture sessions to a structured journal, then harvest ⭐ items into permanent-note drafts | Command + Agent | `/project-notes:log`, `/project-notes:harvest` |
 
