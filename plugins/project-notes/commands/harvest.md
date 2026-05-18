@@ -1,13 +1,7 @@
 ---
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-harvest.sh:*)
   - Task
-  - AskUserQuestion
 description: Review ⭐ items from recent project notes, group by theme, and draft permanent-note candidates
 argument-hint: "[--since DURATION] [--theme KEYWORD] [--draft] [--help/-h]"
 ---
@@ -16,73 +10,39 @@ argument-hint: "[--since DURATION] [--theme KEYWORD] [--draft] [--help/-h]"
 
 Find `⭐` items across your project notes from the last N days, group them by emerging theme, and produce permanent-note draft candidates. Designed for the weekly distillation ritual.
 
-## Arguments
+## MANDATORY FIRST STEP — DO NOT SKIP
 
-Parse the following from `$ARGUMENTS`:
-
-- `--since DURATION` — Time window (default `7d`). Examples: `7d`, `14d`, `1m`, `all`
-- `--theme KEYWORD` — Filter to themes containing the keyword (case-insensitive)
-- `--draft` — Actually write drafts to `$PROJECT_NOTES_DIR/_harvest/` (default: just list candidates)
-- `--help` or `-h` — Show usage and exit
-
-## Instructions
-
-### Step 1: Parse Arguments
-
-From `$ARGUMENTS`, extract:
-1. **help**: if `--help` or `-h`, show usage below and stop
-2. **since**: duration string (default `7d`)
-3. **theme**: keyword filter (default empty)
-4. **draft**: whether `--draft` flag is present
-
-### Help Output
+You MUST execute this Bash command BEFORE doing anything else. The setup script parses arguments, validates `$PROJECT_NOTES_DIR`, resolves the `--since` window into a cutoff date, lists source markdown files, and prepares `_harvest/` if `--draft`.
 
 ```
-Usage: /project-notes:harvest [options]
-
-Find ⭐ items in recent project notes, group by theme, suggest permanent notes.
-Designed for the weekly distillation ritual (15-minute review).
-
-Options:
-  --since DURATION    Time window: 7d, 14d, 1m, all (default: 7d)
-  --theme KEYWORD     Filter to themes matching keyword
-  --draft             Write drafts to $PROJECT_NOTES_DIR/_harvest/
-                      (default: list-only mode)
-  -h, --help          Show this message
-
-What it does:
-  1. Reads all *.md in $PROJECT_NOTES_DIR (excludes _archive/, _template.md)
-  2. Extracts items prefixed with ⭐
-  3. Filters by date heading within --since window
-  4. Groups items by emerging theme (semantic clustering)
-  5. For each theme: shows source items + suggested vault title + 2-3 sentence framing
-  6. (--draft mode) writes draft .md files to _harvest/ for user review
-
-Workflow:
-  $ /project-notes:harvest                    # list mode, see what's accumulated
-  $ /project-notes:harvest --draft            # generate draft files for review
-  $ /project-notes:harvest --since 14d        # broader window
-  $ /project-notes:harvest --theme backup     # focus on one emerging theme
-
-After review, manually move drafts from _harvest/ into your permanent vault.
+"${CLAUDE_PLUGIN_ROOT}/scripts/setup-harvest.sh" $ARGUMENTS
 ```
 
-### Step 2: Validate Environment
+**If the script exits non-zero**, report its stderr output to the user verbatim and stop. Do NOT proceed to dispatch the agent.
 
-```bash
-if [ -z "$PROJECT_NOTES_DIR" ]; then
-  echo "ERROR: PROJECT_NOTES_DIR not set."
-  exit 1
-fi
-if [ ! -d "$PROJECT_NOTES_DIR" ]; then
-  echo "ERROR: PROJECT_NOTES_DIR does not exist: $PROJECT_NOTES_DIR"
-  exit 1
-fi
+**If `--help` or `-h` was in arguments**, the script prints help to stdout and exits 0. Show that output to the user and stop.
+
+## After setup succeeds
+
+The script's stdout is a JSON object like:
+
+```json
+{
+  "since": "7d",
+  "cutoff_date": "2026-05-11",
+  "theme": "",
+  "draft": false,
+  "project_notes_dir": "/Users/me/Documents/project-notes",
+  "source_files": [
+    "/Users/me/Documents/project-notes/Photo Plan.md",
+    "/Users/me/Documents/project-notes/Adhoc 2026-05.md"
+  ],
+  "harvest_dir": "/Users/me/Documents/project-notes/_harvest",
+  "today": "2026-05-18"
+}
 ```
 
-### Step 3: Delegate to Agent
-
-Launch the `harvest-agent`:
+Dispatch the `harvest-agent` with these resolved values:
 
 ```
 Task tool:
@@ -91,31 +51,15 @@ Task tool:
 - prompt: |
     Harvest ⭐ items for distillation.
 
-    Args:
-      since: <e.g. "7d", "14d", "1m", "all">
-      theme: <keyword filter or empty>
-      draft: <true | false>
+    Config (from setup-harvest.sh):
+    <paste the JSON output from setup-harvest.sh here>
 
-    PROJECT_NOTES_DIR: <value>
+    Notes:
+    - cutoff_date is already resolved from --since; filter entries with
+      date headings >= cutoff_date
+    - source_files is the canonical list; do not glob the directory
+      yourself
+    - harvest_dir is pre-created and validated as writable when draft=true
 ```
 
 Report the agent's output back to the user.
-
-## Examples
-
-```bash
-# Default: list ⭐ items from last 7 days, grouped by theme
-/project-notes:harvest
-
-# Wider window
-/project-notes:harvest --since 14d
-
-# Focus on a specific theme that emerged
-/project-notes:harvest --theme rmlint
-
-# Generate draft files for review (in _harvest/ folder)
-/project-notes:harvest --draft
-
-# Combined
-/project-notes:harvest --since 1m --theme backup --draft
-```

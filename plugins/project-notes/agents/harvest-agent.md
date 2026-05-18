@@ -27,70 +27,81 @@ tools:
 
 # Project Notes Harvest Agent
 
-Scan `$PROJECT_NOTES_DIR/*.md` for `⭐`-marked items within a time window, group by semantic theme, and produce permanent-note draft candidates. Stateless.
+Scan project-notes markdown files for `⭐`-marked items within a time window, group by semantic theme, and produce permanent-note draft candidates. **Argument parsing, env validation, `--since` resolution, and source-file enumeration have already been done by `setup-harvest.sh` before you were dispatched.** Your job is the LLM judgment work: extraction, clustering, theme titles, framing.
+
+## Input
+
+You will receive a JSON config (from `setup-harvest.sh`):
+
+```json
+{
+  "since": "7d",
+  "cutoff_date": "2026-05-11",
+  "theme": "",
+  "draft": false,
+  "project_notes_dir": "/Users/me/Documents/project-notes",
+  "source_files": [
+    "/Users/me/Documents/project-notes/Photo Plan.md",
+    "/Users/me/Documents/project-notes/Adhoc 2026-05.md"
+  ],
+  "harvest_dir": "/Users/me/Documents/project-notes/_harvest",
+  "today": "2026-05-18"
+}
+```
+
+- `cutoff_date`: keep entries with date heading `>= cutoff_date`
+- `source_files`: canonical list (already excludes `_template.md`) — do NOT re-glob
+- `harvest_dir`: pre-created and writable when `draft=true`; for `draft=false`, do not create it
 
 ## Behavior
 
-You operate in 5 phases. Run them in order.
+You operate in 4 phases. Run them in order.
 
 ### Phase 1: Collect ⭐ items
 
-```bash
-# Parse --since duration → cutoff date in YYYY-MM-DD
-# 7d → today minus 7 days
-# 14d → today minus 14 days
-# 1m → today minus 30 days (approximate is fine)
-# all → no cutoff (use 1970-01-01)
-```
-
-For each `*.md` in `$PROJECT_NOTES_DIR/` (excluding `_template.md`, `_archive/`, `_harvest/`):
+For each path in `source_files`:
 
 1. Read the file
-2. Walk through `## Sessions`, parsing each `### YYYY-MM-DD Day` block
-3. For each block within the cutoff date:
+2. Walk through `## Sessions`, parsing each `### YYYY-MM-DD <weekday>` block (heading may optionally have ` — <topic>` suffix in adhoc files)
+3. For each block where the date `>= cutoff_date`:
    - Find lines starting with `- ⭐ ` under any field header
-   - For each ⭐ line, capture:
-     - **content**: the text after `- ⭐ `
+   - Capture for each ⭐ line:
+     - **content**: text after `- ⭐ `
      - **field**: which field (Decisions / Snags / Touched / Re-learn / Next)
-     - **source_file**: relative path
+     - **source_file**: relative path (basename) from `project_notes_dir`
      - **source_date**: the YYYY-MM-DD heading
 
 Build a flat list of `{content, field, source_file, source_date}`.
 
-If `--theme KEYWORD` filter is set, retain only items whose content (case-insensitive) contains the keyword.
+If `theme` filter is set (non-empty), retain only items whose `content` (case-insensitive) contains the keyword.
 
-If the list is empty, report: "No ⭐ items found in window. Either capture more or widen --since."
+If the list is empty, report: "No ⭐ items found in window (since=`<since>`, cutoff=`<cutoff_date>`). Either capture more or widen --since."
 
 ### Phase 2: Cluster by theme
 
-Group items by emerging semantic theme. Use your understanding of language and topic similarity. Aim for 3-7 themes max — if you have 30 items in one theme, split; if you have 7 themes with 1 item each, you're over-fitting.
+Group items by emerging semantic theme. Use your understanding of language and topic similarity. Aim for **3-7 themes max** — if you have 30 items in one theme, split; if you have 7 themes with 1 item each, you're over-fitting.
 
-**Theme naming convention**: short noun phrase capturing the cluster's essence.
+**Theme naming**: short noun phrase capturing the cluster's essence.
 - ✅ "Backup verification invariants"
 - ✅ "rmlint pitfalls and flag semantics"
 - ✅ "EXIF rewrite breaks byte-level dedup"
 - ❌ "miscellaneous"
 - ❌ "various tool gotchas"
 
-**Mixed-theme items**: if an item could fit 2 themes, place in the more specific one. Don't duplicate items across themes (creates double-distillation).
+**Mixed-theme items**: place in the more specific theme. Don't duplicate items across themes.
 
-**Singleton themes** (one item only): keep them — they may be early signal of an emerging pattern, not noise. Mark them with `(singleton — watch for more)` so user knows the cluster is thin.
+**Singleton themes** (one item): keep them — early signal of emerging pattern. Mark with `(singleton — watch for more)`.
 
-### Phase 3: Suggest permanent-note title + framing per theme
+### Phase 3: Suggest title + framing per theme
 
 For each theme:
-
-- **Suggested title**: 2-5 word noun phrase, suitable as a vault note filename (Title Case)
-  - "Backup Verification Invariants"
-  - "rmlint Flag Pitfalls"
-- **Framing draft** (2-3 sentences): the "what's the lesson" framing. Not detailed playbook — just enough that the permanent note has a clear thesis.
+- **Suggested title**: 2-5 word noun phrase, Title Case, suitable as vault filename
+- **Framing draft** (2-3 sentences): the "what's the lesson" thesis
 - **Source items list**: bullet list of original ⭐ entries with `(file.md, YYYY-MM-DD)` attribution
 
 ### Phase 4: Render output
 
-**List mode (default, no `--draft`)**:
-
-Render to user as markdown:
+**List mode** (`draft=false`):
 
 ```markdown
 # Harvest: ⭐ items from <since> → today
@@ -113,27 +124,25 @@ Items:
 ...
 ```
 
-Then ask: "Want me to draft any of these as files in `_harvest/`?"
-If user says yes, ask which themes (or "all"), then proceed to Phase 5.
+Then ask: "Want me to draft any of these as files in `_harvest/`?" If user says yes, ask which themes (or "all"), then proceed to write drafts.
 
-**Draft mode (`--draft` flag set)**:
+**Draft mode** (`draft=true`):
 
-Skip the ask, automatically proceed to Phase 5 for all themes.
+Skip the ask, automatically write drafts for all themes.
 
-### Phase 5: Write drafts to `_harvest/`
+### Phase 5: Write drafts to `_harvest/` (if applicable)
 
-For each theme to draft:
+`harvest_dir` is pre-created when `draft=true`. For each theme to draft:
 
-1. Ensure `$PROJECT_NOTES_DIR/_harvest/` exists (mkdir if not)
-2. Filename: `<Title>.md` in Title Case (sanitize: replace illegal chars with `-`)
-3. If file already exists in `_harvest/`, append a numeric suffix: `<Title>-2.md`
-4. Write draft content:
+1. Filename: `<Title>.md` (sanitize: replace illegal filename chars with `-`)
+2. If `<harvest_dir>/<filename>` already exists, append numeric suffix: `<Title>-2.md`
+3. Write content:
 
 ```markdown
 ---
 status: draft
 source: project-notes harvest
-created: YYYY-MM-DD
+created: <today>
 themes_window: <since>
 ---
 
@@ -161,10 +170,10 @@ When promoting this to a permanent note:
 - Delete this draft file
 ```
 
-Report to user:
+Report:
 
 ```
-Drafted N files to $PROJECT_NOTES_DIR/_harvest/:
+Drafted N files to <harvest_dir>:
   - <Title 1>.md
   - <Title 2>.md
   ...
@@ -175,18 +184,17 @@ Delete drafts after promotion.
 
 ## Constraints
 
-- **Read-only on project files**: harvest never modifies the source `<Project>.md` files. The ⭐ markers stay where they are.
-- **Don't auto-delete ⭐ markers** even after harvest. The user might keep them for re-review or longer-term retention. Removing markers is a manual decision during user's review of the original `<Project>.md`.
-- **Skip empty themes**: if a theme would have 0 items after filter, omit it.
-- **Stateless**: re-running harvest produces same output (modulo new entries). No caching.
-- **No vault-direct write**: drafts go to `$PROJECT_NOTES_DIR/_harvest/`, never directly to user's vault. User curates and moves manually.
-- **English drafts**: code and frontmatter English; framing prose can be the user's preferred language (default: match the source items' language).
+- **Read-only on project files**: harvest never modifies source `<Project>.md` files. The ⭐ markers stay where they are.
+- **Don't auto-delete ⭐ markers** after harvest. Removing markers is a manual decision.
+- **Skip empty themes**: omit themes with 0 items after filter.
+- **Stateless**: re-running harvest produces same output. No caching.
+- **No vault-direct write**: drafts go to `harvest_dir` only, never user's permanent vault.
+- **English drafts**: code and frontmatter English; framing prose can match the source items' language.
 
 ## Edge cases
 
 - **No ⭐ items in window**: report empty result, suggest `--since 14d` or `all`
-- **Single huge theme (10+ items)**: split into sub-themes if you can identify natural divisions
-- **Items with no clear theme**: group as "Misc / unclustered" with one-line apology — don't force false themes
-- **Same content in multiple files**: dedupe by content text similarity, but list all sources
-- **`_archive/` files**: skip entirely (archive is read-only by convention)
-- **`_harvest/` collision**: append numeric suffix `-2`, `-3` to filename
+- **Single huge theme (10+ items)**: split into sub-themes if natural divisions exist
+- **Items with no clear theme**: group as "Misc / unclustered" — don't force false themes
+- **Same content in multiple files**: dedupe by content text similarity but list all sources
+- **`_harvest/` collision**: append numeric suffix `-2`, `-3`

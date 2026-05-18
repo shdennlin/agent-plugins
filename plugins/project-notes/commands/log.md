@@ -1,13 +1,7 @@
 ---
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-log.sh:*)
   - Task
-  - AskUserQuestion
 description: Log this session as a 6-field entry at the top of your project notes journal
 argument-hint: "[project-name] [-y/--yes] [--adhoc] [--help/-h]"
 ---
@@ -16,140 +10,62 @@ argument-hint: "[project-name] [-y/--yes] [--adhoc] [--help/-h]"
 
 Capture this session as a structured entry in `$PROJECT_NOTES_DIR/<project>.md` using a 6-field daily-template format. The entry is inserted at the **top** of `## Sessions` (newest first) and the file's `updated:` frontmatter is bumped to today.
 
-## Arguments
+## MANDATORY FIRST STEP — DO NOT SKIP
 
-Parse the following from `$ARGUMENTS`:
-
-- `[project-name]` — Explicit project name (skips git/cwd auto-detection)
-- `-y` or `--yes` — Auto-confirm: show draft then write without asking
-- `--adhoc` — Force log to current month's `Adhoc YYYY-MM.md` regardless of detection
-- `--help` or `-h` — Show usage information and exit
-
-## Instructions
-
-### Step 1: Parse Arguments
-
-From `$ARGUMENTS`, extract:
-1. **help**: if `--help` or `-h` is present, show usage info below and stop. Do NOT delegate.
-2. **project-name**: the positional argument (or empty for auto-detect)
-3. **yes**: whether `-y` or `--yes` flag is present
-4. **adhoc**: whether `--adhoc` flag is present
-
-### Help Output
-
-If `--help` or `-h` is present, display this and stop:
+You MUST execute this Bash command BEFORE doing anything else. The setup script parses arguments, validates `$PROJECT_NOTES_DIR`, seeds `_template.md` on first use, lists existing project files, and returns a JSON config for the agent.
 
 ```
-Usage: /project-notes:log [project-name] [options]
-
-Capture this session as a 6-field entry inserted at the top of your project notes journal.
-Fields: Focus / Decisions / Snags / Touched / Re-learn / Next.
-
-Positional arguments:
-  project-name          Explicit project file name (skips auto-detection)
-
-Options:
-  -y, --yes             Auto-confirm: show draft, write without asking
-  --adhoc               Log to current month's Adhoc YYYY-MM.md
-  -h, --help            Show this help message
-
-Setup (one-time):
-  Set PROJECT_NOTES_DIR in your shell rc:
-    export PROJECT_NOTES_DIR="/path/to/your/project-notes"
-
-  Optional overrides:
-    PROJECT_NOTES_TEMPLATE       Default: $PROJECT_NOTES_DIR/_template.md
-                                 (auto-seeded from plugin on first use)
-    PROJECT_NOTES_ADHOC_PATTERN  Default: "Adhoc {YYYY}-{MM}.md"
-    PROJECT_NOTES_TITLE_CASE     Default: 1 (set 0 to keep raw filename)
-
-Examples:
-  /project-notes:log                       # auto-detect from git/cwd
-  /project-notes:log "Photo Plan"          # explicit project name
-  /project-notes:log "Photo Plan" -y       # explicit + auto-confirm
-  /project-notes:log --adhoc               # short task → adhoc month file
-  /project-notes:log --adhoc -y            # adhoc + skip confirm
-
-Behavior:
-  - Inserts at TOP of ## Sessions (newest first)
-  - Skips empty fields entirely (no "(none)" placeholders)
-  - Auto-seeds vault _template.md on first use
+"${CLAUDE_PLUGIN_ROOT}/scripts/setup-log.sh" $ARGUMENTS
 ```
 
-### Step 2: Validate Environment
+**If the script exits non-zero**, report its stderr output to the user verbatim and stop. Do NOT proceed to dispatch the agent.
 
-Run a Bash command to check `$PROJECT_NOTES_DIR`:
+**If `--help` or `-h` was in arguments**, the script prints help to stdout and exits 0. Show that output to the user and stop.
 
-```bash
-if [ -z "$PROJECT_NOTES_DIR" ]; then
-  echo "ERROR: PROJECT_NOTES_DIR not set."
-  echo ""
-  echo "Add to your shell rc (~/.zshrc, ~/.bashrc):"
-  echo '  export PROJECT_NOTES_DIR="$HOME/Documents/project-notes"'
-  echo ""
-  echo "Then restart your shell or run: source ~/.zshrc"
-  exit 1
-fi
+## After setup succeeds
 
-if [ ! -d "$PROJECT_NOTES_DIR" ]; then
-  echo "ERROR: PROJECT_NOTES_DIR does not exist: $PROJECT_NOTES_DIR"
-  echo "Create it with: mkdir -p \"$PROJECT_NOTES_DIR\""
-  exit 1
-fi
+The script's stdout is a JSON object like:
 
-echo "PROJECT_NOTES_DIR=$PROJECT_NOTES_DIR"
-ls "$PROJECT_NOTES_DIR/"*.md 2>/dev/null | head -20
+```json
+{
+  "project_name": "Photo Plan",
+  "yes": false,
+  "adhoc": false,
+  "project_notes_dir": "/Users/me/Documents/project-notes",
+  "template_path": "/Users/me/Documents/project-notes/_template.md",
+  "template_seeded": false,
+  "adhoc_pattern": "Adhoc {YYYY}-{MM}.md",
+  "title_case": "1",
+  "existing_projects": [
+    {"name": "Photo Plan", "path": "/Users/me/Documents/project-notes/Photo Plan.md"}
+  ],
+  "today": "2026-05-18",
+  "weekday": "Mon"
+}
 ```
 
-If the env is unset or directory missing, report the error to the user and stop. Do NOT delegate.
-
-### Step 3: Delegate to Agent
-
-Launch the `log-agent`:
+Dispatch the `log-agent` with these resolved values:
 
 ```
 Task tool:
 - subagent_type: "project-notes:log-agent"
 - description: "Log this session to project notes"
 - prompt: |
-    Log the current session as a journal entry.
+    Log the current session as a structured 6-field journal entry.
 
-    Args:
-      project-name: <explicit name from args, or empty for auto-detect>
-      yes: <true | false>
-      adhoc: <true | false>
-
-    PROJECT_NOTES_DIR: <value>
-    PROJECT_NOTES_TEMPLATE: <value or empty for default>
-    PROJECT_NOTES_ADHOC_PATTERN: <value or "Adhoc {YYYY}-{MM}.md">
-    PROJECT_NOTES_TITLE_CASE: <value or "1">
-    CLAUDE_PLUGIN_ROOT: <plugin root path>
+    Config (from setup-log.sh):
+    <paste the JSON output from setup-log.sh here>
 
     Session context summary (for the agent to draft the entry):
     <2-3 sentences capturing this session — main thread, key decisions,
      surprises, anything notable>
+
+    Notes:
+    - PROJECT_NOTES_DIR is already validated; _template.md is already
+      seeded if it was missing
+    - existing_projects is the canonical list for auto-detection /
+      fuzzy match; you don't need to glob the directory yourself
+    - today and weekday are pre-computed
 ```
 
 Report the agent's confirmation back to the user (which file was updated, how many ⭐ items flagged for distillation).
-
-## Examples
-
-```bash
-# Auto-detect project from git repo / cwd
-/project-notes:log
-
-# Explicit project (skips detection)
-/project-notes:log "Photo Organization"
-
-# Explicit + auto-confirm (no ask)
-/project-notes:log "Photo Organization" -y
-
-# Short task → log to monthly adhoc file
-/project-notes:log --adhoc
-
-# Adhoc + auto-confirm
-/project-notes:log --adhoc -y
-
-# Show help
-/project-notes:log --help
-```
