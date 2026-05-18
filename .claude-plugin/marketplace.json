@@ -51,7 +51,7 @@
       "name": "digest",
       "source": "./plugins/digest",
       "description": "Summarize AI-generated branches, PRs, diffs, and design docs into icon-rich structured cards, plus multi-project weekly recall digests",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "author": {
         "name": "shdennlin"
       },

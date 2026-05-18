@@ -77,6 +77,9 @@ The setup script has validated `target_dir`. Your responsibility is just:
 - Each theme line answers "what did I do?" past-tense, outcome-oriented
 - No commit hashes in themed view (hashes only in `--detail` chronological view)
 - Learning surface is artifact-derived only — do NOT guess "learning" from commit text
-- If a project path isn't a git repo, skip and note `### Skipped: <path>` at the end
-- If a project has zero commits in range, emit one-liner `### <name>: no activity`
+- **Three states per project, never conflated**:
+  - `not_a_repo` — `<path>/.git/` missing → list under "## Not git repos" footer
+  - `no_activity` — valid git repo, zero commits in window after author filter → list under "## No activity in window" footer (include last-commit date when available)
+  - `active` — has commits → render full themed sections
+- A path with `.git/` present but no in-window commits is `no_activity`, NOT `not_a_repo`. The two are separate footer sections; merging them mislabels working repos as broken paths.
 - If no commits across all projects, output `# Weekly Digest · <range> · no activity` and stop

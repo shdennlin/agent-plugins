@@ -48,11 +48,15 @@ If `author` is `"all"`, leave `AUTHOR_FLAG` empty. Otherwise: `AUTHOR_FLAG="--au
 
 ### Step 3: Scan Each Project
 
-For each `{path, name}` in `projects`:
+For each `{path, name}` in `projects`, track **three possible states** — these are mutually exclusive and must NOT be conflated in the final output:
+
+- **state=not_a_repo** — `<path>/.git` directory does not exist (or path is missing entirely)
+- **state=no_activity** — path is a valid git repo, but `git log` returned zero commits in the date range (after author filter)
+- **state=active** — path is a valid git repo with one or more commits in the date range
 
 ```bash
 if [ ! -d "<path>/.git" ]; then
-  # remember to note at end: "Skipped: <path> (not a git repo)"
+  # state = not_a_repo; record path for "Not git repos" footer section
   continue
 fi
 
@@ -75,7 +79,7 @@ git log --since="<from>" --until="<to>" --no-merges $AUTHOR_FLAG \
         '*pyproject.toml' '*Gemfile' '*.gemspec' 2>/dev/null
 ```
 
-If project has zero commits in range, record `### <name>: no activity` and move on.
+If `git log` returns zero commits in range, set `state=no_activity` for this project and move on. Do NOT add it to the "Not git repos" list — it IS a git repo, just inactive in this window.
 
 ### Step 4: Cluster Commits Into Themes
 
@@ -153,6 +157,24 @@ Per project (unless brief):
 
 **Detail mode** appends `### Chronological commits` after each project's themed view with `<hash> <date> <subject>` + first body line indented.
 
+**Footer sections** — emit ONLY the ones that have entries; never combine the two:
+
+```
+## No activity in window
+
+Valid git repos with zero commits in the date range (after author filter):
+- <name> (`<path>`) — last commit <YYYY-MM-DD>
+- ...
+
+## Not git repos
+
+Paths that have no `.git/` directory (config may be stale or path was renamed):
+- `<path>`
+- ...
+```
+
+**Critical**: a path that exists, has `.git/`, but had no commits in the window is `no_activity` — NOT `not_a_repo`. Putting these in the wrong bucket is a recurring mistake; double-check before writing the footer.
+
 ### Step 9: Write Output (if requested)
 
 If `write=true` OR `out_path` is non-empty:
@@ -183,6 +205,6 @@ generated: <ISO timestamp>
 - Theme lines: past-tense, outcome-oriented; no commit hashes in themed view
 - Learning surface is artifact-derived only
 - Auto-hide empty sections
-- Skip non-git-repo paths gracefully, note skips at the end
+- **Distinguish "no activity" from "not a git repo"** in footers — a project that has `.git/` but zero commits in the window is `no_activity`, not `not_a_repo`. They go in separate sections (or are omitted if their bucket is empty). Conflating them is misleading.
 - English output by default
 - If no commits across all projects, output `# Weekly Digest · <range> · no activity` and stop
