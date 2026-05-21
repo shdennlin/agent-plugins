@@ -53,6 +53,14 @@ Review with these focus areas:
    - Any limitations not called out (e.g., "Linux-only", "not in region X", "requires root")?
    - Are platform assumptions verified against the target runtime environment?
 
+7. **Internal consistency** (within a single spec set)
+   - Does any acceptance criterion / requirement contradict a scope-deferral statement elsewhere (e.g. "M1 must persist X" vs design.md "X deferred to M2" vs code docstring "M1 only ships in-memory backend")?
+   - Does every acceptance criterion have a corresponding task in tasks.md that delivers it within the stated milestone?
+   - Does every deferred item have a target milestone, and is that milestone's scope description updated to include it?
+   - Read docstrings of any source file referenced via "see `<path>`" or that tasks.md will modify — those constrain spec scope and must agree with acceptance criteria.
+
+   Build a small mental matrix per acceptance criterion: `| acceptance # | delivered-by task | deferred-by statement |`. Any row where columns 2 AND 3 are both non-empty is a contradiction. Flag each as **MEDIUM** or higher with category `consistency`.
+
 ### Step 2.5: Cross-cutting composition (conditional)
 
 If the review scope contains **≥2 independent spec units that will be implemented together**, run an additional analysis pass. Unit-detection signals (any one is sufficient):
@@ -103,6 +111,13 @@ State: `PASS` or `FAIL (N critical, N high remaining)`
 
 PASS = ready to implement, no critical/high issues. FAIL = issues must be resolved first.
 
+**Consistency sign-off** (required before stating PASS — assert each as a one-line bullet):
+
+- "No acceptance criterion is contradicted by any deferral statement elsewhere in the spec set."
+- "Every acceptance criterion is delivered by a task in tasks.md within its stated milestone."
+
+If you cannot make either assertion, verdict is **FAIL** regardless of other dimensions.
+
 **Pre-implementation validation:** state the cheapest runtime check possible before coding. Examples:
 
 - `act` against a workflow YAML to verify runner config
@@ -142,4 +157,5 @@ If verdict is PASS, the Directives section can be empty or contain only MEDIUM/L
 - Be concise — each issue should be 2-4 lines, not paragraphs
 - Always suggest a runtime dry-run when the spec touches platform/tool integrations (CI, cloud, runtime, container)
 - Cross-cutting issues are **CRITICAL by default** — combination failures are expensive to find post-implementation
+- A spec passes only if it is internally consistent — agreement between proposal acceptance criteria, design decisions, tasks, and any source docstrings the spec references. One contradiction = **FAIL**.
 - Stay format-agnostic: do not assume OpenSpec, Spec Kit, Kiro, or any specific SDD convention
