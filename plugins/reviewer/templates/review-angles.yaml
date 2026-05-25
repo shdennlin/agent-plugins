@@ -1,7 +1,13 @@
-# Review angle definitions for parallel multi-angle review
+# Review angle definitions for parallel multi-angle review.
 # Used by spec-orchestrator and result-fix-orchestrator agents.
-# Each angle constrains the reviewer to a specific focus area,
-# improving single-round coverage when run in parallel.
+# Each angle constrains the reviewer to a specific focus area, improving
+# single-round coverage when run in parallel.
+#
+# Boundary enforcement: the orchestrator's per-angle sub-agent prompt already
+# instructs "Review the spec ONLY through your assigned angle" — each `focus:`
+# below describes WHAT this angle covers, not what it excludes. Do not add
+# per-angle "Do NOT review X" lines; rely on the orchestrator's single
+# instruction as the source of truth.
 #
 # Angle IDs map to reviewer focus areas:
 #   spec angles  → scope, completeness, tasks, platform, design, consistency, composition
@@ -11,58 +17,53 @@ spec:
   scope:
     label: "Scope & Boundaries"
     focus: |
-      Focus EXCLUSIVELY on scope and intent clarity.
+      Scope and intent clarity.
       Review for: problem statement clarity, measurable goals, non-goals section,
-      scope boundaries (in vs out), target user identification, and ambiguous boundaries.
-      Do NOT review design details, spec completeness, or task coverage — other reviewers handle those.
+      scope boundaries (in vs out), target user identification, and ambiguous
+      boundaries.
 
   completeness:
     label: "Completeness & Edge Cases"
     focus: |
-      Focus EXCLUSIVELY on spec completeness and missing elements.
-      Review for: missing edge cases, error handling gaps, input validation rules,
-      security considerations, observability (logging/metrics/alerts),
+      Spec completeness and missing elements.
+      Review for: missing edge cases, error handling gaps, input validation
+      rules, security considerations, observability (logging/metrics/alerts),
       state transitions and triggers, and performance constraints.
-      Do NOT review scope clarity or task coverage — other reviewers handle those.
 
   tasks:
     label: "Task Coverage & Done Criteria"
     focus: |
-      Focus EXCLUSIVELY on task readiness and coverage.
-      Review for: every spec requirement mapping to at least one task,
-      clear and verifiable done criteria, tasks for error/edge cases (not just happy path),
-      test tasks, dependency ordering, and independent completability.
-      Do NOT review scope clarity or spec completeness — other reviewers handle those.
+      Task readiness and coverage.
+      Review for: every spec requirement mapping to at least one task, clear
+      and verifiable done criteria, tasks for error/edge cases (not just happy
+      path), test tasks, dependency ordering, and independent completability.
 
   platform:
     label: "Platform & Tool Feasibility"
     focus: |
-      Focus EXCLUSIVELY on platform, runtime, and third-party tool assumptions.
+      Platform, runtime, and third-party tool assumptions.
       Review for: OS/architecture/runtime dependencies, cloud region or service
       limitations, tool capability disclaimers ("Linux-only", "requires root"),
       unverified platform assumptions, and missing pre-implementation validation
       options (act, docker dry-run, sandbox flags).
       Always suggest the cheapest possible runtime dry-run for any platform/tool
       integration (CI, cloud, runtime, container).
-      Do NOT review scope clarity, task coverage, or code alignment — other reviewers handle those.
 
   design:
     label: "Design Soundness"
     focus: |
-      Focus EXCLUSIVELY on whether the design holds up architecturally.
+      Whether the design holds up architecturally.
       Review for: design-to-proposal alignment (does the design actually solve
       the stated problem?), risky or unverified assumptions, unclear coupling
       between modules/services, error propagation and recovery strategy, state
       ownership and concurrency model, idempotency / retry semantics, and API
       surface coherence. Flag missing or hand-wavy "how it works" sections.
-      Do NOT review scope clarity, task coverage, or spec completeness — other
-      reviewers handle those.
 
   consistency:
     label: "Internal Consistency"
     focus: |
-      Focus EXCLUSIVELY on whether the spec set contradicts itself across
-      documents and milestone boundaries.
+      Whether the spec set contradicts itself across documents and milestone
+      boundaries.
 
       Build a mental matrix per acceptance criterion:
       `| acceptance # | delivered-by task | deferred-by statement |`.
@@ -88,44 +89,37 @@ spec:
       - "Every acceptance criterion is delivered by a task within its stated milestone."
       If you cannot assert either, the verdict is FAIL regardless of issue count.
 
-      Do NOT review scope clarity, platform feasibility, or task structure
-      quality — other reviewers handle those.
-
   composition:
     label: "Cross-Cutting Composition"
     focus: |
-      Focus EXCLUSIVELY on contradictions between multiple spec units that will be
-      implemented together. For each unit, extract platform/runtime/tool assumptions
-      (MUST/SHALL/"requires"/"uses" statements). Flag any assumption in one unit
-      that breaks another unit at runtime. Category for all issues is `cross-cutting`,
-      severity defaults to CRITICAL.
+      Contradictions between multiple spec units that will be implemented
+      together. For each unit, extract platform/runtime/tool assumptions
+      (MUST/SHALL/"requires"/"uses" statements). Flag any assumption in one
+      unit that breaks another unit at runtime. Category for all issues is
+      `cross-cutting`, severity defaults to CRITICAL.
       The orchestrator decides whether to activate this angle based on whether
-      the review scope contains multiple independent spec units. Do NOT review
-      any single-unit concerns — other reviewers handle those.
+      the review scope contains multiple independent spec units.
 
 result:
   coverage:
     label: "Spec Coverage"
     focus: |
-      Focus EXCLUSIVELY on whether each spec requirement has a corresponding implementation.
+      Whether each spec requirement has a corresponding implementation.
       For each requirement in the spec, check if it appears in the diff.
       Flag requirements that are NOT FOUND in the diff.
-      Do NOT review code quality, error handling, or logic correctness — other reviewers handle those.
 
   robustness:
     label: "Robustness & Security"
     focus: |
-      Focus EXCLUSIVELY on error handling, validation, and security in the implementation.
-      Review for: missing error handling, input validation gaps, security vulnerabilities,
-      edge case handling, missing try/catch blocks, unvalidated user input,
-      and authentication/authorization gaps.
-      Do NOT review spec coverage or logic correctness — other reviewers handle those.
+      Error handling, validation, and security in the implementation.
+      Review for: missing error handling, input validation gaps, security
+      vulnerabilities, edge case handling, missing try/catch blocks,
+      unvalidated user input, and authentication/authorization gaps.
 
   correctness:
     label: "Correctness & Logic"
     focus: |
-      Focus EXCLUSIVELY on whether the implementation logic matches the spec intent.
+      Whether the implementation logic matches the spec intent.
       Review for: algorithm correctness, data flow accuracy, state management,
-      off-by-one errors, race conditions, incorrect assumptions,
-      and divergence between spec intent and actual behavior.
-      Do NOT review spec coverage or robustness concerns — other reviewers handle those.
+      off-by-one errors, race conditions, incorrect assumptions, and divergence
+      between spec intent and actual behavior.
