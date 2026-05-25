@@ -1,7 +1,7 @@
 {
   "name": "reviewer",
-  "version": "1.5.0",
-  "description": "Structured spec and implementation review with iterative fix loops and parallel multi-angle review",
+  "version": "1.6.0",
+  "description": "Structured spec and implementation review. Spec command runs multi-angle parallel review by default; opt into iterative fix loop with --fix",
   "author": {
     "name": "shdennlin"
   },

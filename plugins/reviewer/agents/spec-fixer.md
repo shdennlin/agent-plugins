@@ -4,7 +4,7 @@ displayName: Spec Fixer
 model: sonnet
 color: green
 whenToUse: |
-  Internal agent spawned by spec-fix-orchestrator to apply fixes to spec documents.
+  Internal agent spawned by spec-orchestrator to apply fixes to spec documents.
   Not directly invocable by users.
 tools:
   - Read

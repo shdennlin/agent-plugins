@@ -52,41 +52,58 @@ Inject reviewer-aligned rules into your project's `openspec/config.yaml` so spec
 
 Rules are appended per artifact ID (`proposal`, `specs`, `design`, `tasks`). Existing rules are preserved — only new rules are added (dedup by exact match). Run from any project root with an `openspec/config.yaml`.
 
-### Iterative Review + Fix (`--fix` mode)
+### Multi-Angle Review and Iterative Fix
 
-Add `--fix` to either command to enable an iterative review → fix loop. The orchestrator automatically:
-1. Runs parallel multi-angle review (3 specialized reviewers by default)
+`/reviewer:spec` runs multi-angle parallel review on every invocation — first pass extracts maximum signal across all built-in angles. Add `--fix` to layer an iterative review → fix loop on top.
+
+`/reviewer:result` currently couples parallel review with `--fix` (use `--fix` to enable multi-angle; use `--no-parallel` to opt out).
+
+The spec fix loop:
+1. Runs the multi-angle review
 2. Merges findings into a unified report
-3. Auto-fixes MEDIUM/LOW issues, asks about CRITICAL/HIGH
+3. Decides per-issue whether the fix needs your judgment — auto-fixes the rest, escalates the design calls
 4. Repeats until PASS or max iterations reached
 
 ```bash
-# Spec: iterative review + auto-fix (default: 3 rounds, parallel)
+# Spec: multi-angle review (no fix loop) — bound engineering default
+/reviewer:spec docs/plan/
+
+# Spec: multi-angle review + iterative fix (default: 3 rounds)
 /reviewer:spec docs/plan/ --fix
+
+# Spec: narrow to specific angles
+/reviewer:spec docs/plan/ --angles "scope,tasks"
+
+# Spec: fix loop, 5 rounds
+/reviewer:spec docs/plan/ --fix -n 5
 
 # Result: iterative review + auto-fix with base branch
 /reviewer:result docs/plan/ --fix --base main
 
-# Custom: 5 rounds, fix all severities
-/reviewer:result docs/plan/ --fix -n 5 --fix-all
-
-# Custom review angles
+# Result: custom angles
 /reviewer:result docs/plan/ --fix --parallel "security,coverage"
-
-# Single-agent mode (no parallel, cheaper)
-/reviewer:spec docs/plan/ --fix --no-parallel
 ```
 
-#### Fix Mode Flags
+#### Spec Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--fix` | off | Enable iterative review → fix loop |
-| `--fix-all` | off | Auto-fix all severities (skip asking for critical/high) |
-| `--no-parallel` | off | Disable parallel multi-angle review |
-| `--parallel <angles>` | built-in | Custom review angles (comma-separated) |
+| `--fix` | off | Layer an iterative review → fix loop. The orchestrator decides per-issue whether to auto-fix or escalate to you |
+| `--angles <list>` | all | Narrow to a custom subset of angles (comma-separated) |
+| `-n, --max-iterations <N>` | 3 | Maximum review-fix rounds (only meaningful with `--fix`) |
+| `--no-explore` | off | Skip the code-explorer step |
+
+Composition (cross-cutting) angle auto-runs when the orchestrator judges multiple independent spec units are in scope.
+
+#### Result Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--fix` | off | Enable iterative review → fix loop (also enables parallel multi-angle review) |
+| `--fix-all` | off | Auto-fix all severities (implies `--fix`) |
+| `--no-parallel` | off | Disable parallel multi-angle review (requires `--fix`) |
+| `--parallel <angles>` | built-in | Custom review angles (comma-separated; requires `--fix`) |
 | `-n, --max-iterations <N>` | 3 | Maximum iteration rounds |
-| `--no-cross-cutting` | off | Skip cross-cutting composition pass (auto-runs when ≥2 spec units are provided) |
 
 #### Default Review Angles
 
@@ -96,6 +113,8 @@ Add `--fix` to either command to enable an iterative review → fix loop. The or
 | | completeness | Edge cases, error handling, security, observability |
 | | tasks | Task coverage, done criteria |
 | | platform | Platform, runtime, and third-party tool feasibility |
+| | design | Design soundness, coupling, assumptions, API coherence |
+| | consistency | Internal contradictions across docs and milestones; PASS sign-off gate |
 | | composition | Cross-spec contradictions (auto-runs when ≥2 spec units are in scope) |
 | `result` | coverage | Spec requirements vs implementation |
 | | robustness | Error handling, validation, security |
@@ -280,10 +299,9 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation via s
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
-| spec-reviewer | sonnet | Analyzes specs for gaps, risks, ambiguities |
 | result-reviewer | sonnet | Compares git diffs against spec requirements |
 | init-reviewer | haiku | Injects reviewer rules into openspec/config.yaml |
-| spec-fix-orchestrator | sonnet | Orchestrates iterative spec review + fix loops |
+| spec-orchestrator | sonnet | Orchestrates multi-angle spec review (optionally with iterative fix loop) |
 | result-fix-orchestrator | sonnet | Orchestrates iterative result review + fix loops |
 | spec-fixer | sonnet | Applies fixes to spec/design documents |
 | result-fixer | sonnet | Applies fixes to implementation code |

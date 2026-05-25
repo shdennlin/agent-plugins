@@ -4,25 +4,27 @@ allowed-tools:
   - Task
   - AskUserQuestion
 description: Review a spec/proposal/design before implementation to catch gaps, risks, and ambiguities
-argument-hint: "[path...] [--fix] [--fix-all] [--no-explore] [--no-cross-cutting] [--no-parallel] [--parallel angles] [-n N] [--help/-h]"
+argument-hint: "[path...] [--fix] [--no-explore] [--angles list] [-n N] [--help/-h]"
 ---
 
 # Spec Review Command
 
 Review feature specifications, proposals, designs, or task lists before implementation starts.
 
+Multi-angle parallel review is the default — every invocation fans out across all
+built-in angles (scope, completeness, tasks, platform, and composition when the
+orchestrator judges multiple independent spec units are in scope). Use `--angles`
+to narrow that set; use `--fix` to also run an iterative review → fix loop.
+
 ## Arguments
 
 Parse the following from `$ARGUMENTS`:
 
 - `[path...]` — One or more file or folder paths to review (positional args)
-- `--fix` — Enable iterative review → fix loop with parallel multi-angle review
-- `--fix-all` — Auto-fix all severities including critical/high (implies `--fix`)
-- `--no-parallel` — Disable parallel multi-angle review (requires `--fix`)
-- `--parallel <angles>` — Custom review angles, comma-separated (requires `--fix`)
-- `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
+- `--fix` — After each review round, run an iterative fix loop. The orchestrator auto-fixes issues that don't need design judgment and escalates the rest to you (brainstorming-style) instead of using rigid severity rules
+- `--angles <list>` — Comma-separated list of angles to run (default: all built-in angles). Standalone flag; works with or without `--fix`
+- `-n <N>` or `--max-iterations <N>` — Maximum review-fix rounds, default 3 (only meaningful with `--fix`)
 - `--no-explore` — Skip codebase exploration step (go straight to review)
-- `--no-cross-cutting` — Skip cross-cutting composition pass (even when ≥2 spec units are present)
 - `--help` or `-h` — Show usage information and exit
 
 ## Instructions
@@ -32,13 +34,10 @@ Parse the following from `$ARGUMENTS`:
 From `$ARGUMENTS`, extract:
 1. **help**: if `--help` or `-h` is present, show the usage information below and stop. Do NOT delegate to the agent.
 2. **paths**: collect all positional arguments (not flags or flag values)
-3. **fix**: true if `--fix` is present, or if `--fix-all` is present
-4. **fix_all**: true if `--fix-all` is present
-5. **no_explore**: true if `--no-explore` is present
-6. **no_cross_cutting**: true if `--no-cross-cutting` is present
-7. **no_parallel**: true if `--no-parallel` is present
-8. **angles**: value after `--parallel` (comma-separated string), or "default" if not provided
-9. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
+3. **fix_enabled**: true if `--fix` is present
+4. **no_explore**: true if `--no-explore` is present
+5. **angles**: value after `--angles` (comma-separated string), or "default" if not provided
+6. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 
 ### Help Output
 
@@ -49,40 +48,39 @@ Usage: /reviewer:spec [path...] [options]
 
 Review specs, proposals, or designs before implementation.
 
+Every invocation runs multi-angle parallel review by default.
+
 Positional arguments:
   path...                       One or more files or folders to review
 
 Options:
   -h, --help                    Show this help message
   --no-explore                  Skip codebase exploration step
-  --no-cross-cutting            Skip cross-cutting composition pass
-                                (auto-runs when ≥2 spec units are provided)
+  --angles <list>               Comma-separated angles to run (default: all)
+                                Available: scope, completeness, tasks, platform,
+                                          design, consistency, composition
+                                (composition auto-runs when the orchestrator judges
+                                multiple independent spec units are in scope)
 
 Fix mode options:
-  --fix                         Enable iterative review → fix loop
-  --fix-all                     Auto-fix all severities (implies --fix)
-  --no-parallel                 Use single-agent review instead of multi-angle parallel
-  --parallel <angles>           Custom review angles (comma-separated)
-                                Default angles: scope, completeness, tasks, platform
-                                (composition auto-added when ≥2 spec units present)
-  -n, --max-iterations <N>      Maximum rounds (default: 3)
+  --fix                         After each review, run an iterative fix loop.
+                                The orchestrator auto-fixes issues that don't need
+                                design judgment and escalates the rest to you.
+  -n, --max-iterations <N>      Maximum review-fix rounds (default: 3)
 
 Examples:
-  /reviewer:spec docs/plans/auth-flow/
+  /reviewer:spec docs/plans/auth-flow/              # all angles, review only
   /reviewer:spec proposal.md spec.md tasks.md
   /reviewer:spec                                    # asks which files to review
 
-  # Iterative review + auto-fix (default: 3 rounds, parallel multi-angle)
+  # Iterative review + fix (default: 3 rounds)
   /reviewer:spec docs/plan/ --fix
 
-  # Single-agent review + fix, max 5 rounds
-  /reviewer:spec docs/plan/ --fix --no-parallel -n 5
+  # Narrow to specific angles (review only)
+  /reviewer:spec docs/plan/ --angles "scope,tasks"
 
-  # Fix all severities (implies --fix)
-  /reviewer:spec docs/plan/ --fix-all
-
-  # Custom angles, fix all severities
-  /reviewer:spec docs/plan/ --fix-all --parallel "scope,tasks"
+  # Narrow angles + fix loop
+  /reviewer:spec docs/plan/ --fix --angles "scope,tasks"
 
   # Skip codebase exploration
   /reviewer:spec docs/plan/ --no-explore
@@ -129,54 +127,27 @@ Capture the code-explorer output as `CODEBASE_CONTEXT`.
 
 **If `no_explore` IS set:** skip this step and set `CODEBASE_CONTEXT` to empty.
 
-### Step 4: Route and Delegate
-
-**If `--fix` is NOT set** (default — backward compatible):
-
-Launch the `spec-reviewer` agent:
-
-```
-Task tool:
-- subagent_type: "reviewer:spec-reviewer"
-- description: "Review spec for gaps and risks"
-- prompt: |
-    Review the following spec files for implementation readiness.
-
-    Files/folders to review:
-    <list each path>
-
-    Working directory: <current directory>
-
-    ## Cross-cutting composition
-    <"Skip cross-cutting composition pass (user passed --no-cross-cutting)." if no_cross_cutting, else "Run the cross-cutting composition pass (Step 2.5) if ≥2 spec units are detected in the review scope.">
-
-    ## Codebase Context (from code-explorer)
-    <CODEBASE_CONTEXT, or "No codebase context available." if empty>
-```
-
-**If `--fix` IS set:**
+### Step 4: Delegate to Orchestrator
 
 First, read the review angles template:
 ```
 Read tool: ${CLAUDE_PLUGIN_ROOT}/templates/review-angles.yaml
 ```
 
-Then launch the `spec-fix-orchestrator` agent:
+Then launch the `spec-orchestrator` agent:
 
 ```
 Task tool:
-- subagent_type: "reviewer:spec-fix-orchestrator"
-- description: "Iterative spec review with auto-fix"
+- subagent_type: "reviewer:spec-orchestrator"
+- description: <"Iterative spec review with fix loop" if fix_enabled, else "Multi-angle spec review">
 - prompt: |
-    Review and fix the following spec files iteratively.
+    Review the following spec files.
 
     ## Parameters
     - paths: <list each path>
+    - fix_enabled: <true if --fix is set, false otherwise>
     - max_iterations: <N, default 3>
-    - parallel: <true if --no-parallel is NOT set, false otherwise>
-    - angles: <value from --parallel flag, or "default">
-    - fix_all: <true if --fix-all is set, false otherwise>
-    - no_cross_cutting: <true if --no-cross-cutting is set, false otherwise>
+    - angles: <value from --angles flag, or "default">
     - working_directory: <current directory>
 
     ## Codebase Context (from code-explorer)
@@ -191,7 +162,7 @@ Report the agent's findings back to the user.
 ## Examples
 
 ```bash
-# Review a spec folder (single pass, same as before)
+# Multi-angle review (default behavior)
 /reviewer:spec docs/plans/auth-flow/
 
 # Review specific files
@@ -200,15 +171,15 @@ Report the agent's findings back to the user.
 # Interactive (asks which files)
 /reviewer:spec
 
-# Iterative review + auto-fix
+# Iterative review + fix
 /reviewer:spec docs/plan/ --fix
 
-# Custom: 5 rounds, no parallel, fix everything
-/reviewer:spec docs/plan/ --fix-all --no-parallel -n 5
+# Narrow angles
+/reviewer:spec docs/plan/ --angles "scope,tasks"
+
+# Fix loop, narrow angles, 5 rounds max
+/reviewer:spec docs/plan/ --fix --angles "scope,tasks" -n 5
 
 # Skip codebase exploration (review spec in isolation)
 /reviewer:spec docs/plan/ --no-explore
-
-# Skip cross-cutting composition pass (force per-spec only)
-/reviewer:spec docs/multi-spec-change/ --no-cross-cutting
 ```
