@@ -1,9 +1,9 @@
 export const meta = {
   name: 'two-engine-spec-review',
-  description: 'Claude + Codex dual-engine spec review; loops fixes until both engines are MEDIUM-clean, then clears LOW.',
+  description: 'Claude + Codex dual-engine spec review; loops fixes until both engines are MEDIUM-clean, escalating findings the fixer cannot resolve, then clears LOW.',
   phases: [
     { title: 'Review', detail: 'Claude and Codex review the same change in parallel' },
-    { title: 'Fix',    detail: 'Fix union blockers (both-saw first), then clear LOW' },
+    { title: 'Fix',    detail: 'Fix fresh union blockers (both-saw first); escalate stale ones' },
   ],
 }
 
@@ -26,6 +26,9 @@ if (!A.change) {
 const CHANGE = A.change
 const MAX_ROUNDS = Number(A.maxRounds) > 0 ? Number(A.maxRounds) : 3
 const CONTEXT = A.codebaseContext || ''   // optional code-explorer summary, shared by both engines
+// A blocker that survives this many consecutive rounds (the fixer can't resolve it)
+// is escalated to the human instead of looping forever.
+const STALE = Number(A.staleThreshold) > 0 ? Number(A.staleThreshold) : 2
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -83,9 +86,7 @@ async function reviewRound(round) {
       { label: `codex:${round}`, phase: 'Review', agentType: 'codex:codex-rescue', schema: FINDINGS }),
   ])
   // agent() returns null on failure (engine died / plugin missing). Track that
-  // explicitly via *Ok flags: a dead engine must NOT count as a clean review
-  // (see the clear condition below) — otherwise a missing Codex would silently
-  // downgrade to a single-engine PASS.
+  // explicitly via *Ok flags: a dead engine must NOT count as a clean review.
   return {
     claude:   claude || { verdict: 'FAIL', findings: [] },
     codex:    codex  || { verdict: 'FAIL', findings: [] },
@@ -113,6 +114,9 @@ function categorize({ claude, codex }) {
   const all = [...both, ...onlyClaude, ...onlyCodex]
   return { both, onlyClaude, onlyCodex, all, blockers: all.filter(f => isBlocker(f.severity)) }
 }
+
+const seenBy = (cat, f) =>
+  cat.both.includes(f) ? 'both' : (cat.onlyClaude.includes(f) ? 'claude' : 'codex')
 
 // Single-engine findings (not both-saw) must be verified real before fixing,
 // to guard against reviewer hallucination.
@@ -142,29 +146,52 @@ async function runFixers(findings, bothSet, labelPrefix) {
 
 phase('Review')
 const history = []
+const survival = new Map()    // blocker key -> consecutive rounds it has persisted
+const escalated = new Set()   // keys already moved to needsHuman (don't re-fix or re-escalate)
+const needsHuman = []         // findings the fixer can't resolve -> returned for human judgement
 let round = 1, cleared = null
 
 while (round <= MAX_ROUNDS) {
   const r = await reviewRound(round)
   const cat = categorize(r)
-  // A dead engine (null result) or an engine self-reporting FAIL must NOT clear:
-  // the dual-engine guarantee requires BOTH engines to actually run and pass.
   const enginesOk = r.claudeOk && r.codexOk
   const noFailVerdict = r.claude.verdict !== 'FAIL' && r.codex.verdict !== 'FAIL'
   const down = [!r.claudeOk && 'claude', !r.codexOk && 'codex'].filter(Boolean)
 
+  // Track persistence of each blocker NOT already escalated. A blocker still
+  // present after STALE consecutive rounds is one the fixer can't resolve.
+  const live = cat.blockers.filter(f => !escalated.has(keyOf(f)))
+  const seenNow = new Set(live.map(keyOf))
+  for (const k of [...survival.keys()]) if (!seenNow.has(k)) survival.delete(k)  // fixed -> reset
+  for (const f of live) survival.set(keyOf(f), (survival.get(keyOf(f)) || 0) + 1)
+
+  const stale = live.filter(f => survival.get(keyOf(f)) >= STALE)
+  const fresh = live.filter(f => survival.get(keyOf(f)) < STALE)
+  for (const f of stale) {
+    escalated.add(keyOf(f))
+    needsHuman.push({ severity: f.severity, title: f.title, location: f.location,
+                      rationale: f.rationale || '', seenBy: seenBy(cat, f) })
+  }
+
   log(`Round ${round} REVIEW_RESULT(union): ${fmtCounts(cat.all)} | ` +
       `blockers=${cat.blockers.length} (both ${cat.both.length}, ` +
-      `claude-only ${cat.onlyClaude.length}, codex-only ${cat.onlyCodex.length})` +
+      `claude-only ${cat.onlyClaude.length}, codex-only ${cat.onlyCodex.length}) | ` +
+      `fresh=${fresh.length} escalated=${escalated.size}` +
       (down.length ? ` | ⚠️ ENGINE DOWN: ${down.join('+')} — NOT a clean review` : ''))
-  history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length, degraded: down.length > 0 })
+  history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length,
+                 fresh: fresh.length, escalated: escalated.size, degraded: down.length > 0 })
 
-  // Clear only when both engines ran, neither said FAIL, and the union has no blockers.
+  // Clear only when both engines ran, neither said FAIL, and NO blockers remain.
   if (enginesOk && noFailVerdict && cat.blockers.length === 0) { cleared = cat; break }
 
-  // Fix order: both-saw first (highest confidence), then claude-only, then codex-only. Blockers only.
+  // If nothing fresh is left to auto-fix (only human-judgement blockers remain),
+  // stop looping and escalate rather than burning rounds re-finding the same items.
+  if (fresh.length === 0) break
+
   phase('Fix')
-  const blockerOrdered = [...cat.both, ...cat.onlyClaude, ...cat.onlyCodex].filter(f => isBlocker(f.severity))
+  const freshKeys = new Set(fresh.map(keyOf))
+  const blockerOrdered = [...cat.both, ...cat.onlyClaude, ...cat.onlyCodex]
+    .filter(f => isBlocker(f.severity) && freshKeys.has(keyOf(f)))
   await runFixers(blockerOrdered, cat.both, 'fix')
   round++
   phase('Review')
@@ -172,13 +199,12 @@ while (round <= MAX_ROUNDS) {
 
 if (!cleared) {
   const lastDegraded = history.length > 0 && history[history.length - 1].degraded
-  return {
-    ready: false, change: CHANGE, rounds: round - 1,
-    reason: lastDegraded
-      ? 'an engine was DOWN on the final round — the review is NOT trustworthy (see history)'
-      : `still had blockers after ${MAX_ROUNDS} rounds; final-round fixes were applied but NOT re-reviewed`,
-    history,
-  }
+  const reason = lastDegraded
+    ? 'an engine was DOWN on the final round — the review is NOT trustworthy (see history)'
+    : needsHuman.length > 0
+      ? `${needsHuman.length} blocker(s) need human judgement — the fixer could not resolve them (see needsHuman)`
+      : `still had blockers after ${MAX_ROUNDS} rounds; final-round fixes were applied but NOT re-reviewed`
+  return { ready: false, change: CHANGE, rounds: round - 1, reason, needsHuman, history }
 }
 
 // After blockers clear, fix remaining LOW issues (no re-review needed).
@@ -188,4 +214,4 @@ if (lows.length) {
   await runFixers(lows, cleared.both, 'fix-low')
 }
 
-return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, history }
+return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history }

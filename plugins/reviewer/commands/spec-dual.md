@@ -96,10 +96,17 @@ Workflow({
 
 Calling Workflow here is sanctioned: this command's instructions direct you to call it.
 
-### Step 5: Report
+### Step 5: Report and resolve escalations
 
-The Workflow returns `{ ready, change, rounds, lowsFixed?, history }`.
+The Workflow returns `{ ready, change, rounds, lowsFixed?, needsHuman, history }`.
 - If `ready: true`, report that both engines are MEDIUM-clean after `rounds` rounds, note
   `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point out
-  which rounds still had blockers so the user can decide next steps.
+  which rounds still had blockers.
+
+If `needsHuman` is non-empty, these are blockers the fixer could NOT resolve on its own —
+they need the user's judgement. The Workflow runs autonomously in the background and cannot
+pause to ask, so resolve them HERE: present them with AskUserQuestion (one per finding, or
+grouped if few), each showing severity, location, which engine(s) saw it (`seenBy`), and the
+rationale, then ask how to handle each (fix a specific way / accept as-is / defer). Apply the
+chosen fixes — and if changes were made, offer to re-run `/reviewer:spec-dual` to confirm.

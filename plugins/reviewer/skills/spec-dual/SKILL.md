@@ -76,9 +76,17 @@ This is a sanctioned use of the Workflow tool: this skill's instructions direct 
 to call it. Only the main agent runs this skill — do not invoke it from inside another
 subagent (a Workflow subagent cannot itself call Workflow).
 
-### Step 5: Report
-The Workflow returns `{ ready, change, rounds, lowsFixed?, history }`.
+### Step 5: Report and resolve escalations
+The Workflow returns `{ ready, change, rounds, lowsFixed?, needsHuman, history }`.
 - If `ready: true`, report that both engines are MEDIUM-clean after `rounds` rounds,
   note `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point
-  out which rounds still had blockers so the user can decide next steps.
+  out which rounds still had blockers.
+
+If `needsHuman` is non-empty, these are blockers the fixer could NOT resolve on its own —
+they need the user's judgement. The Workflow runs autonomously in the background and cannot
+pause to ask, so resolve them HERE in the interactive session: present them with
+AskUserQuestion (one question per finding, or grouped if few), each showing severity,
+location, which engine(s) saw it (`seenBy`), and the rationale, then ask the user how to
+handle each (fix a specific way / accept as-is / defer). Apply the chosen fixes — and if
+changes were made, offer to re-run `/reviewer:spec-dual` to confirm the spec now clears.
