@@ -7,6 +7,7 @@ Structured spec and implementation review with iterative fix loops and parallel 
 | Command | Purpose |
 |---------|---------|
 | `/reviewer:spec [path...] [--fix]` | Review specs before implementation |
+| `/reviewer:spec-dual [path...] [-n N] [--no-explore]` | Dual-engine (Claude + Codex) spec review, looped to MEDIUM-clean |
 | `/reviewer:result [path...] [--base branch] [--fix]` | Review implementation against specs |
 | `/reviewer:init [--dry-run/-n]` | Inject reviewer rules into openspec/config.yaml |
 
@@ -24,6 +25,30 @@ Structured spec and implementation review with iterative fix loops and parallel 
 # Interactive (asks which files)
 /reviewer:spec
 ```
+
+### Dual-Engine Spec Review
+
+Cross-check a high-stakes spec with **two independent models** before implementation.
+Claude and Codex review the same change in parallel; a Workflow takes the **union** of
+their findings, counts blockers in pure code (**MEDIUM+ in either engine is a blocker**),
+fixes highest-confidence (both-saw) items first, and re-reviews until both engines are
+MEDIUM-clean — then clears any remaining LOW issues.
+
+```bash
+# Dual-engine review of a change folder (default 3 review→fix rounds)
+/reviewer:spec-dual openspec/changes/my-change/
+
+# Cap rounds and skip the shared codebase scan
+/reviewer:spec-dual proposal.md spec.md tasks.md -n 5 --no-explore
+```
+
+Unlike a per-turn loop wrapper (a `/goal` or Stop-hook loop), this owns its own fan-out
+and loop inside a Workflow — there is no per-turn Stop hook to burn iterations and no
+completion string to fake; the stop condition is a pure-code `blockers === 0`.
+
+> **Requires the `openai-codex` plugin** for the Codex engine (`codex:codex-rescue`).
+> Without it, the Codex side degrades to empty findings and the review becomes
+> Claude-only. The Claude engine and the fixer (`reviewer:spec-fixer`) ship with this plugin.
 
 ### Result Review
 
@@ -148,63 +173,9 @@ Round N:
                   Next Round
 ```
 
-### Legacy: Auto Review + Fix Loop with Ralph Loop
+### Two-Engine Spec Review (Claude + Codex)
 
-You can still use [ralph-loop](../ralph-loop/) for cross-session iteration:
-
-**Spec review loop:**
-
-> **Important:** Use `/reviewer:spec` (review only) inside ralph-loop, NOT `--fix-all`.
-> The `--fix-all` flag runs its own internal fix loop, making the outer ralph-loop redundant
-> and causing premature exit on iteration 1.
-
-```bash
-/ralph-loop:ralph-loop --max-iterations 3 --completion-promise "SPEC READY" \
-  "Step 1: Run '/reviewer:spec' on docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
-   Step 2: Count issues by severity from the full issue list (not just the verdict). \
-   BLOCKER RULE: MEDIUM, HIGH, and CRITICAL are ALL blockers. \
-   A PASS verdict with MEDIUM issues is NOT passing — MEDIUM is a blocker just like HIGH. \
-   - If issue count of severity >= MEDIUM is > 0: \
-     fix the spec files based on the handoff directives, then go back to Step 1. \
-   - If ONLY LOW or zero issues remain (0 MEDIUM, 0 HIGH, 0 CRITICAL): go to Step 3. \
-   Step 3: If any LOW issues remain, fix them (no need to re-review). \
-   Step 4: Output exactly this completion signal on its own line: \
-     <promise>SPEC READY</promise> \
-   RULES: \
-   - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
-   - Do NOT output the signal if any MEDIUM, HIGH, or CRITICAL issues exist, even if the reviewer verdict says PASS. \
-   - MEDIUM is a blocker. Do not treat MEDIUM as LOW. Do not skip re-review for MEDIUM issues. \
-   - Do NOT use spectra validate or any other tool as a substitute for /reviewer:spec. \
-   - Do NOT use --fix or --fix-all — ralph-loop handles the fix cycle."
-```
-
-**Result review loop:**
-
-```bash
-/ralph-loop:ralph-loop --max-iterations 3 --completion-promise "IMPL READY" \
-  "Step 1: Run '/reviewer:result' on docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
-   Step 2: Count issues by severity from the full issue list (not just the verdict). \
-   BLOCKER RULE: MEDIUM, HIGH, and CRITICAL are ALL blockers. \
-   A PASS verdict with MEDIUM issues is NOT passing — MEDIUM is a blocker just like HIGH. \
-   - If issue count of severity >= MEDIUM is > 0: \
-     fix the implementation based on the handoff directives, then go back to Step 1. \
-   - If ONLY LOW or zero issues remain (0 MEDIUM, 0 HIGH, 0 CRITICAL): go to Step 3. \
-   Step 3: If any LOW issues remain, fix them (no need to re-review). \
-   Step 4: Output exactly this completion signal on its own line: \
-     <promise>IMPL READY</promise> \
-   RULES: \
-   - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
-   - Do NOT output the signal if any MEDIUM, HIGH, or CRITICAL issues exist, even if the reviewer verdict says PASS. \
-   - MEDIUM is a blocker. Do not treat MEDIUM as LOW. Do not skip re-review for MEDIUM issues. \
-   - Do NOT use spectra validate or any other tool as a substitute for /reviewer:result. \
-   - Do NOT use --fix or --fix-all — ralph-loop handles the fix cycle."
-```
-
-The `--fix` flag is recommended for most use cases as it's simpler and runs within a single session.
-
-### Recipe: Two-Engine Spec Review (Claude + Codex)
-
-For high-stakes specs where missed perspectives are costly, dispatch two reviewers in parallel — one local Claude, one Codex — and gate completion on the **union** of their findings. This is a **composition pattern**: reviewer plugin stays model-agnostic, you compose it externally with the [codex](../codex/) plugin's `codex:rescue` agent.
+For high-stakes specs where missed perspectives are costly, two independent engines — one local Claude, one Codex — review the same change in parallel and completion is gated on the **union** of their findings. This ships as the **`/reviewer:spec-dual`** skill (see [Dual-Engine Spec Review](#dual-engine-spec-review) above for usage and options); the reviewer plugin stays model-agnostic and composes with the external `openai-codex` plugin's `codex:codex-rescue` agent.
 
 **When to use:**
 - Architectural specs (foundation for downstream implementation)
@@ -214,50 +185,7 @@ For high-stakes specs where missed perspectives are costly, dispatch two reviewe
 **When NOT to use:**
 - Routine result review (one engine is usually enough — see [philosophy note](#why-spec-only) below)
 - Low-stakes spec changes
-- When codex plugin is not installed
-
-**Prerequisites:** `codex` plugin installed and configured (`/codex:setup`).
-
-**Two-engine ralph-loop snippet:**
-
-```bash
-/ralph-loop:ralph-loop --max-iterations 5 --completion-promise "SPEC READY" \
-  "Step 1 (parallel, single message): Two-engine spec review on docs/plans/<SPEC_NAME>/ to surface blind spots. \
-     - Engine A (Claude): /reviewer:spec docs/plans/<SPEC_NAME>/ (do NOT use --fix or --fix-all). \
-     - Engine B (Codex):  codex:rescue — run /reviewer:spec docs/plans/<SPEC_NAME>/ on its end and report findings back. \
-   Step 2: Categorize the union of findings: \
-     ## Only Claude saw \
-     - <finding> [severity] — <perspective Claude used> \
-     ## Only Codex saw \
-     - <finding> [severity] — <perspective Codex used> \
-     ## Both saw (brief list, no detail) \
-     - <finding> [severity] \
-   Step 3: Count blockers across UNION (severity >= MEDIUM in EITHER engine). \
-     BLOCKER RULE: MEDIUM, HIGH, CRITICAL in EITHER engine are ALL blockers. \
-     A PASS verdict from one engine alone is NOT enough — both must be MEDIUM-clean. \
-     - If union blockers > 0: \
-         Fix order: \
-         1. Both-saw items first (highest confidence) \
-         2. Single-engine items: 1-line technical justification each before fixing (skip if hallucination or trivial) \
-         Then go back to Step 1. \
-     - Else (only LOW or zero remain in BOTH engines): go to Step 4. \
-   Step 4: If any LOW issues remain in either engine, fix them (no need to re-review). \
-   Step 5: Output exactly this completion signal on its own line: \
-     <promise>SPEC READY</promise> \
-   RULES: \
-   - The completion signal with angle brackets is literal text, not HTML. Output it exactly as written. \
-   - Do NOT output the signal if any MEDIUM/HIGH/CRITICAL exists in EITHER engine, even if either verdict says PASS. \
-   - MEDIUM is a blocker. Codex-only MEDIUM has the same weight as Claude-only MEDIUM — do NOT auto-downgrade. \
-   - For Codex-only or Claude-only findings, briefly verify the finding is real before fixing (avoid reviewer hallucination). \
-   - Do NOT use spectra validate or any other tool as a substitute for /reviewer:spec. \
-   - Do NOT use --fix or --fix-all on either engine — ralph-loop handles the fix cycle."
-```
-
-**Expected behavior:**
-- Each iteration runs both engines in parallel (single message dispatch)
-- The "## Only X saw" sections preserve diagnostic value — you can see which model caught what perspective
-- More iterations expected than single-engine (default 5 vs 3) because the union finding set is larger
-- `SPEC READY` only emits when BOTH engines have zero MEDIUM+ issues
+- When the `openai-codex` plugin is not installed
 
 #### Why spec-only?
 
@@ -267,7 +195,7 @@ Multi-model review's value scales with **error propagation cost** and inversely 
 |---|---|---|
 | Error propagates to | All downstream implementation | One file/function |
 | Error type | Missed perspectives (security, future maintainability) | Implementation bugs |
-| Review frequency | 1-3× per change | 10+× via ralph-loop iterations |
+| Review frequency | 1-3× per change | 10+× via fix-loop iterations |
 | Multi-model ROI | High | Low |
 
 Result review is usually fine with one engine + TDD + verification. Use Codex on result review only for **specific high-risk implementations** (auth/crypto, concurrency, performance hotpaths) — invoke `/codex:review` manually rather than baking it into a loop.
