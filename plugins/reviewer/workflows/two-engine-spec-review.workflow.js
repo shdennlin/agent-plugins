@@ -1,9 +1,9 @@
 export const meta = {
   name: 'two-engine-spec-review',
-  description: 'Claude + Codex dual-engine spec review; loops fixes until both engines are MEDIUM-clean, escalating findings the fixer cannot resolve, then clears LOW.',
+  description: 'Claude + Codex dual-engine spec review; each round fixes all fresh union blockers in ONE coherent Opus pass, escalating findings it cannot resolve, then clears LOW.',
   phases: [
     { title: 'Review', detail: 'Claude and Codex review the same change in parallel' },
-    { title: 'Fix',    detail: 'Fix fresh union blockers (both-saw first); escalate stale ones' },
+    { title: 'Fix',    detail: 'One Opus fixer resolves all fresh blockers together with shared context; stale ones escalate' },
   ],
 }
 
@@ -29,6 +29,11 @@ const CONTEXT = A.codebaseContext || ''   // optional code-explorer summary, sha
 // A blocker that survives this many consecutive rounds (the fixer can't resolve it)
 // is escalated to the human instead of looping forever.
 const STALE = Number(A.staleThreshold) > 0 ? Number(A.staleThreshold) : 2
+// The fix phase runs as a SINGLE strong-model agent per round (not one-agent-per-finding),
+// so it holds all of the round's blockers + the codebase context in one context and can make
+// coherent cross-file edits — the way a single long-context session would. Default to Opus;
+// override via args.fixModel if a run needs something cheaper.
+const FIX_MODEL = (typeof A.fixModel === 'string' && A.fixModel.trim()) ? A.fixModel.trim() : 'opus'
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -118,30 +123,37 @@ function categorize({ claude, codex }) {
 const seenBy = (cat, f) =>
   cat.both.includes(f) ? 'both' : (cat.onlyClaude.includes(f) ? 'claude' : 'codex')
 
-// Single-engine findings (not both-saw) must be verified real before fixing,
-// to guard against reviewer hallucination.
-function fixPrompt(f, isBoth) {
-  return `Fix this spec finding under "${CHANGE}": [${f.severity}] ${f.title} @ ${f.location}. ` +
-    (isBoth ? '' : 'First verify it is real (not a reviewer hallucination); skip if bogus or trivial. ') +
-    `Rationale: ${f.rationale || '(none provided)'}`
+// Build ONE directive covering all of a round's findings. Findings on a spec are
+// highly interrelated (the same license/workspace/path decision shows up across
+// design.md, tasks.md and spec.md), so fixing them in a single context lets the
+// fixer make consistent cross-file edits instead of contradictory local ones.
+// Per finding we say whether BOTH engines saw it (trust it) or only one (verify
+// first, to guard against a single reviewer hallucinating).
+function batchFixPrompt(findings, cat) {
+  const items = findings.map((f, i) => {
+    const who = seenBy(cat, f)
+    const trust = who === 'both'
+      ? 'Both engines flagged this — treat it as real.'
+      : `Only the ${who} engine flagged this — verify it is real (not a hallucination) before editing; skip if bogus or trivial.`
+    return `${i + 1}. [${f.severity}] ${f.title}\n` +
+           `   Location: ${f.location}\n` +
+           `   ${trust}\n` +
+           `   Rationale: ${f.rationale || '(none provided)'}`
+  }).join('\n\n')
+  return (
+    `Resolve the following spec/design findings for the change under "${CHANGE}" (relative to git root). ` +
+    `They are INTERRELATED — read every affected artifact in full first, then apply ONE coherent set of edits ` +
+    `that resolves them together without contradicting each other. Work in severity order (CRITICAL first). ` +
+    `Preserve existing structure, style and formatting; make the minimal edits needed.` +
+    (CONTEXT ? `\n\n## Codebase context (shared)\n${CONTEXT}\n` : '') +
+    `\n\n## Findings to resolve (${findings.length})\n${items}`
+  )
 }
 
-// Run fixers without clobbering: group findings by file (the part before ':'),
-// so fixers on DIFFERENT files run in parallel, but fixers on the SAME file run
-// sequentially — concurrent edits to one artifact would overwrite each other.
-async function runFixers(findings, bothSet, labelPrefix) {
-  const groups = new Map()
-  for (const f of findings) {
-    const file = String(f.location).split(':')[0].trim() || String(f.location)
-    if (!groups.has(file)) groups.set(file, [])
-    groups.get(file).push(f)
-  }
-  await parallel([...groups.values()].map(group => async () => {
-    for (const f of group) {
-      await agent(fixPrompt(f, bothSet.includes(f)),
-        { label: `${labelPrefix}:${f.id}`, phase: 'Fix', agentType: 'reviewer:spec-fixer' })
-    }
-  }))
+// One strong-model fixer per round, holding all the findings + shared context at once.
+async function runFix(findings, cat, label) {
+  await agent(batchFixPrompt(findings, cat),
+    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer', model: FIX_MODEL })
 }
 
 phase('Review')
@@ -192,7 +204,8 @@ while (round <= MAX_ROUNDS) {
   const freshKeys = new Set(fresh.map(keyOf))
   const blockerOrdered = [...cat.both, ...cat.onlyClaude, ...cat.onlyCodex]
     .filter(f => isBlocker(f.severity) && freshKeys.has(keyOf(f)))
-  await runFixers(blockerOrdered, cat.both, 'fix')
+    .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
+  await runFix(blockerOrdered, cat, `fix:round${round}`)
   round++
   phase('Review')
 }
@@ -211,7 +224,7 @@ if (!cleared) {
 const lows = cleared.all.filter(f => f.severity === 'LOW')
 if (lows.length) {
   phase('Fix')
-  await runFixers(lows, cleared.both, 'fix-low')
+  await runFix(lows, cleared, 'fix-low')
 }
 
 return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history }
