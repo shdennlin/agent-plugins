@@ -5,7 +5,9 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: echo '<findings JSON array>' | log-findings.sh --change <name> --source <spec|result|spec-dual> [--round <N>]
+Usage: log-findings.sh --change <name> --source <spec|result|spec-dual> [--round <N>] <<'JSON'
+  [ { "severity": "...", "title": "...", "location": "...", "category": "...", "engine": "..." } ]
+JSON
 
 Each array element may contain: severity, title, location, category, engine (strings).
 Target file: <git-root>/openspec/reviews/history.jsonl if openspec/ exists,
@@ -25,6 +27,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$CHANGE" && -n "$SOURCE" ]] || { echo "log-findings: --change and --source are required" >&2; exit 1; }
+case "$SOURCE" in
+  spec|result|spec-dual) ;;
+  *) echo "log-findings: --source must be one of: spec, result, spec-dual (got: $SOURCE)" >&2; exit 1 ;;
+esac
 command -v jq >/dev/null 2>&1 || { echo "log-findings: jq is required but not installed" >&2; exit 1; }
 
 INPUT="$(cat)"

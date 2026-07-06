@@ -23,10 +23,11 @@ test -f openspec/config.yaml && echo "EXISTS" || echo "NOT_FOUND"
 ```
 
 - If EXISTS, the target file is `openspec/config.yaml`.
-- If NOT_FOUND, fall back to the portable target `.claude/reviewer/rules.yaml`. If it
-  doesn't exist yet, you will create it (including its parent directory) in Step 6, with
-  the same artifact-keyed YAML shape as `openspec/config.yaml`'s `rules:` section:
-  top-level keys `proposal`, `specs`, `design`, `tasks`, each a list of quoted rule strings.
+- If NOT_FOUND, fall back to the portable target `.claude/reviewer/rules.yaml` (the
+  dispatcher has already confirmed the portable target with the user). If it doesn't exist
+  yet, you will create it (including its parent directory) in Step 6, with the same
+  artifact-keyed YAML shape as `openspec/config.yaml`'s `rules:` section: top-level keys
+  `proposal`, `specs`, `design`, `tasks`, each a list of quoted rule strings.
 
 Use "the target file" below to mean whichever of these was selected.
 

@@ -17,7 +17,9 @@ $init --from-history
 
 ## Process
 
-1. Determine the rules target: `openspec/config.yaml` if present, else `.claude/reviewer/rules.yaml`
+1. Determine the rules target: `openspec/config.yaml` if present, else `.claude/reviewer/rules.yaml`.
+   If falling back to the portable target, confirmation of that target happens in the main
+   conversation (via AskUserQuestion) before dispatch — not inside the agent.
 2. Read the reviewer rules template
 3. Compare against existing rules (dedup by exact match)
 4. Append only new rules (or preview in dry-run mode)

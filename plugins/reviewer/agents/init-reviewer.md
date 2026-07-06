@@ -37,7 +37,8 @@ You inject reviewer-aligned rules into a project's rules target — `openspec/co
 - Determine the target file: `openspec/config.yaml` if it exists at the git root;
   otherwise `.claude/reviewer/rules.yaml` (create it, including parent directory, with the
   same artifact-keyed YAML shape: top-level keys `proposal`, `specs`, `design`, `tasks`,
-  each a list of quoted rule strings)
+  each a list of quoted rule strings) (the dispatcher has already confirmed the portable
+  target with the user)
 - Parse the reviewer rules template (provided inline in the prompt)
 - Read existing config and identify which rules are already present per artifact ID (proposal, specs, design, tasks)
 - Compute delta: filter template rules not already present (exact string match)

@@ -3,6 +3,7 @@ allowed-tools:
   - Read
   - Task
   - AskUserQuestion
+  - Bash
 description: Inject reviewer-aligned rules into openspec/config.yaml to reduce review round-trips
 argument-hint: "[--dry-run/-n] [--from-history] [--help/-h]"
 ---
@@ -70,8 +71,10 @@ Store the full content — it will be passed to the agent.
 
 When from_history is true, do NOT use the static template. Instead:
 
-1. **Locate history**: at the git root, read `openspec/reviews/history.jsonl` if it exists,
-   else `.claude/reviewer/history.jsonl`. If neither exists, tell the user
+1. **Locate history**: first determine the git root via `git rev-parse --show-toplevel`
+   (Bash). Resolve both candidate paths against that root — not the cwd — then read
+   `<git-root>/openspec/reviews/history.jsonl` if it exists, else
+   `<git-root>/.claude/reviewer/history.jsonl`. If neither exists, tell the user
    "No review history found — run /reviewer:spec, /reviewer:result, or /reviewer:spec-dual first"
    and STOP.
 2. **Cluster**: parse the JSONL lines. Group findings that describe the same recurring problem
@@ -80,13 +83,21 @@ When from_history is true, do NOT use the static template. Instead:
    a finding seen in one change is an incident; seen across changes it is systemic.
 4. **Draft rules**: for each kept group, write ONE imperative one-line rule in the style of
    the reviewer rules template, and assign it to an artifact key by category:
-   scope → `proposal`, completeness/spec → `specs`, design → `design`, tasks → `tasks`
+   scope → `proposal`, completeness/spec → `specs`, platform → `specs`, consistency → `specs`,
+   design → `design`, codebase → `design`, cross-cutting → `design`, tasks → `tasks`
    (default `specs` when unclear).
 5. **Confirm**: present all candidates with AskUserQuestion (multiSelect: true), each option
    showing the drafted rule and how many changes it recurred in. Only user-selected rules
    proceed. If the user selects none, report "no rules confirmed" and STOP.
 6. **Build the template**: format the confirmed rules as a YAML fragment keyed by artifact
    (same shape as reviewer-rules.yaml) and pass THAT as the template content in Step 3.
+
+### Step 2c: Confirm Portable Fallback (before dispatch)
+
+Before delegating: check for `openspec/config.yaml` at the git root. If it does NOT exist,
+tell the user the injection will target the portable fallback `.claude/reviewer/rules.yaml`
+(consumed by /reviewer:spec via project_rules, not by OpenSpec generation) and confirm with
+AskUserQuestion before dispatching. If the user declines, stop.
 
 ### Step 3: Delegate to Agent
 

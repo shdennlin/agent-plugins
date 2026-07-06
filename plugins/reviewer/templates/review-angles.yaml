@@ -115,6 +115,9 @@ result:
       Whether each spec requirement has a corresponding implementation.
       For each requirement in the spec, check if it appears in the diff.
       Flag requirements that are NOT FOUND in the diff.
+      If the spec set's tasks include checkpoint tasks (mid-implementation
+      partial-diff reviews), verify each is checked off; flag any unchecked
+      checkpoint task as a finding — the implementation skipped its gate.
 
   robustness:
     label: "Robustness & Security"
