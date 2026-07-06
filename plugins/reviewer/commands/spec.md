@@ -127,7 +127,13 @@ Capture the code-explorer output as `CODEBASE_CONTEXT`.
 
 **If `no_explore` IS set:** skip this step and set `CODEBASE_CONTEXT` to empty.
 
-### Step 4: Delegate to Orchestrator
+### Step 4: Read Project Rules
+
+Read `.claude/reviewer/rules.yaml` at the git root if it exists (harvested project rules
+from `reviewer:init`). Capture its content as `PROJECT_RULES`. If the file does not exist,
+set `PROJECT_RULES` to empty.
+
+### Step 5: Delegate to Orchestrator
 
 First, read the review angles template:
 ```
@@ -150,6 +156,7 @@ Task tool:
     - angles: <value from --angles flag, or "default">
     - working_directory: <current directory>
     - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
+    - project_rules: <content of .claude/reviewer/rules.yaml at git root, or empty>
 
     ## Codebase Context (from code-explorer)
     <CODEBASE_CONTEXT, or "No codebase context available." if empty>

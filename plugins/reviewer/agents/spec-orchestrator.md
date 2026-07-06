@@ -30,6 +30,7 @@ The prompt provides these parameters:
 - **codebase_context**: summary of relevant codebase architecture and patterns (optional, may be empty)
 - **review_angles**: the full content of review-angles.yaml (spec section)
 - **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+- **project_rules**: content of the project's `.claude/reviewer/rules.yaml` (optional, may be empty) — artifact-keyed lists of extra review criteria
 
 ## Main Loop
 
@@ -67,6 +68,11 @@ Agent tool:
 
     ## Your Review Angle: {angle label}
     {angle focus text}
+
+    ## Project Rules (additional criteria — treat violations as findings)
+    {rules from project_rules matching this angle's artifact area: scope→proposal,
+    completeness→specs, design→design, tasks→tasks; omit this section entirely
+    when project_rules is empty or has no matching key}
 
     ## Instructions
 

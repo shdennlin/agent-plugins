@@ -43,14 +43,15 @@ If no paths are given, ask which files to review.
 
 1. Read the spec files provided
 2. Explore the codebase for relevant context (code-explorer agent, unless `--no-explore`)
-3. Dispatch the spec-orchestrator agent with codebase context and `fix_enabled` derived from `--fix`
-4. Report findings back
+3. Read `.claude/reviewer/rules.yaml` at the git root if it exists (harvested project rules); pass its content as `project_rules` (empty if absent)
+4. Dispatch the spec-orchestrator agent with codebase context and `fix_enabled` derived from `--fix`
+5. Report findings back
 
 ## Agent Dispatch
 
 Before dispatching the orchestrator, the code-explorer agent scans the codebase for relevant context based on spec content. Pass `--no-explore` to skip this step.
 
-Always dispatch `reviewer:spec-orchestrator` with parameters (paths, fix_enabled, max_iterations, angles, codebase_context, review-angles template content, log_script_path — resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path). The orchestrator fans out per angle in parallel and decides whether to also run the composition angle based on whether the scope contains multiple independent spec units. When `fix_enabled` is true it also runs Steps 5–7, escalating only the issues that need design judgment.
+Always dispatch `reviewer:spec-orchestrator` with parameters (paths, fix_enabled, max_iterations, angles, codebase_context, review-angles template content, log_script_path — resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path — project_rules). The orchestrator fans out per angle in parallel and decides whether to also run the composition angle based on whether the scope contains multiple independent spec units. When `fix_enabled` is true it also runs Steps 5–7, escalating only the issues that need design judgment.
 
 The agent will cd to the git root automatically. Provide it with:
 - The list of files/folders to review
