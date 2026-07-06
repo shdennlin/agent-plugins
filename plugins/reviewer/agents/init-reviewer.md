@@ -34,7 +34,10 @@ You inject reviewer-aligned rules into a project's `openspec/config.yaml` so spe
 ## Behavior
 
 - Navigate to git repository root
-- Verify `openspec/config.yaml` exists; if not, report error and stop
+- Determine the target file: `openspec/config.yaml` if it exists at the git root;
+  otherwise `.claude/reviewer/rules.yaml` (create it, including parent directory, with the
+  same artifact-keyed YAML shape: top-level keys `proposal`, `specs`, `design`, `tasks`,
+  each a list of quoted rule strings)
 - Parse the reviewer rules template (provided inline in the prompt)
 - Read existing config and identify which rules are already present per artifact ID (proposal, specs, design, tasks)
 - Compute delta: filter template rules not already present (exact string match)
@@ -48,4 +51,6 @@ You inject reviewer-aligned rules into a project's `openspec/config.yaml` so spe
 - Never modify existing comments or other fields in config.yaml
 - Use exact string matching for deduplication — no fuzzy matching
 - Preserve proper YAML formatting (2-space keys, 4-space list items)
-- If config.yaml has syntax errors, report and stop — do not attempt to fix
+- If the target file has syntax errors, report and stop — do not attempt to fix
+- When writing the portable fallback (`.claude/reviewer/rules.yaml`), the same append-only,
+  dedup-by-exact-match rules apply

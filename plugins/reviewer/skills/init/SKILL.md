@@ -12,6 +12,7 @@ Inject reviewer rules into your project's `openspec/config.yaml` so that specs g
 ```
 $init
 $init --dry-run
+$init --from-history
 ```
 
 ## Process
@@ -21,6 +22,11 @@ $init --dry-run
 3. Compare against existing rules (dedup by exact match)
 4. Append only new rules (or preview in dry-run mode)
 5. Report what was added
+6. With `--from-history`: skip the static template — read the review findings history
+   (`openspec/reviews/history.jsonl`, else `.claude/reviewer/history.jsonl`), cluster
+   findings recurring across ≥2 changes into candidate rules, confirm each with the user
+   (AskUserQuestion, multiSelect), and pass only confirmed rules to the agent as the template.
+   Clustering and confirmation happen in the main conversation, NOT in the agent.
 
 ## Agent Dispatch
 
