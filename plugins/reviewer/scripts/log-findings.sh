@@ -29,7 +29,8 @@ command -v jq >/dev/null 2>&1 || { echo "log-findings: jq is required but not in
 
 INPUT="$(cat)"
 [[ -n "$INPUT" ]] || { echo "log-findings: empty stdin, nothing to log" >&2; exit 1; }
-COUNT="$(jq 'length' <<<"$INPUT")" || { echo "log-findings: stdin is not a JSON array" >&2; exit 1; }
+jq -e 'type=="array"' <<<"$INPUT" >/dev/null 2>&1 || { echo "log-findings: stdin is not a JSON array" >&2; exit 1; }
+COUNT="$(jq 'length' <<<"$INPUT")"
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 if [[ -d "$ROOT/openspec" ]]; then

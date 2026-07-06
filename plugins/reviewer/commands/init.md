@@ -97,7 +97,7 @@ Task tool:
 - subagent_type: "reviewer:init-reviewer"
 - description: "Inject reviewer rules into openspec/config.yaml"
 - prompt: |
-    Inject reviewer rules into the project's openspec/config.yaml.
+    Inject reviewer rules into the project's rules target (openspec/config.yaml, or the portable fallback per your instructions).
 
     Options:
     - dry_run: <true or false>

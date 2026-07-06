@@ -62,7 +62,9 @@ If `log_script_path` was provided, persist this review's final Issues & Risks
 `severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
 
 ```bash
-printf '%s' '<the JSON array>' | "<log_script_path>" --change "<first review path>" --source result --round 1
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'
+<the JSON array>
+FINDINGS_JSON
 ```
 
 If the command fails or `log_script_path` is missing, add one line to your output

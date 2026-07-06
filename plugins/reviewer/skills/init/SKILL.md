@@ -17,7 +17,7 @@ $init --from-history
 
 ## Process
 
-1. Check that `openspec/config.yaml` exists in the working directory
+1. Determine the rules target: `openspec/config.yaml` if present, else `.claude/reviewer/rules.yaml`
 2. Read the reviewer rules template
 3. Compare against existing rules (dedup by exact match)
 4. Append only new rules (or preview in dry-run mode)

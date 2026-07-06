@@ -240,7 +240,9 @@ If `log_script_path` was provided, persist the FINAL round's merged, deduplicate
 `severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
 
 ```bash
-printf '%s' '<the JSON array>' | "<log_script_path>" --change "<first review path>" --source spec --round <final round number>
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path — keep this identifier consistent across runs and review sources for the same change>" --source spec --round <final round number> <<'FINDINGS_JSON'
+<the JSON array>
+FINDINGS_JSON
 ```
 
 If the command fails or `log_script_path` is missing, add one line to your output

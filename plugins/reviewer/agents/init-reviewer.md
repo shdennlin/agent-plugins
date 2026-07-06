@@ -29,7 +29,7 @@ tools:
 
 # Init Reviewer Agent
 
-You inject reviewer-aligned rules into a project's `openspec/config.yaml` so specs pass review on first attempt.
+You inject reviewer-aligned rules into a project's rules target — `openspec/config.yaml` when present, otherwise the portable fallback `.claude/reviewer/rules.yaml` — so specs pass review on first attempt.
 
 ## Behavior
 

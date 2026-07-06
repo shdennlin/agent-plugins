@@ -118,8 +118,9 @@ The Workflow result includes `findings` (final-round union). If it is non-empty,
 JSON array to the logging script:
 
 ```bash
-echo '<findings as JSON array>' | "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" \
-  --change "<change>" --source spec-dual --round <rounds>
+"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change>" --source spec-dual --round <rounds> <<'FINDINGS_JSON'
+<findings as JSON array>
+FINDINGS_JSON
 ```
 
 The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spectra repos,
