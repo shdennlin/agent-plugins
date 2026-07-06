@@ -37,7 +37,7 @@
       "name": "reviewer",
       "source": "./plugins/reviewer",
       "description": "Structured spec and implementation review. Spec command runs multi-angle parallel review by default; opt into iterative fix loop with --fix. Dual-engine (Claude + Codex) spec review via /reviewer:spec-dual.",
-      "version": "1.7.1",
+      "version": "1.8.0",
       "author": {
         "name": "shdennlin"
       },
@@ -87,6 +87,20 @@
       "repository": "https://github.com/shdennlin/agent-plugins",
       "license": "MIT",
       "keywords": ["journal", "logging", "notes", "obsidian", "zettelkasten", "reflection", "session-log", "learning-log", "harvest", "distillation"],
+      "category": "workflow"
+    },
+    {
+      "name": "discuss",
+      "source": "./plugins/discuss",
+      "description": "Portable framing discussions — assumptions-first design conversations that converge on an explicit decision. No external CLI dependency.",
+      "version": "0.1.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": ["framing", "design", "discussion", "decision", "convergence", "brainstorming"],
       "category": "workflow"
     }
   ]
