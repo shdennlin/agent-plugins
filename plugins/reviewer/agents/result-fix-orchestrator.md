@@ -31,6 +31,7 @@ The prompt provides these parameters:
 - **angles**: comma-separated list of angle names, or "default" for built-in angles
 - **fix_all**: true/false — if true, auto-fix all severities without asking
 - **review_angles**: the full content of review-angles.yaml (result section)
+- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
 
 ## Preparation
 
@@ -275,6 +276,20 @@ After the loop ends (either PASS or max iterations), output:
 ---
 ```
 
+## Log Findings (after Final Output)
+
+If `log_script_path` was provided, persist the FINAL round's merged, deduplicated issues
+(best-effort). Convert them to a JSON array — one object per issue with keys
+`severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
+
+```bash
+printf '%s' '<the JSON array>' | "<log_script_path>" --change "<first review path>" --source result --round <final round number>
+```
+
+If the command fails or `log_script_path` is missing, add one line to your output
+("findings not logged: <reason>") and continue — logging failure MUST NOT change
+your verdict or output format.
+
 ## Constraints
 
 - Do NOT modify files yourself — always delegate to the fixer agent
@@ -283,3 +298,4 @@ After the loop ends (either PASS or max iterations), output:
 - Read the spec ONCE in Step 0 and pass the summary to sub-agents — do not re-read each round
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
 - The round verdict is PASS only if all review sub-agents return PASS. If any sub-agent returns FAIL, the round is FAIL
+- Logging is best-effort — never retry it more than once, never let it affect the verdict

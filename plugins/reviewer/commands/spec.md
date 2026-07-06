@@ -149,6 +149,7 @@ Task tool:
     - max_iterations: <N, default 3>
     - angles: <value from --angles flag, or "default">
     - working_directory: <current directory>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 
     ## Codebase Context (from code-explorer)
     <CODEBASE_CONTEXT, or "No codebase context available." if empty>
