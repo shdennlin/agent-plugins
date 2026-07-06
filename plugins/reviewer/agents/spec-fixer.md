@@ -1,7 +1,7 @@
 ---
 identifier: spec-fixer
 displayName: Spec Fixer
-model: sonnet
+model: inherit
 color: green
 whenToUse: |
   Internal agent spawned by spec-orchestrator to apply fixes to spec documents.

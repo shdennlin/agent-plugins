@@ -31,9 +31,9 @@ const CONTEXT = A.codebaseContext || ''   // optional code-explorer summary, sha
 const STALE = Number(A.staleThreshold) > 0 ? Number(A.staleThreshold) : 2
 // The fix phase runs as a SINGLE strong-model agent per round (not one-agent-per-finding),
 // so it holds all of the round's blockers + the codebase context in one context and can make
-// coherent cross-file edits — the way a single long-context session would. Default to Opus;
+// coherent cross-file edits — the way a single long-context session would. Default: inherit the session model;
 // override via args.fixModel if a run needs something cheaper.
-const FIX_MODEL = (typeof A.fixModel === 'string' && A.fixModel.trim()) ? A.fixModel.trim() : 'opus'
+const FIX_MODEL = (typeof A.fixModel === 'string' && A.fixModel.trim()) ? A.fixModel.trim() : ''
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -153,7 +153,8 @@ function batchFixPrompt(findings, cat) {
 // One strong-model fixer per round, holding all the findings + shared context at once.
 async function runFix(findings, cat, label) {
   await agent(batchFixPrompt(findings, cat),
-    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer', model: FIX_MODEL })
+    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer',
+      ...(FIX_MODEL ? { model: FIX_MODEL } : {}) })
 }
 
 phase('Review')

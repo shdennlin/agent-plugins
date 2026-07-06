@@ -1,7 +1,7 @@
 ---
 identifier: result-fix-orchestrator
 displayName: Result Fix Orchestrator
-model: sonnet
+model: inherit
 color: yellow
 whenToUse: |
   Internal orchestrator dispatched by the result command with --fix flag.

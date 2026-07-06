@@ -1,7 +1,7 @@
 ---
 identifier: result-reviewer
 displayName: Result Reviewer
-model: sonnet
+model: inherit
 color: yellow
 whenToUse: |
   Use this agent when the user wants to review their implementation against a spec or design doc.

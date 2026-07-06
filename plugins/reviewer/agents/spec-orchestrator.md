@@ -1,7 +1,7 @@
 ---
 identifier: spec-orchestrator
 displayName: Spec Orchestrator
-model: sonnet
+model: inherit
 color: blue
 whenToUse: |
   Internal orchestrator dispatched by the spec command.

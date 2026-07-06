@@ -1,7 +1,7 @@
 ---
 identifier: result-fixer
 displayName: Result Fixer
-model: sonnet
+model: inherit
 color: green
 whenToUse: |
   Internal agent spawned by result-fix-orchestrator to apply fixes to implementation code.
