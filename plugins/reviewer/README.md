@@ -77,19 +77,6 @@ Inject reviewer-aligned rules into your project's `openspec/config.yaml` so spec
 
 Rules are appended per artifact ID (`proposal`, `specs`, `design`, `tasks`). Existing rules are preserved — only new rules are added (dedup by exact match). Run from any project root with an `openspec/config.yaml`.
 
-## Checkpoint reviews for long implementations
-
-`/reviewer:result` already reviews partial diffs via `--base`. For long changes, don't wait
-until the end: after each milestone (or ~5 tasks), run
-
-```
-/reviewer:result <change-dir> --base <branch>
-```
-
-and clear CRITICAL findings before continuing. In Spectra repos, `/reviewer:init` injects a
-tasks rule so generated `tasks.md` includes these checkpoint tasks automatically for changes
-with more than 10 tasks — `spectra-apply` then executes the checkpoints as ordinary tasks.
-
 ### Multi-Angle Review and Iterative Fix
 
 `/reviewer:spec` runs multi-angle parallel review on every invocation — first pass extracts maximum signal across all built-in angles. Add `--fix` to layer an iterative review → fix loop on top.
@@ -212,6 +199,19 @@ Multi-model review's value scales with **error propagation cost** and inversely 
 | Multi-model ROI | High | Low |
 
 Result review is usually fine with one engine + TDD + verification. Use Codex on result review only for **specific high-risk implementations** (auth/crypto, concurrency, performance hotpaths) — invoke `/codex:review` manually rather than baking it into a loop.
+
+## Checkpoint reviews for long implementations
+
+`/reviewer:result` already reviews partial diffs via `--base`. For long changes, don't wait
+until the end: after each milestone (or ~5 tasks), run
+
+```
+/reviewer:result <change-dir> --base <branch>
+```
+
+and clear CRITICAL findings before continuing. In Spectra repos, `/reviewer:init` injects a
+tasks rule so generated `tasks.md` includes these checkpoint tasks automatically for changes
+with more than 10 tasks — `spectra-apply` then executes the checkpoints as ordinary tasks.
 
 ## Agent-Loop Workflow
 
