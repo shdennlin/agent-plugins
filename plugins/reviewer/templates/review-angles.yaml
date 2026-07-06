@@ -40,6 +40,9 @@ spec:
       executable verification (named test, CLI invocation, or manual assertion
       with expected output), tasks for error/edge cases (not just happy path),
       test tasks, dependency ordering, and independent completability.
+      For changes with more than 10 tasks, verify checkpoint tasks exist after
+      each milestone (a task that runs a partial-diff result review and gates
+      on CRITICAL findings before continuing).
 
   platform:
     label: "Platform & Tool Feasibility"

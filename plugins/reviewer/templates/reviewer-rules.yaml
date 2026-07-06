@@ -42,3 +42,4 @@ tasks:
   - "Order tasks by dependency — prerequisite tasks come first"
   - "Each task should be completable independently without undocumented context"
   - "Map every acceptance criterion to an executable verification — a named test, a CLI invocation, or a manual assertion with expected output"
+  - "For changes with more than 10 tasks, insert a checkpoint task after each milestone or coherent task group: run /reviewer:result <change-dir> --base <branch> on the partial diff and resolve CRITICAL findings before continuing"
