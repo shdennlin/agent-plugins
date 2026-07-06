@@ -35,7 +35,7 @@ If no paths are given, ask which spec files to review against.
 
 ## Agent Dispatch
 
-Without `--fix`: use the companion `result-reviewer.md` in this directory as the agent prompt.
+Without `--fix`: use the companion `result-reviewer.md` in this directory as the agent prompt, and provide `log_script_path` — resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path.
 With `--fix`: dispatch `reviewer:result-fix-orchestrator` with parameters (spec_paths, working_directory, base_branch, max_iterations, parallel, angles, fix_all, review-angles template content, log_script_path — resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path).
 
 The agent will cd to the git root automatically. Provide it with:

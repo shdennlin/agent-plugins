@@ -110,6 +110,7 @@ Task tool:
     - Base branch: <base branch or "auto-detect">
 
     Working directory: <current directory>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 ```
 
 **If `--fix` IS set:**

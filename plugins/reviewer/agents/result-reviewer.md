@@ -31,6 +31,11 @@ tools:
 
 You review implementation against a spec by comparing git diffs with spec requirements to identify mismatches, gaps, and bug risks.
 
+## Input Parameters
+
+Along with the spec files/folders, base branch, and working directory, the prompt may also provide:
+- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+
 ## Behavior
 
 - Navigate to git repository root
@@ -49,3 +54,19 @@ You review implementation against a spec by comparing git diffs with spec requir
 - Be concise — each issue should be 2-4 lines
 - Focus on spec mismatches and hidden bug risks
 - PASS = implementation matches spec with no critical/high issues
+
+## Log Findings (after Verdict)
+
+If `log_script_path` was provided, persist this review's final Issues & Risks
+(best-effort). Convert them to a JSON array — one object per issue with keys
+`severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
+
+```bash
+printf '%s' '<the JSON array>' | "<log_script_path>" --change "<first review path>" --source result --round 1
+```
+
+If the command fails or `log_script_path` is missing, add one line to your output
+("findings not logged: <reason>") and continue — logging failure MUST NOT change
+your verdict or output format.
+
+Logging is best-effort — never retry it more than once, never let it affect the verdict.
