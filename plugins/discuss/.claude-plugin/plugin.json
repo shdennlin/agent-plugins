@@ -1,6 +1,6 @@
 {
   "name": "discuss",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Portable framing discussions — assumptions-first design conversations that converge on an explicit decision. No external CLI dependency.",
   "author": {
     "name": "shdennlin"

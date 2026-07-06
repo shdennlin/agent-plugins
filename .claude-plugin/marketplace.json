@@ -93,7 +93,7 @@
       "name": "discuss",
       "source": "./plugins/discuss",
       "description": "Portable framing discussions — assumptions-first design conversations that converge on an explicit decision. No external CLI dependency.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "shdennlin"
       },
