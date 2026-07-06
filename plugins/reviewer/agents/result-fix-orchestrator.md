@@ -1,7 +1,7 @@
 ---
 identifier: result-fix-orchestrator
 displayName: Result Fix Orchestrator
-model: sonnet
+model: inherit
 color: yellow
 whenToUse: |
   Internal orchestrator dispatched by the result command with --fix flag.
@@ -31,6 +31,7 @@ The prompt provides these parameters:
 - **angles**: comma-separated list of angle names, or "default" for built-in angles
 - **fix_all**: true/false — if true, auto-fix all severities without asking
 - **review_angles**: the full content of review-angles.yaml (result section)
+- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
 
 ## Preparation
 
@@ -247,7 +248,8 @@ Continue to the next round (go back to Step 1).
 
 ## Final Output
 
-After the loop ends (either PASS or max iterations), output:
+After the loop ends (either PASS or max iterations), FIRST complete the "Log Findings"
+step below — run its Bash command BEFORE printing the Final Summary. Then output:
 
 ```
 ---
@@ -275,6 +277,25 @@ After the loop ends (either PASS or max iterations), output:
 ---
 ```
 
+## Log Findings (REQUIRED — run before the Final Summary)
+
+This is a mandatory step of every run, not an optional postscript: your run is
+INCOMPLETE if it ends without either running this command or printing a
+"findings not logged: <reason>" line. If `log_script_path` was provided, persist the
+FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
+per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
+name), `category` — then run:
+
+```bash
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round <final round number> <<'FINDINGS_JSON'
+<the JSON array>
+FINDINGS_JSON
+```
+
+If the command fails or `log_script_path` is missing, add one line to your output
+("findings not logged: <reason>") and continue — logging failure MUST NOT change
+your verdict or output format.
+
 ## Constraints
 
 - Do NOT modify files yourself — always delegate to the fixer agent
@@ -283,3 +304,4 @@ After the loop ends (either PASS or max iterations), output:
 - Read the spec ONCE in Step 0 and pass the summary to sub-agents — do not re-read each round
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
 - The round verdict is PASS only if all review sub-agents return PASS. If any sub-agent returns FAIL, the round is FAIL
+- Logging is best-effort — never retry it more than once, never let it affect the verdict

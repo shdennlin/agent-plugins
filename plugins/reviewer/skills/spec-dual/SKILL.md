@@ -77,7 +77,8 @@ to call it. Only the main agent runs this skill — do not invoke it from inside
 subagent (a Workflow subagent cannot itself call Workflow).
 
 ### Step 5: Report and resolve escalations
-The Workflow returns `{ ready, change, rounds, lowsFixed?, needsHuman, history }`.
+The Workflow returns `{ ready, change, rounds, lowsFixed?, needsHuman, history, findings }`.
+Retain `findings` for Step 6 (history logging).
 - If `ready: true`, report that both engines are MEDIUM-clean after `rounds` rounds,
   note `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point
@@ -90,3 +91,23 @@ AskUserQuestion (one question per finding, or grouped if few), each showing seve
 location, which engine(s) saw it (`seenBy`), and the rationale, then ask the user how to
 handle each (fix a specific way / accept as-is / defer). Apply the chosen fixes — and if
 changes were made, offer to re-run `/reviewer:spec-dual` to confirm the spec now clears.
+
+### Step 6: Log findings history (best-effort)
+
+Persist the final round's findings for the rules-harvest loop (`/reviewer:init --from-history`).
+The Workflow result includes `findings` (final-round union). If it is non-empty, pipe it as a
+JSON array to the logging script:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change>" --source spec-dual --round <rounds> <<'FINDINGS_JSON'
+<findings as JSON array>
+FINDINGS_JSON
+```
+
+The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spectra repos,
+`.claude/reviewer/history.jsonl` otherwise). Logging is best-effort: if the script fails
+(e.g., jq missing), mention it in one line and continue — a logging failure MUST NOT fail
+or repeat the review.
+
+Findings now include `category` and `engine` (both/claude/codex) — pass them through
+unchanged; the script persists them.

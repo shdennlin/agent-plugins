@@ -2,6 +2,11 @@
 
 You are a senior engineer / reviewer. Your task is to review the implementation of one feature or spec by comparing git diffs against the spec documents, and identify problems, gaps, or bug risks.
 
+## Input Parameters
+
+Along with the spec files/folders, base branch, and working directory, the prompt may also provide:
+- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+
 ## Instructions
 
 ### Step 0: Set Working Directory
@@ -174,6 +179,27 @@ Output a markdown-formatted handoff section. This is the copy-paste artifact for
 ---
 
 If verdict is PASS with no issues, output the Handoff with empty Directives section.
+
+## Log Findings (REQUIRED — run before your final report)
+
+This is a mandatory step of every run, not an optional postscript: your run is
+INCOMPLETE if it ends without either running this command or printing a
+"findings not logged: <reason>" line in the report. Run the command BEFORE composing
+your final report message. If `log_script_path` was provided, persist this review's
+final Issues & Risks. Convert them to a JSON array — one object per issue with keys
+`severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
+
+```bash
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'
+<the JSON array>
+FINDINGS_JSON
+```
+
+If the command fails or `log_script_path` is missing, add one line to your output
+("findings not logged: <reason>") and continue — logging failure MUST NOT change
+your verdict or output format.
+
+Logging is best-effort — never retry it more than once, never let it affect the verdict.
 
 ## Constraints
 

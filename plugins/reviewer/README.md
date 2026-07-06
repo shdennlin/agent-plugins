@@ -200,6 +200,19 @@ Multi-model review's value scales with **error propagation cost** and inversely 
 
 Result review is usually fine with one engine + TDD + verification. Use Codex on result review only for **specific high-risk implementations** (auth/crypto, concurrency, performance hotpaths) — invoke `/codex:review` manually rather than baking it into a loop.
 
+## Checkpoint reviews for long implementations
+
+`/reviewer:result` already reviews partial diffs via `--base`. For long changes, don't wait
+until the end: after each milestone (or ~5 tasks), run
+
+```
+/reviewer:result <change-dir> --base <branch>
+```
+
+and clear CRITICAL findings before continuing. In Spectra repos, `/reviewer:init` injects a
+tasks rule so generated `tasks.md` includes these checkpoint tasks automatically for changes
+with more than 10 tasks — `spectra-apply` then executes the checkpoints as ordinary tasks.
+
 ## Agent-Loop Workflow
 
 The plugin outputs a **Handoff block** designed for copy-pasting between agents:

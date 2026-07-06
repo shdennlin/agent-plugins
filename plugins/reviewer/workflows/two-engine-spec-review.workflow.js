@@ -1,9 +1,9 @@
 export const meta = {
   name: 'two-engine-spec-review',
-  description: 'Claude + Codex dual-engine spec review; each round fixes all fresh union blockers in ONE coherent Opus pass, escalating findings it cannot resolve, then clears LOW.',
+  description: 'Claude + Codex dual-engine spec review; each round fixes all fresh union blockers in ONE coherent session-model pass, escalating findings it cannot resolve, then clears LOW.',
   phases: [
     { title: 'Review', detail: 'Claude and Codex review the same change in parallel' },
-    { title: 'Fix',    detail: 'One Opus fixer resolves all fresh blockers together with shared context; stale ones escalate' },
+    { title: 'Fix',    detail: 'One session-model fixer resolves all fresh blockers together with shared context; stale ones escalate' },
   ],
 }
 
@@ -31,9 +31,9 @@ const CONTEXT = A.codebaseContext || ''   // optional code-explorer summary, sha
 const STALE = Number(A.staleThreshold) > 0 ? Number(A.staleThreshold) : 2
 // The fix phase runs as a SINGLE strong-model agent per round (not one-agent-per-finding),
 // so it holds all of the round's blockers + the codebase context in one context and can make
-// coherent cross-file edits — the way a single long-context session would. Default to Opus;
+// coherent cross-file edits — the way a single long-context session would. Default: inherit the session model;
 // override via args.fixModel if a run needs something cheaper.
-const FIX_MODEL = (typeof A.fixModel === 'string' && A.fixModel.trim()) ? A.fixModel.trim() : 'opus'
+const FIX_MODEL = (typeof A.fixModel === 'string' && A.fixModel.trim()) ? A.fixModel.trim() : ''
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -53,6 +53,7 @@ const FINDINGS = {
         title:     { type: 'string' },
         location:  { type: 'string' },   // file:line or artifact name
         rationale: { type: 'string' },
+        category: { type: 'string' },
       },
     }},
   },
@@ -76,6 +77,7 @@ const reviewPrompt = engine =>
   `Do NOT modify any files — report findings only. ` +
   `Cover these angles: ${ANGLES}. Assign each finding a severity ` +
   `(CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick. ` +
+  `Also assign each finding a category: scope, completeness, design, tasks, platform, consistency, or cross-cutting. ` +
   (CONTEXT ? `\n\n## Codebase context\n${CONTEXT}\n` : '') +
   `\n(Engine: ${engine}.)`
 
@@ -150,10 +152,11 @@ function batchFixPrompt(findings, cat) {
   )
 }
 
-// One strong-model fixer per round, holding all the findings + shared context at once.
+// One fixer per round (session model by default), holding all the findings + shared context at once.
 async function runFix(findings, cat, label) {
   await agent(batchFixPrompt(findings, cat),
-    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer', model: FIX_MODEL })
+    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer',
+      ...(FIX_MODEL ? { model: FIX_MODEL } : {}) })
 }
 
 phase('Review')
@@ -162,10 +165,14 @@ const survival = new Map()    // blocker key -> consecutive rounds it has persis
 const escalated = new Set()   // keys already moved to needsHuman (don't re-fix or re-escalate)
 const needsHuman = []         // findings the fixer can't resolve -> returned for human judgement
 let round = 1, cleared = null
+let lastAll = []              // final round's union findings, returned for history logging
+let lastCat = null            // final round's categorization, used to attribute engine provenance
 
 while (round <= MAX_ROUNDS) {
   const r = await reviewRound(round)
   const cat = categorize(r)
+  lastAll = cat.all
+  lastCat = cat
   const enginesOk = r.claudeOk && r.codexOk
   const noFailVerdict = r.claude.verdict !== 'FAIL' && r.codex.verdict !== 'FAIL'
   const down = [!r.claudeOk && 'claude', !r.codexOk && 'codex'].filter(Boolean)
@@ -217,7 +224,8 @@ if (!cleared) {
     : needsHuman.length > 0
       ? `${needsHuman.length} blocker(s) need human judgement — the fixer could not resolve them (see needsHuman)`
       : `still had blockers after ${MAX_ROUNDS} rounds; final-round fixes were applied but NOT re-reviewed`
-  return { ready: false, change: CHANGE, rounds: round - 1, reason, needsHuman, history }
+  return { ready: false, change: CHANGE, rounds: round - 1, reason, needsHuman, history,
+            findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
 }
 
 // After blockers clear, fix remaining LOW issues (no re-review needed).
@@ -227,4 +235,5 @@ if (lows.length) {
   await runFix(lows, cleared, 'fix-low')
 }
 
-return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history }
+return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history,
+         findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }

@@ -1,7 +1,7 @@
 ---
 identifier: spec-orchestrator
 displayName: Spec Orchestrator
-model: sonnet
+model: inherit
 color: blue
 whenToUse: |
   Internal orchestrator dispatched by the spec command.
@@ -13,6 +13,7 @@ tools:
   - Glob
   - Grep
   - AskUserQuestion
+  - Bash
 ---
 
 # Spec Orchestrator
@@ -28,6 +29,8 @@ The prompt provides these parameters:
 - **angles**: comma-separated list of angle names, or "default" for built-in angles
 - **codebase_context**: summary of relevant codebase architecture and patterns (optional, may be empty)
 - **review_angles**: the full content of review-angles.yaml (spec section)
+- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+- **project_rules**: content of the project's `.claude/reviewer/rules.yaml` (optional, may be empty) — artifact-keyed lists of extra review criteria
 
 ## Main Loop
 
@@ -65,6 +68,11 @@ Agent tool:
 
     ## Your Review Angle: {angle label}
     {angle focus text}
+
+    ## Project Rules (additional criteria — treat violations as findings)
+    {rules from project_rules matching this angle's artifact area: scope→proposal,
+    completeness→specs, design→design, tasks→tasks; omit this section entirely
+    when project_rules is empty or has no matching key}
 
     ## Instructions
 
@@ -202,7 +210,8 @@ Continue to the next round (go back to Step 1).
 
 ## Final Output
 
-After the loop ends, output:
+After the loop ends, FIRST complete the "Log Findings" step below — run its Bash command
+BEFORE printing the Final Summary. Then output:
 
 ```
 ---
@@ -225,6 +234,25 @@ After the loop ends, output:
 ---
 ```
 
+## Log Findings (REQUIRED — run before the Final Summary)
+
+This is a mandatory step of every run, not an optional postscript: your run is
+INCOMPLETE if it ends without either running this command or printing a
+"findings not logged: <reason>" line. If `log_script_path` was provided, persist the
+FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
+per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
+name), `category` — then run:
+
+```bash
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source spec --round <final round number> <<'FINDINGS_JSON'
+<the JSON array>
+FINDINGS_JSON
+```
+
+If the command fails or `log_script_path` is missing, add one line to your output
+("findings not logged: <reason>") and continue — logging failure MUST NOT change
+your verdict or output format.
+
 ## Constraints
 
 - Do NOT modify files yourself — always delegate to the fixer agent
@@ -233,3 +261,4 @@ After the loop ends, output:
 - Do NOT enter Steps 5–7 when fix_enabled is false
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
 - The round verdict is PASS only if all review sub-agents return PASS. If any sub-agent returns FAIL, the round is FAIL
+- Logging is best-effort — never retry it more than once, never let it affect the verdict

@@ -110,6 +110,7 @@ Task tool:
     - Base branch: <base branch or "auto-detect">
 
     Working directory: <current directory>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 ```
 
 **If `--fix` IS set:**
@@ -136,6 +137,7 @@ Task tool:
     - parallel: <true if --no-parallel is NOT set, false otherwise>
     - angles: <value from --parallel flag, or "default">
     - fix_all: <true if --fix-all is set, false otherwise>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 
     ## Review Angle Templates (result section)
     <paste the result section content from review-angles.yaml>
