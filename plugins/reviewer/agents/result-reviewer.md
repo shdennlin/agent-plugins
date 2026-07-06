@@ -55,10 +55,13 @@ Along with the spec files/folders, base branch, and working directory, the promp
 - Focus on spec mismatches and hidden bug risks
 - PASS = implementation matches spec with no critical/high issues
 
-## Log Findings (after Verdict)
+## Log Findings (REQUIRED — run before your final report)
 
-If `log_script_path` was provided, persist this review's final Issues & Risks
-(best-effort). Convert them to a JSON array — one object per issue with keys
+This is a mandatory step of every run, not an optional postscript: your run is
+INCOMPLETE if it ends without either running this command or printing a
+"findings not logged: <reason>" line in the report. Run the command BEFORE composing
+your final report message. If `log_script_path` was provided, persist this review's
+final Issues & Risks. Convert them to a JSON array — one object per issue with keys
 `severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
 
 ```bash

@@ -248,7 +248,8 @@ Continue to the next round (go back to Step 1).
 
 ## Final Output
 
-After the loop ends (either PASS or max iterations), output:
+After the loop ends (either PASS or max iterations), FIRST complete the "Log Findings"
+step below — run its Bash command BEFORE printing the Final Summary. Then output:
 
 ```
 ---
@@ -276,11 +277,14 @@ After the loop ends (either PASS or max iterations), output:
 ---
 ```
 
-## Log Findings (after Final Output)
+## Log Findings (REQUIRED — run before the Final Summary)
 
-If `log_script_path` was provided, persist the FINAL round's merged, deduplicated issues
-(best-effort). Convert them to a JSON array — one object per issue with keys
-`severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
+This is a mandatory step of every run, not an optional postscript: your run is
+INCOMPLETE if it ends without either running this command or printing a
+"findings not logged: <reason>" line. If `log_script_path` was provided, persist the
+FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
+per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
+name), `category` — then run:
 
 ```bash
 "<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path — keep this identifier consistent across runs and review sources for the same change>" --source result --round <final round number> <<'FINDINGS_JSON'
