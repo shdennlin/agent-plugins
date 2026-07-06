@@ -190,7 +190,7 @@ final Issues & Risks. Convert them to a JSON array — one object per issue with
 `severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
 
 ```bash
-"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'
 <the JSON array>
 FINDINGS_JSON
 ```

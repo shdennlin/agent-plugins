@@ -244,7 +244,7 @@ per issue with keys `severity` (upper-case), `title`, `location` (file or artifa
 name), `category` — then run:
 
 ```bash
-"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path — keep this identifier consistent across runs and review sources for the same change>" --source spec --round <final round number> <<'FINDINGS_JSON'
+"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source spec --round <final round number> <<'FINDINGS_JSON'
 <the JSON array>
 FINDINGS_JSON
 ```
