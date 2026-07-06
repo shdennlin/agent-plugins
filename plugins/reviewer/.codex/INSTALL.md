@@ -43,7 +43,7 @@ Confirm the symlink resolves correctly:
 
 ```bash
 ls -la ~/.agents/skills/reviewer/
-# Should list: spec/  result/
+# Should list: init/  result/  spec/  spec-dual/
 ```
 
 ## Update
