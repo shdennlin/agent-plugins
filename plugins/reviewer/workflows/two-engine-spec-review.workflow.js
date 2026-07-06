@@ -163,10 +163,12 @@ const survival = new Map()    // blocker key -> consecutive rounds it has persis
 const escalated = new Set()   // keys already moved to needsHuman (don't re-fix or re-escalate)
 const needsHuman = []         // findings the fixer can't resolve -> returned for human judgement
 let round = 1, cleared = null
+let lastAll = []              // final round's union findings, returned for history logging
 
 while (round <= MAX_ROUNDS) {
   const r = await reviewRound(round)
   const cat = categorize(r)
+  lastAll = cat.all
   const enginesOk = r.claudeOk && r.codexOk
   const noFailVerdict = r.claude.verdict !== 'FAIL' && r.codex.verdict !== 'FAIL'
   const down = [!r.claudeOk && 'claude', !r.codexOk && 'codex'].filter(Boolean)
@@ -218,7 +220,7 @@ if (!cleared) {
     : needsHuman.length > 0
       ? `${needsHuman.length} blocker(s) need human judgement — the fixer could not resolve them (see needsHuman)`
       : `still had blockers after ${MAX_ROUNDS} rounds; final-round fixes were applied but NOT re-reviewed`
-  return { ready: false, change: CHANGE, rounds: round - 1, reason, needsHuman, history }
+  return { ready: false, change: CHANGE, rounds: round - 1, reason, needsHuman, history, findings: lastAll }
 }
 
 // After blockers clear, fix remaining LOW issues (no re-review needed).
@@ -228,4 +230,4 @@ if (lows.length) {
   await runFix(lows, cleared, 'fix-low')
 }
 
-return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history }
+return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history, findings: lastAll }

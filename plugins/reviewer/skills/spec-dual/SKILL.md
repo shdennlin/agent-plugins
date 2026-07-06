@@ -90,3 +90,19 @@ AskUserQuestion (one question per finding, or grouped if few), each showing seve
 location, which engine(s) saw it (`seenBy`), and the rationale, then ask the user how to
 handle each (fix a specific way / accept as-is / defer). Apply the chosen fixes — and if
 changes were made, offer to re-run `/reviewer:spec-dual` to confirm the spec now clears.
+
+### Step 6: Log findings history (best-effort)
+
+Persist the final round's findings for the rules-harvest loop (`/reviewer:init --from-history`).
+The Workflow result includes `findings` (final-round union). If it is non-empty, pipe it as a
+JSON array to the logging script:
+
+```bash
+echo '<findings as JSON array>' | "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" \
+  --change "<change>" --source spec-dual --round <rounds>
+```
+
+The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spectra repos,
+`.claude/reviewer/history.jsonl` otherwise). Logging is best-effort: if the script fails
+(e.g., jq missing), mention it in one line and continue — a logging failure MUST NOT fail
+or repeat the review.
