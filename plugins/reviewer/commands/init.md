@@ -4,6 +4,7 @@ allowed-tools:
   - Task
   - AskUserQuestion
   - Bash
+  - Edit
 description: Inject reviewer-aligned rules into openspec/config.yaml to reduce review round-trips
 argument-hint: "[--dry-run/-n] [--from-history] [--help/-h]"
 ---
@@ -52,6 +53,8 @@ What it does:
   With --from-history, reads the review findings history (openspec/reviews/history.jsonl
   or .claude/reviewer/history.jsonl), clusters findings that recur across 2+ changes into
   candidate rules, asks you to confirm each, and injects only the confirmed ones.
+  The same pass flags existing rules for retirement (finding class never seen in history,
+  or superseded by a new rule) — removals are confirmed separately before applying.
 
 Examples:
   /reviewer:init                     # inject rules into openspec/config.yaml
@@ -88,9 +91,22 @@ When from_history is true, do NOT use the static template. Instead:
    (default `specs` when unclear).
 5. **Confirm**: present all candidates with AskUserQuestion (multiSelect: true), each option
    showing the drafted rule and how many changes it recurred in. Only user-selected rules
-   proceed. If the user selects none, report "no rules confirmed" and STOP.
-6. **Build the template**: format the confirmed rules as a YAML fragment keyed by artifact
+   proceed. If the user selects none, skip to step 6 (retirement may still apply); if there
+   is also nothing to retire, report "no rules confirmed" and STOP.
+6. **Retire**: the flywheel must prune as well as add — rules are a per-spec compliance tax.
+   Read the current rules target (`openspec/config.yaml` at the git root, else
+   `.claude/reviewer/rules.yaml`) and flag retirement candidates: existing rules whose
+   finding class appears NOWHERE in the history (guarding against a problem this project
+   has never had), and rules duplicated or superseded by a newly confirmed candidate.
+   Do NOT flag a rule merely because its finding class stopped after injection — silence
+   after injection means the rule is working. If there are candidates, present them in a
+   SEPARATE AskUserQuestion (multiSelect: true) clearly labeled as removals, and delete
+   only user-selected ones from the rules target with Edit in this conversation — never
+   via the init-reviewer agent, which is append-only by design. With dry_run, preview
+   removal candidates instead of editing. No existing rules or no candidates: skip silently.
+7. **Build the template**: format the confirmed rules as a YAML fragment keyed by artifact
    (same shape as reviewer-rules.yaml) and pass THAT as the template content in Step 3.
+   If only retirements were confirmed (no new rules), skip Step 3 and report directly.
 
 ### Step 2c: Confirm Portable Fallback (before dispatch)
 

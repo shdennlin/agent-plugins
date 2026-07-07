@@ -29,6 +29,11 @@ $init --from-history
    findings recurring across ≥2 changes into candidate rules, confirm each with the user
    (AskUserQuestion, multiSelect), and pass only confirmed rules to the agent as the template.
    Clustering and confirmation happen in the main conversation, NOT in the agent.
+   The same pass flags existing rules for retirement — candidates are rules whose finding
+   class never appears in history or that are superseded by a new candidate (never rules
+   that went quiet after injection: that silence means they work). Removals get a separate
+   AskUserQuestion and are applied with Edit in the main conversation; the injection agent
+   stays append-only.
 
 ## Agent Dispatch
 
