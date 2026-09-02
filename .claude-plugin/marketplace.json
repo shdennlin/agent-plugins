@@ -170,6 +170,27 @@
         "brainstorming"
       ],
       "category": "workflow"
+    },
+    {
+      "name": "prompt-builder",
+      "source": "./plugins/prompt-builder",
+      "description": "Build paste-ready prompts from messy context — extract intent from the conversation, decompose multi-task requests, fill component gaps, and emit a self-contained prompt that survives a rewind.",
+      "version": "0.1.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": [
+        "prompt",
+        "prompt-engineering",
+        "rewind",
+        "context",
+        "decomposition",
+        "clipboard"
+      ],
+      "category": "workflow"
     }
   ]
 }

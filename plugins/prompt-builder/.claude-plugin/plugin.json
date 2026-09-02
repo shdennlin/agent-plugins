@@ -1,0 +1,16 @@
+{
+  "name": "prompt-builder",
+  "version": "0.1.0",
+  "description": "Build paste-ready prompts from messy context — extract intent from the conversation, decompose multi-task requests, fill component gaps, and emit a self-contained prompt that survives a rewind.",
+  "author": {
+    "name": "shdennlin"
+  },
+  "keywords": [
+    "prompt",
+    "prompt-engineering",
+    "rewind",
+    "context",
+    "decomposition",
+    "clipboard"
+  ]
+}
