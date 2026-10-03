@@ -1,5 +1,5 @@
 ---
-description: Frame a feature, bug, or design question before building — assumptions-first discussion that converges on a decision
+description: Frame a feature, bug, or design question before building — assumptions, hypotheses, or interview, converging on an explicit decision
 argument-hint: "[topic] [--help/-h]"
 ---
 
@@ -19,11 +19,13 @@ If `--help` or `-h` is present, display this and stop:
 ```
 Usage: /discuss:discuss [topic]
 
-Frame a feature, bug, or design question before building: scout the codebase, surface
-assumptions or interview, compare options, and converge on an explicit decision.
+Frame a feature, bug, or design question before building: size the decision, scout the
+codebase, then list assumptions, rank hypotheses, or interview — and converge on an
+explicit decision. Read-only; never implements.
 
 Examples:
   /discuss:discuss should we cache this at the edge or origin?
+  /discuss:discuss why does the sidebar flash on first paint?
   /discuss:discuss
 ```
 

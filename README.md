@@ -12,7 +12,7 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 | [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into structured cards, plus multi-project weekly recall digests | Command + Agent + Skill | `/digest:digest`, `/digest:release`, `/digest:weekly` |
 | [ralph-loop](./plugins/ralph-loop) | Continuous self-referential AI loops with session isolation | Command + Hook | `/ralph-loop:ralph-loop`, `/ralph-loop:cancel-ralph` |
 | [project-notes](./plugins/project-notes) | Capture sessions to a structured journal, then harvest ⭐ items into permanent-note drafts | Command + Agent | `/project-notes:log`, `/project-notes:harvest` |
-| [discuss](./plugins/discuss) | Portable framing discussions — assumptions-first design conversations that converge on an explicit decision | Command + Skill | `/discuss:discuss` |
+| [discuss](./plugins/discuss) | Portable framing discussions — size the decision, then list assumptions, rank hypotheses, or interview, converging on an explicit decision | Command + Skill | `/discuss:discuss` |
 | [prompt-builder](./plugins/prompt-builder) | Build paste-ready prompts from messy context — conversation extraction, multi-task decomposition, rewind-safe output | Command + Skill | `/prompt-builder:build` |
 
 ## Getting Started

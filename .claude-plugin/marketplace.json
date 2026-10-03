@@ -153,8 +153,8 @@
     {
       "name": "discuss",
       "source": "./plugins/discuss",
-      "description": "Portable framing discussions — assumptions-first design conversations that converge on an explicit decision. No external CLI dependency.",
-      "version": "0.2.0",
+      "description": "Portable framing discussions — size the decision, then list assumptions, rank hypotheses, or interview, converging on an explicit decision. No external CLI dependency.",
+      "version": "0.3.0",
       "author": {
         "name": "shdennlin"
       },
@@ -167,7 +167,8 @@
         "discussion",
         "decision",
         "convergence",
-        "brainstorming"
+        "brainstorming",
+        "hypotheses"
       ],
       "category": "workflow"
     },
