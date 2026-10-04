@@ -86,10 +86,35 @@ Enter Step 5 only when the user approves and no question is open.
   by path or hash are enough — the fresh session can read the repo itself.
   Destination claude.ai / API system prompt: XML-tagged sections; inline any
   data the target cannot fetch.
+  Destination `/goal` (input says `--goal`, or the user mentions `/goal`): see
+  **Goal budget** below — it overrides every rule here that adds length.
 - Divergent tasks (brainstorm, explore): constraints go to a filter stage after
   generation, not before it.
 - For executable work, end the prompt with a verification instruction (what to
   check, what "done" looks like).
+
+### Goal budget (destination `/goal`)
+
+`/goal` rejects any condition over **4000 characters**, counted after tabs
+expand to spaces. Target **≤ 3600** to leave headroom for the user's edits.
+
+- Lead with the end-state: a checkable "done when …" sentence, then the
+  verification. `/goal` keeps the session working until that condition holds,
+  so a vague finish line is worse than a missing detail. The goal evaluator
+  judges from the conversation alone — it cannot run commands or read files —
+  so the check must leave visible output ("`bun test` exits 0").
+- Spaces only, no tabs; terse bullets over prose; no Role section.
+- Cut what the fresh session can rediscover: name paths and hashes, never
+  paste their contents or summarize what the repo already shows.
+- Keep every settled decision and every hazard fence; these are what the
+  repo cannot tell the session.
+
+If it still exceeds 3600 after cutting, **spill**: write the full Step-5 prompt
+to `~/.claude/prompt-builder/<slug>.md` with a Bash heredoc (outside the repo
+and outside Write-tool checkpoints, so a code rewind does not revert it). The
+`/goal` text then becomes the end-state, the verification, the hazard fences,
+and "Read `~/.claude/prompt-builder/<slug>.md` first; it holds the full
+requirements (settled, do not revisit)." Spilled text still has to pass Step 6.
 
 ## Step 6: Rewind test, then finalize
 
@@ -100,12 +125,16 @@ Scan the assembled prompt; fix every hit before printing:
 - any path/name/value still vague or hedged
 - any decision from the conversation still missing
 - any question still open
+- destination `/goal`: measure through a quoted heredoc so backticks and `$`
+  in the prompt stay literal — `expand <<'PROMPT_EOF' | wc -m` … `PROMPT_EOF`;
+  over 3600 → cut or spill per Goal budget, then measure again
 
 Then, if `pbcopy` exists, pipe the exact prompt into it. **The final message
 IS, in full:**
 
 1. One line: components covered / deliberately omitted, plus "✅ clipboard" when
-   pbcopy succeeded.
+   pbcopy succeeded. For `/goal`, also the measured length ("3412/4000 chars")
+   and the spill file path, if one was written.
 2. The complete prompt in ONE fenced code block.
 
 Nothing follows the code block. Caveats, alternatives, and assumption notes

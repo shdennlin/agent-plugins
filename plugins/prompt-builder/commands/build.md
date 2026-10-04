@@ -1,6 +1,6 @@
 ---
 description: Build a paste-ready prompt — extract from conversation context, decompose multi-task requests, and emit a self-contained prompt that survives a rewind
-argument-hint: "[topic | draft prompt] [--help/-h]"
+argument-hint: "[topic | draft prompt] [--goal] [--help/-h]"
 ---
 
 # Build Command
@@ -10,6 +10,7 @@ argument-hint: "[topic | draft prompt] [--help/-h]"
 Parse `$ARGUMENTS`:
 
 - `--help` or `-h` — Show usage information and exit
+- `--goal` — Target `/goal`: keep the prompt under its 4000-character cap
 - Everything else — the input: a topic, a messy multi-task request, or an existing draft prompt to strengthen
 
 ### Help Output
@@ -17,7 +18,7 @@ Parse `$ARGUMENTS`:
 If `--help` or `-h` is present, display this and stop:
 
 ```
-Usage: /prompt-builder:build [topic | draft prompt]
+Usage: /prompt-builder:build [topic | draft prompt] [--goal]
 
 Build a polished, self-contained prompt from messy input. Three modes, auto-detected:
   context extract — mid-session with history: mine the conversation for the components
@@ -27,8 +28,12 @@ Build a polished, self-contained prompt from messy input. Three modes, auto-dete
 The finished prompt is printed as one copyable block and placed on the clipboard,
 ready to paste after a rewind.
 
+  --goal          shape it as a /goal condition and keep it under 4000 chars;
+                  overflow spills to ~/.claude/prompt-builder/<slug>.md
+
 Examples:
   /prompt-builder:build fix the flaky auth test and write a migration note
+  /prompt-builder:build --goal     (a /goal condition from this conversation)
   /prompt-builder:build            (uses the current conversation as source material)
   /prompt-builder:build <paste an existing prompt draft to critique>
 ```

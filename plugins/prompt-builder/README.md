@@ -17,7 +17,7 @@ gets baked into the prompt itself, with no "as discussed above" left dangling.
 ## Usage
 
 ```
-/prompt-builder:build [topic | messy request | draft prompt]
+/prompt-builder:build [topic | messy request | draft prompt] [--goal]
 ```
 
 Three modes, auto-detected:
@@ -36,6 +36,10 @@ ambiguous referents resolved from context — or asked about — before assembly
 
 - One fenced code block, nothing after it — copy the whole thing.
 - Self-contained: passes a "rewind test" (no references to the wiped conversation).
+- `--goal` (or mentioning `/goal`): shaped as a done-condition and kept under
+  `/goal`'s 4000-character cap (target ≤ 3600). If it can't fit, the full
+  requirements spill to `~/.claude/prompt-builder/<slug>.md` and the goal
+  points at that file.
 - On macOS the finished prompt is also placed on the clipboard via `pbcopy`.
 
 ## Prerequisites
