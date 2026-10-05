@@ -6,6 +6,32 @@ By default it pings at most twice per idle stretch, so a lunch or a meeting come
 
 Requires **Claude Code 2.1.289** or later (hook-module plugin API). The status widget targets **ccstatusline 2.2.30**.
 
+## Quick setup
+
+Nothing is required: once the plugin loads, it keeps the cache warm. The rest is optional.
+
+| You want | Set up | |
+|---|---|---|
+| Keepalive itself | Load the plugin (below) | required |
+| The state always on screen | A status line field and a refresh interval ([Seeing the state](#seeing-the-state)) | optional; `/keepalive status` works without it |
+| A Telegram question once the pings run out | Bot token **and** `telegramChatId` ([Telegram](#telegram-optional)) | optional; both are needed, or nothing is sent |
+| Only your own answers to count | `telegramUserId` | optional; without it anyone in the chat can answer |
+
+Load the plugin, one of:
+
+```bash
+# every session: add the folder to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json ("env" block),
+# separated by ":" from any folders already listed
+"CLAUDE_CODE_PLUGIN_DIRS": "/absolute/path/to/plugins/cache-keepalive"
+
+# one session only
+claude --plugin-dir /absolute/path/to/plugins/cache-keepalive
+```
+
+Then set options with `/plugin configure cache-keepalive` (sensitive ones included) or `/config` (search for `keep`). A session started with `--plugin-dir` reads them from `pluginConfigs["cache-keepalive"].options` in settings.
+
+Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: on` when Telegram is set up.
+
 ## Cost
 
 A ping is not free: it re-reads the whole prefix at the cache-read rate (0.1×). With a 200k context and the 1h TTL:
@@ -65,14 +91,14 @@ Setup:
 
 1. Use any bot you own, including the one session-notifier posts with. Its privacy mode must be on (the default; `getMe` reports `can_read_all_group_messages: false`) and it must have no webhook (`getWebhookInfo` url empty).
 2. Store the token, in one of three places (checked in this order):
-   - **The `telegramBotToken` option.** A sensitive option: Claude Code keeps it in secure storage, not in `settings.json`. Best once the plugin is installed from a marketplace.
+   - **The `telegramBotToken` option.** Set it with `/plugin configure cache-keepalive` inside Claude Code: a sensitive option, kept in secure storage rather than `settings.json`. Best once the plugin is installed from a marketplace. (`claude plugin install … --config telegramBotToken=…` works too, but leaves the token in your shell history.)
    - **The `CLAUDE_KEEPALIVE_TELEGRAM_BOT_TOKEN` environment variable.** Avoid it outside CI: it sits in plain text in a settings or profile file, and every process Claude Code starts inherits it, so one `env` run by the model puts the token in the transcript.
    - **The macOS Keychain.** Encrypted, in no file and no environment. The plugin reads it once per session. Best while loading the plugin with `--plugin-dir`:
      ```bash
      security add-generic-password -s claude-code.cache-keepalive -a telegram-bot-token -w   # prompts for the token
      security delete-generic-password -s claude-code.cache-keepalive -a telegram-bot-token   # to remove it
      ```
-3. Set `telegramChatId` (a group's id is negative) and `telegramUserId` (only your presses count) in `/config`. To find both, reply to one of the bot's messages in the chat, then read the pending update without the token showing up in your shell history:
+3. Set `telegramChatId` (a group's id is negative) and `telegramUserId` (only your presses count) with `/plugin configure cache-keepalive` or in `/config`. Telegram turns on once both the token and `telegramChatId` are set; `telegramUserId` is optional (without it, anyone in the chat can answer). To find both, reply to one of the bot's messages in the chat, then read the pending update without the token showing up in your shell history:
    ```bash
    read -rs TOK
    curl -s "https://api.telegram.org/bot$TOK/getUpdates?timeout=0" | jq '[.result[].message | {chat: .chat.id, user: .from.id, text}]'
