@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+// ccstatusline custom-command widget: a drop-in for the built-in cache-timer
+// (ccstatusline 2.2.30) that also knows about cache-keepalive pings.
+//
+// The built-in widget counts down from the transcript's last assistant row.
+// Keepalive pings never land in the transcript, so after a ping it would fall
+// to COLD while the cache is still warm. This script counts down from
+// max(last assistant row, last ping) and appends the keepalive state.
+//
+// stdin: the Claude Code status line JSON (session_id, transcript_path).
+// argv:  --ttl <seconds>  TTL to assume before the mod has read one (default 3600)
+'use strict'
+
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+
+const SAFETY_MARGIN = 5
+const INITIAL_TAIL_BYTES = 32768
+const GLYPH = { hot: '🔥', fresh: '🟢', draining: '🟡', urgent: '🔴', cold: '❄️' }
+
+function main() {
+  let input = {}
+  try {
+    input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}')
+  } catch {
+    // no or bad stdin: draw nothing rather than an error
+  }
+  const ttlArg = Number(argValue('--ttl'))
+  const state = readState(input.session_id)
+  const fallbackTtl = Number.isFinite(ttlArg) && ttlArg > SAFETY_MARGIN ? ttlArg : 3600
+  const out = render(input.transcript_path, state, fallbackTtl, Date.now())
+  if (out) process.stdout.write(out)
+}
+
+// fallbackTtl applies until the mod has read the session's real TTL.
+function render(transcriptPath, state, fallbackTtl, now) {
+  if (!transcriptPath) return ''
+  const ttl = (state && state.ttlSec) || fallbackTtl
+  const scan = scanTranscript(transcriptPath)
+  // Outside the active phase the mod knows no turn is running, whatever the
+  // transcript tail looks like.
+  const isActive = !state || state.phase === 'active'
+  if (scan.isWorking && isActive) return `${GLYPH.hot} HOT`
+  const lastAssistant = scan.lastAssistant ?? 0
+  const start = Math.max(lastAssistant, state?.lastPingAt ?? 0)
+  if (!start) return ''
+  const remaining = ttl - SAFETY_MARGIN - (now - start) / 1000
+  const timer = remaining <= 0 ? `${GLYPH.cold} COLD` : `${glyph(remaining, ttl)} ${countdown(remaining)}`
+  const tag = remaining <= 0 ? '' : keepTag(state)
+  return tag ? `${timer} ${tag}` : timer
+}
+
+function keepTag(state) {
+  if (!state) return ''
+  switch (state.phase) {
+    case 'armed':
+      return `keep ${state.pings}/${state.max}`
+    case 'capped':
+      return `keep ${state.pings}/${state.max} ⏸`
+    case 'stopped':
+      return 'keep ⏸'
+    case 'off':
+      if (state.offReason === 'disabled') return ''
+      return state.offReason === '5m-ttl' ? 'keep off·5m' : 'keep off'
+    default:
+      return '' // active, small, expired
+  }
+}
+
+function glyph(remaining, ttl) {
+  const pct = remaining / (ttl - SAFETY_MARGIN)
+  if (pct > 0.5) return GLYPH.fresh
+  if (pct > 0.2) return GLYPH.draining
+  return GLYPH.urgent
+}
+
+function countdown(remaining) {
+  const m = Math.floor(remaining / 60)
+  const s = Math.floor(remaining % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function readState(sessionId) {
+  if (!sessionId || !/^[A-Za-z0-9-]+$/.test(sessionId)) return null
+  const dir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'keepalive', `${sessionId}.json`), 'utf8'))
+    return state && state.v === 1 ? state : null
+  } catch {
+    return null
+  }
+}
+
+// Same walk as ccstatusline's getTranscriptState: newest rows first, skipping
+// sidechains; a user row before any assistant row means a turn is running.
+// Unlike it, the walk goes on past that user row to the last assistant row,
+// which render needs when the mod says no turn is running.
+function scanTranscript(file) {
+  for (let bytes = INITIAL_TAIL_BYTES; ; bytes *= 2) {
+    const tail = readTail(file, bytes)
+    if (!tail || !tail.text) return { isWorking: false, lastAssistant: null }
+    const found = scanTail(tail.text)
+    if (found) return found
+    if (tail.isComplete) return { isWorking: false, lastAssistant: null }
+  }
+}
+
+function scanTail(text) {
+  const lines = text.split('\n').reverse()
+  let turnFinished = false
+  let isWorking = false
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    let entry
+    try {
+      entry = JSON.parse(trimmed)
+    } catch {
+      continue
+    }
+    if (entry.isSidechain === true) continue
+    if (entry.type === 'assistant') {
+      turnFinished = true
+      if (entry.isApiErrorMessage !== true && hasCacheActivity(entry) && entry.timestamp) {
+        const t = Date.parse(entry.timestamp)
+        if (!Number.isNaN(t)) return { isWorking, lastAssistant: t }
+      }
+      continue
+    }
+    if (entry.type === 'user' && !turnFinished) isWorking = true
+  }
+  return isWorking ? { isWorking, lastAssistant: null } : null
+}
+
+function hasCacheActivity(entry) {
+  const usage = entry.message && entry.message.usage
+  if (!usage) return true
+  return (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0) > 0
+}
+
+function readTail(file, bytes) {
+  let fd
+  try {
+    fd = fs.openSync(file, 'r')
+    const size = fs.fstatSync(fd).size
+    const length = Math.min(size, bytes)
+    const buf = Buffer.alloc(length)
+    fs.readSync(fd, buf, 0, length, size - length)
+    return { text: buf.toString('utf8'), isComplete: length === size }
+  } catch {
+    return null
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
+  }
+}
+
+function argValue(name) {
+  const i = process.argv.indexOf(name)
+  return i >= 0 ? process.argv[i + 1] : undefined
+}
+
+if (require.main === module) main()
+
+module.exports = { render, keepTag, scanTail }
