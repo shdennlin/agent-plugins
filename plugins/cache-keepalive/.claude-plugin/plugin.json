@@ -1,0 +1,67 @@
+{
+  "name": "cache-keepalive",
+  "version": "0.1.0",
+  "description": "Keeps the main thread's prompt cache warm while you are idle: one cheap fork ping just before the TTL runs out, capped, verified on every hit.",
+  "author": {
+    "name": "shdennlin"
+  },
+  "keywords": [
+    "prompt-cache",
+    "keepalive",
+    "ttl",
+    "mod",
+    "statusline"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Keep the cache warm",
+      "description": "Master switch for keepalive pings",
+      "default": true
+    },
+    "leadMinutes": {
+      "type": "number",
+      "title": "Minutes before expiry to ping",
+      "description": "Ping this many minutes before the cache TTL runs out",
+      "default": 5
+    },
+    "maxPings": {
+      "type": "number",
+      "title": "Pings per idle stretch",
+      "description": "Default cap on pings while idle; /keepalive brb raises it once",
+      "default": 2
+    },
+    "minContextTokens": {
+      "type": "number",
+      "title": "Minimum context to keep warm",
+      "description": "Below this many context tokens a rewrite is cheap, so no pings",
+      "default": 50000
+    },
+    "engineStatus": {
+      "type": "boolean",
+      "title": "Show state under the prompt",
+      "description": "For sessions without a custom status line: pin the keepalive state as a Claude Code status entry (drawn on its own row with a warning-style prefix)",
+      "default": false
+    },
+    "telegramBotToken": {
+      "type": "string",
+      "title": "Telegram bot token",
+      "description": "Bot that asks whether to keep the cache warm once the pings run out. Also read from CLAUDE_KEEPALIVE_TELEGRAM_BOT_TOKEN or the macOS Keychain item 'claude-code.cache-keepalive' (account 'telegram-bot-token'). Empty: no Telegram",
+      "sensitive": true,
+      "default": ""
+    },
+    "telegramChatId": {
+      "type": "string",
+      "title": "Telegram chat ID",
+      "description": "Chat that receives the question, e.g. the group session-notifier posts to",
+      "default": ""
+    },
+    "telegramUserId": {
+      "type": "string",
+      "title": "Telegram user ID",
+      "description": "Only this user's button presses and replies count. Empty: anyone in the chat",
+      "default": ""
+    }
+  }
+}

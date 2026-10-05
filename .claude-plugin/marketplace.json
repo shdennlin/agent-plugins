@@ -192,6 +192,26 @@
         "clipboard"
       ],
       "category": "workflow"
+    },
+    {
+      "name": "cache-keepalive",
+      "source": "./plugins/cache-keepalive",
+      "description": "Keeps the main thread's prompt cache warm while you are idle: one cheap fork ping just before the TTL runs out, capped, verified on every hit.",
+      "version": "0.1.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": [
+        "prompt-cache",
+        "keepalive",
+        "ttl",
+        "mod",
+        "statusline"
+      ],
+      "category": "workflow"
     }
   ]
 }

@@ -18,6 +18,7 @@ Each plugin lives under `plugins/{name}/` and can contain any combination of:
 - **Scripts** (`scripts/*.sh`) — Deterministic shell logic invoked by commands or hooks. Used for argument parsing, env validation, path resolution, state setup. Keeps deterministic work out of agent prompts. See "Where to put logic" below.
 - **Hooks** (`hooks/hooks.json` + `hooks/*.sh`, or `.claude-plugin/hooks/hooks.json`) — Event-driven automation (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`).
 - **Templates** (`templates/`) — Static content injected by agents (e.g., YAML rules).
+- **Hook modules** (`hooks/hooks.json` with `{ "modules": ["./register.tsx"] }`) — Function hooks in TypeScript (`export const register: Register = (on, options) => …`) that run inside Claude Code (2.1.289+) and reach it through `$`. `$.state` keys are declared in `types/index.d.ts` and named in `plugin.json` as `"types"`. Example: `cache-keepalive`. These conventions do not apply to them: the dispatch pattern, the "Where to put logic" table, and `.codex/INSTALL.md` (Codex has no hook modules). Check with `claude plugin validate`, `tsc -p <plugin>` (after one `claude --plugin-dir <plugin>` load lays `.claude-plugin/types/`), and `claude plugin test <plugin>`.
 
 ### Dispatch Pattern
 
