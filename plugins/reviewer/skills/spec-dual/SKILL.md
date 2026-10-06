@@ -59,11 +59,11 @@ shared by BOTH engines, so exploration happens once, not twice. If `--no-explore
 set `CODEBASE_CONTEXT` to empty.
 
 ### Step 4: Dispatch the Workflow
-Resolve `${CLAUDE_PLUGIN_ROOT}` and call the Workflow tool:
+Call the Workflow tool by plugin workflow name (do NOT use `scriptPath` — plugin-cache paths are outside the session's readable directories and get rejected):
 
 ```
 Workflow({
-  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/two-engine-spec-review.workflow.js",
+  name: "reviewer:two-engine-spec-review",
   args: {
     change: "<change path string>",
     maxRounds: <max_rounds>,
