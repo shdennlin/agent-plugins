@@ -30,12 +30,13 @@ Structured spec and implementation review with iterative fix loops and parallel 
 
 Cross-check a high-stakes spec with **two independent models** before implementation.
 Claude and Codex review the same change in parallel; a Workflow takes the **union** of
-their findings, counts blockers in pure code (**MEDIUM+ in either engine is a blocker**),
-fixes highest-confidence (both-saw) items first, and re-reviews until both engines are
-MEDIUM-clean — then clears any remaining LOW issues.
+their findings and counts blockers in pure code. This is coverage-by-union, not
+corroboration — the engines agree on almost nothing, so **a blocker needs only one engine;
+clearing needs both**. Fixes loop until both engines are MEDIUM-clean, then any remaining
+LOW issues are cleared.
 
 ```bash
-# Dual-engine review of a change folder (default 3 review→fix rounds)
+# Dual-engine review of a change folder (default 3 fix rounds, each followed by a review)
 /reviewer:spec-dual openspec/changes/my-change/
 
 # Cap rounds and skip the shared codebase scan
@@ -47,8 +48,33 @@ and loop inside a Workflow — there is no per-turn Stop hook to burn iterations
 completion string to fake; the stop condition is a pure-code `blockers === 0`.
 
 > **Requires the `openai-codex` plugin** for the Codex engine (`codex:codex-rescue`).
-> Without it, the Codex side degrades to empty findings and the review becomes
-> Claude-only. The Claude engine and the fixer (`reviewer:spec-fixer`) ship with this plugin.
+> Without it, the Codex side is reported DOWN every round and the run cannot clear
+> (`ready: false`, `degraded: true`); Claude's findings are still returned. The Claude engine
+> and the fixer (`reviewer:spec-fixer`) ship with this plugin.
+
+How the loop stays honest (1.9.0):
+
+- **Findings have identity across rounds.** Every finding gets a script-assigned id; the
+  previous round's findings are shown to the reviewers with their status, and a re-raised
+  concern links to its prior id (`priorId`). Titles are never used for identity — a measured
+  run showed the same concern never gets the same title twice.
+- **The fixer can say no.** Every finding gets a disposition — `applied`, or rejected as
+  `out-of-scope`, `contradicts-spec`, `new-mechanism`, `bogus`, `already-escalated`. Rejected
+  items go to `needsHuman`, stay visible in the ledger, and are not re-fixed. "Findings → 0 by
+  adding more SHALLs" is explicitly a rejection reason. `ready` is false while any MEDIUM+
+  item waits on the human; `enginesClean` reports the engine-only view.
+- **Project gates are a hard post-condition.** In a Spectra repo the fixer runs
+  `spectra analyze` / `spectra validate` before and after each pass; a regression is escalated
+  as `gate-regression`, never auto-reverted or patched over. Override with `gateCommands`.
+- **A delivery failure is never a finding.** A Codex wrapper that got no output reports
+  `engineStatus: withheld|error`; placeholder entries are stripped and the round is marked
+  `degraded` with `enginesDown`.
+- **The final fix is always verified.** `-n N` bounds fix passes; N+1 reviews run and the
+  reported `findings` describe the post-fix artifacts.
+- **Cross-engine intersection is surfaced** per round and in the result. Near-zero is normal.
+
+Regression test (no Claude, no network): `node plugins/reviewer/tests/two-engine.harness.mjs`
+stubs the Workflow runtime and asserts each of these behaviours against the script.
 
 ### Result Review
 
