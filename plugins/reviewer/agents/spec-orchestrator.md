@@ -198,6 +198,8 @@ Agent tool:
     ## Target Files/Folders
     {paths list}
 
+    These directives were already triaged in this round: the user approved every
+    item listed here. Apply them all — do NOT re-triage or reject any of them.
     Apply each fix carefully. Only modify spec/design documents.
     Report what was changed and what was skipped.
 ```

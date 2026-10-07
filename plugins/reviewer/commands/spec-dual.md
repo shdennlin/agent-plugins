@@ -106,11 +106,10 @@ Retain `findings` for Step 6 (history logging).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point out
   which rounds still had blockers.
 
-If `needsHuman` is non-empty, these are blockers the fixer could NOT resolve on its own —
+If `needsHuman` is non-empty (possible even when `ready: true`), these are blockers the fixer would not or could not resolve on its own —
 they need the user's judgement. The Workflow runs autonomously in the background and cannot
 pause to ask, so resolve them HERE: present them with AskUserQuestion (one per finding, or
-grouped if few), each showing severity, location, which engine(s) saw it (`seenBy`), and the
-rationale, then ask how to handle each (fix a specific way / accept as-is / defer). Apply the
+grouped if few), each showing severity, location, which engine(s) saw it (`seenBy`), the rationale, and the fixer's `disposition` + `reason` (out-of-scope / contradicts-spec / new-mechanism / bogus / stale), then ask how to handle each (fix a specific way / accept as-is / defer). Apply the
 chosen fixes — and if changes were made, offer to re-run `/reviewer:spec-dual` to confirm.
 
 ### Step 6: Log findings history (best-effort)

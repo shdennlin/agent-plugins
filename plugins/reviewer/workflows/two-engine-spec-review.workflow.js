@@ -59,6 +59,27 @@ const FINDINGS = {
   },
 }
 
+// The fixer reports a DISPOSITION per finding (by its 1-based index in the prompt list, so
+// the mapping back is deterministic and does not depend on LLM-worded keys). Anything it
+// rejects is escalated to the human instead of being re-fixed next round — this is the
+// async stand-in for spec-orchestrator's AskUserQuestion triage, which a background
+// Workflow cannot run.
+const DISPOSITIONS = ['out-of-scope', 'contradicts-spec', 'new-mechanism', 'bogus', 'already-escalated']
+const FIX_RESULT = {
+  type: 'object',
+  required: ['applied', 'rejected'],
+  properties: {
+    applied: { type: 'array', items: {
+      type: 'object', required: ['index'],
+      properties: { index: { type: 'integer' }, note: { type: 'string' } },
+    }},
+    rejected: { type: 'array', items: {
+      type: 'object', required: ['index', 'disposition', 'reason'],
+      properties: { index: { type: 'integer' }, disposition: { enum: DISPOSITIONS }, reason: { type: 'string' } },
+    }},
+  },
+}
+
 const isBlocker = s => s === 'CRITICAL' || s === 'HIGH' || s === 'MEDIUM'
 const SEV_RANK = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 }
 const worseSeverity = (a, b) => (SEV_RANK[b] > SEV_RANK[a] ? b : a)
@@ -72,6 +93,16 @@ const ANGLES =
   'tasks (task list correctness/ordering), platform (platform-specific gaps), ' +
   'design (design soundness vs the proposal), consistency (contradictions across artifacts)'
 
+// Findings already handed to the human. Rendered into BOTH engines' review prompts and the
+// fixer prompt, so a re-found-with-different-wording item is recognised by meaning, not by
+// string key (LLM-worded keys drift between rounds; see keyOf).
+const dismissed = []           // { severity, title, location, disposition, reason }
+const escalatedBlock = () => dismissed.length
+  ? `\n\n## Already escalated to the human — out of this loop's reach\n` +
+    `Do NOT re-report or re-fix these (or restatements of them); they are being decided by a person:\n` +
+    dismissed.map(d => `- [${d.severity}] ${d.title} (${d.location}) — ${d.disposition}: ${d.reason}`).join('\n') + '\n'
+  : ''
+
 const reviewPrompt = engine =>
   `Review the spec/proposal/design under "${CHANGE}" (relative to git root). ` +
   `Do NOT modify any files — report findings only. ` +
@@ -79,6 +110,7 @@ const reviewPrompt = engine =>
   `(CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick. ` +
   `Also assign each finding a category: scope, completeness, design, tasks, platform, consistency, or cross-cutting. ` +
   (CONTEXT ? `\n\n## Codebase context\n${CONTEXT}\n` : '') +
+  escalatedBlock() +
   `\n(Engine: ${engine}.)`
 
 // One full dual-engine round. The barrier is real: both engines' findings must
@@ -143,20 +175,56 @@ function batchFixPrompt(findings, cat) {
            `   Rationale: ${f.rationale || '(none provided)'}`
   }).join('\n\n')
   return (
-    `Resolve the following spec/design findings for the change under "${CHANGE}" (relative to git root). ` +
+    `Triage and resolve the following spec/design findings for the change under "${CHANGE}" (relative to git root). ` +
     `They are INTERRELATED — read every affected artifact in full first, then apply ONE coherent set of edits ` +
     `that resolves them together without contradicting each other. Work in severity order (CRITICAL first). ` +
     `Preserve existing structure, style and formatting; make the minimal edits needed.` +
+    `\n\n## Constraints — decide BEFORE editing, per finding\n` +
+    `"Resolve" is not the only valid outcome. For each finding, first decide whether it is yours to fix. ` +
+    `REJECT it (do not edit) with one of these dispositions when:\n` +
+    `- out-of-scope: the remedy adds work the proposal's Non-Goals / scope section excludes, or touches a repository or component the change does not own.\n` +
+    `- contradicts-spec: the finding conflicts with another already-clear part of the spec and you cannot tell which side is the source of truth.\n` +
+    `- new-mechanism: the remedy requires inventing a NEW requirement, capability, field, parameter, or mechanism rather than clarifying an existing one. Resolving an ambiguity by writing the current (possibly hazardous) behaviour into a SHALL counts as new-mechanism — do not codify the status quo to make a finding disappear.\n` +
+    `- bogus: you verified it against the artifacts and it is not real, or it is trivial.\n` +
+    `- already-escalated: it restates an item in the "Already escalated" list below.\n` +
+    `APPLY a fix only when it is a clarification, restatement, or filling in obviously-missing structure, or when the fix is mechanically forced by the spec's own statements. ` +
+    `Multiple valid fixes that change product behaviour, API shape, or scope → reject (new-mechanism), the human owns that call.\n` +
+    `Report every finding exactly once, in applied[] or rejected[], by its 1-based index in the list below.` +
     (CONTEXT ? `\n\n## Codebase context (shared)\n${CONTEXT}\n` : '') +
-    `\n\n## Findings to resolve (${findings.length})\n${items}`
+    escalatedBlock() +
+    `\n\n## Findings to triage (${findings.length})\n${items}`
   )
 }
 
 // One fixer per round (session model by default), holding all the findings + shared context at once.
+// Returns the fixer's structured dispositions; a dead fixer yields nothing applied and nothing rejected.
 async function runFix(findings, cat, label) {
-  await agent(batchFixPrompt(findings, cat),
-    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer',
+  const r = await agent(batchFixPrompt(findings, cat),
+    { label, phase: 'Fix', agentType: 'reviewer:spec-fixer', schema: FIX_RESULT,
       ...(FIX_MODEL ? { model: FIX_MODEL } : {}) })
+  return r || { applied: [], rejected: [] }
+}
+
+// Move fixer-rejected findings out of the loop: escalate by key (so this round's exact key is
+// not re-fixed) AND by meaning (dismissed → rendered into every later prompt).
+function escalateRejected(fixResult, ordered, cat) {
+  let n = 0
+  for (const rej of fixResult.rejected || []) {
+    const f = ordered[Number(rej.index) - 1]
+    if (!f) { log(`fixer rejected index ${rej.index} which is out of range — ignored`); continue }
+    const k = keyOf(f)
+    if (escalated.has(k)) continue
+    escalated.add(k)
+    // A restatement of something already in the human's hands: silence this round's key so the
+    // stale tracker stops counting it, but do NOT add a second copy to needsHuman/dismissed.
+    if (rej.disposition === 'already-escalated') continue
+    const entry = { severity: f.severity, title: f.title, location: f.location, rationale: f.rationale || '',
+                    seenBy: seenBy(cat, f), disposition: rej.disposition, reason: rej.reason || '' }
+    needsHuman.push(entry)
+    dismissed.push(entry)
+    n++
+  }
+  return n
 }
 
 phase('Review')
@@ -188,8 +256,11 @@ while (round <= MAX_ROUNDS) {
   const fresh = live.filter(f => survival.get(keyOf(f)) < STALE)
   for (const f of stale) {
     escalated.add(keyOf(f))
-    needsHuman.push({ severity: f.severity, title: f.title, location: f.location,
-                      rationale: f.rationale || '', seenBy: seenBy(cat, f) })
+    const entry = { severity: f.severity, title: f.title, location: f.location,
+                    rationale: f.rationale || '', seenBy: seenBy(cat, f),
+                    disposition: 'stale', reason: `survived ${STALE} consecutive review rounds despite fixes` }
+    needsHuman.push(entry)
+    dismissed.push(entry)
   }
 
   log(`Round ${round} REVIEW_RESULT(union): ${fmtCounts(cat.all)} | ` +
@@ -212,7 +283,10 @@ while (round <= MAX_ROUNDS) {
   const blockerOrdered = [...cat.both, ...cat.onlyClaude, ...cat.onlyCodex]
     .filter(f => isBlocker(f.severity) && freshKeys.has(keyOf(f)))
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
-  await runFix(blockerOrdered, cat, `fix:round${round}`)
+  const fixResult = await runFix(blockerOrdered, cat, `fix:round${round}`)
+  const rejectedN = escalateRejected(fixResult, blockerOrdered, cat)
+  log(`Round ${round} FIX_RESULT: applied=${(fixResult.applied || []).length} rejected=${rejectedN}` +
+      (rejectedN ? ` → escalated to human (${escalated.size} total)` : ''))
   round++
   phase('Review')
 }
@@ -230,10 +304,18 @@ if (!cleared) {
 
 // After blockers clear, fix remaining LOW issues (no re-review needed).
 const lows = cleared.all.filter(f => f.severity === 'LOW')
+let lowsFixed = 0
 if (lows.length) {
   phase('Fix')
-  await runFix(lows, cleared, 'fix-low')
+  const lowResult = await runFix(lows, cleared, 'fix-low')
+  lowsFixed = (lowResult.applied || []).length
+  // LOW rejections are informational only — they are not blockers, so they do not go to needsHuman.
+  const lowRejected = (lowResult.rejected || []).length
+  log(`LOW pass: applied=${lowsFixed} rejected=${lowRejected}`)
 }
 
-return { ready: true, change: CHANGE, rounds: round, lowsFixed: lows.length, needsHuman: [], history,
+// ready:true means both engines are MEDIUM-clean on the last review; needsHuman may still be
+// non-empty (fixer-rejected items the engines were told not to re-report) — the caller must
+// surface them.
+return { ready: true, change: CHANGE, rounds: round, lowsFixed, needsHuman, history,
          findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
