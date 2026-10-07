@@ -41,28 +41,46 @@ function render(transcriptPath, state, fallbackTtl, now) {
   // Outside the active phase the mod knows no turn is running, whatever the
   // transcript tail looks like.
   const isActive = !state || state.phase === 'active'
-  if (scan.isWorking && isActive) return `${GLYPH.hot} HOT`
+  if (scan.isWorking && isActive) return joinTags(`${GLYPH.hot}HOT`, compactTag(state))
   const lastAssistant = scan.lastAssistant ?? 0
   const start = Math.max(lastAssistant, state?.lastPingAt ?? 0)
   if (!start) return ''
   const remaining = ttl - SAFETY_MARGIN - (now - start) / 1000
-  const timer = remaining <= 0 ? `${GLYPH.cold} COLD` : `${glyph(remaining, ttl)} ${countdown(remaining)}`
-  const tag = remaining <= 0 ? '' : keepTag(state)
+  const timer = remaining <= 0 ? `${GLYPH.cold}COLD` : `${glyph(remaining, ttl)}${countdown(remaining)}`
+  const tag = remaining <= 0 ? '' : joinTags(keepTag(state), compactTag(state))
   return tag ? `${timer} ${tag}` : timer
+}
+
+function joinTags(...parts) {
+  return parts.filter(Boolean).join(' ')
+}
+
+// An armed compact, kept short for a crowded line: ✂ and its clock time once scheduled, "✂armed" while it is not
+// (a turn is running). Only the explicit /keepalive compact shows "armed";
+// the option alone shows nothing until a time exists.
+function compactTag(state) {
+  if (!state) return ''
+  if (state.compactAt) return `✂${clock(state.compactAt)}`
+  return state.compactArmed ? '✂armed' : ''
+}
+
+function clock(ms) {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 function keepTag(state) {
   if (!state) return ''
   switch (state.phase) {
     case 'armed':
-      return `keep ${state.pings}/${state.max}`
+      return `kp ${state.pings}/${state.max}`
     case 'capped':
-      return `keep ${state.pings}/${state.max} ⏸`
+      return `kp ${state.pings}/${state.max} ⏸`
     case 'stopped':
-      return 'keep ⏸'
+      return 'kp ⏸'
     case 'off':
       if (state.offReason === 'disabled') return ''
-      return state.offReason === '5m-ttl' ? 'keep off·5m' : 'keep off'
+      return state.offReason === '5m-ttl' ? 'kp off·5m' : 'kp off'
     default:
       return '' // active, small, expired
   }
@@ -162,4 +180,4 @@ function argValue(name) {
 
 if (require.main === module) main()
 
-module.exports = { render, keepTag, scanTail }
+module.exports = { render, keepTag, compactTag, scanTail }

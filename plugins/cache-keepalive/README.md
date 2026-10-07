@@ -34,15 +34,26 @@ Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: o
 
 ## Cost
 
-A ping is not free: it re-reads the whole prefix at the cache-read rate (0.1×). With a 200k context and the 1h TTL:
+A ping is not free: it re-reads the whole prefix at the cache-read rate. That rate depends on the model, and a rewrite after expiry is charged at the cache-write rate (2× input for the 1h TTL). Prices per million tokens, from [the pricing page](https://platform.claude.com/docs/en/about-claude/pricing) (checked 2026-10-07):
 
-| | Base-input equivalent |
-|---|---|
-| Rewrite after the cache expired (2× write) | 400k |
-| One ping | 20k |
-| Default cap, 2 pings | 40k |
+| Model | Input | 1h cache write | Cache read |
+|---|---|---|---|
+| Claude Fable 5.1 | $10 | $20 | $0.25 (0.025×) |
+| Claude Opus 5.5 | $4 | $8 | $0.20 (0.05×) |
+| Claude Sonnet 5.5 | $2 | $4 | $0.20 (0.1×) |
 
-Sessions under 50k tokens of context are not kept warm, since a rewrite is cheap there. A **5-minute TTL** turns keepalive off: about 13 pings an hour at 0.1× is 1.3×, more than one 1.25× rewrite.
+With a 142k-token context and the 1h TTL:
+
+| | Fable 5.1 | Opus 5.5 | Sonnet 5.5 |
+|---|---|---|---|
+| One ping | $0.036 | $0.028 | $0.028 |
+| Default cap, 2 pings | $0.071 | $0.057 | $0.057 |
+| One rewrite after expiry (1h write) | $2.84 | $1.14 | $0.57 |
+| 2 pings as a share of one rewrite | 2.5% | 5% | 10% |
+
+The ratio does not depend on the context size, so keeping warm pays off when there is more than a 2.5–10% chance you come back before the pings run out. The same prices make compact-before-expiry cheap: the summary request reads the warm cache instead of paying a rewrite.
+
+Sessions under 50k tokens of context are not kept warm, since a rewrite is cheap there. A **5-minute TTL** turns keepalive off. That rule assumes the 0.1× read rate: about 13 pings an hour is 1.3× input, more than one 1.25× rewrite. On Opus 5.5 (0.05×) and Fable 5.1 (0.025×) the same 13 pings would cost 0.65× and 0.33×, so the rule is conservative there. The Telegram question also estimates "one more hour warm" at 0.1×.
 
 The TTL is read, not assumed: the turn's `usage` has no 1h/5m split, so the plugin reads `cache_creation.ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens` from the transcript tail.
 
@@ -53,6 +64,7 @@ The TTL is read, not assumed: the turn's `usage` has no 1h/5m split, so the plug
 | `/keepalive status` | Phase, TTL, context size, pings so far, next ping and expiry times |
 | `/keepalive brb <minutes>` | Keep warm for longer this idle stretch, e.g. `brb 180` allows 4 pings. Resets at your next prompt |
 | `/keepalive done` | Stop for this idle stretch. Resets at your next prompt |
+| `/keepalive compact` | Arm a one-time compact for when keepalive runs out: it compacts in the lead window before the cache expires. Survives `/goal` turns; `/keepalive compact off` cancels. To compact now, use the built-in `/compact` |
 
 Typing `/keepalive brb ` completes the minutes inline, fish-style: a dim `180` appears, and typing `4` or `6` turns it into `480` or `60`. Right arrow accepts; Enter runs what the box shows, completion included. Tab and Up/Down are kept by the editor and never reach the plugin, so there is no cycling. Pasting or very fast typing can outrun the completion: the next key may land before the dim tail is drawn.
 
@@ -66,12 +78,97 @@ Set in `/config` (or `pluginConfigs["cache-keepalive"].options` in settings):
 |---|---|---|
 | `enabled` | `true` | Master switch |
 | `leadMinutes` | `5` | Ping this many minutes before the TTL runs out |
+| `compactLeadMinutes` | `10` | An armed compact starts this many minutes before the TTL runs out. Earlier than a ping because compacting a big context takes minutes (about 1 minute at 140k tokens, measured once) |
 | `maxPings` | `2` | Pings per idle stretch |
 | `minContextTokens` | `50000` | Smaller contexts are not kept warm |
+| `compactBeforeExpiry` | `false` | Always compact in the lead window once the pings run out, without arming each time (see below) |
 | `engineStatus` | `false` | Show the state as a status entry under the prompt, for sessions without a status line (see below) |
 | `telegramBotToken` | empty | Bot token (sensitive); see Telegram below |
 | `telegramChatId` | empty | Chat that receives the question |
 | `telegramUserId` | empty | Only this user's answers count |
+
+## Compact before expiry
+
+For when you step away, or leave a `/goal` running while you sleep: run `/keepalive compact` first. Keepalive keeps pinging as usual; once the pings run out, it compacts `compactLeadMinutes` (10) before the cache expires instead of letting it lapse. The summary request only has to start before the expiry, but the extra minutes absorb a retry or a late timer. The summary request is a fork of the same prefix and reads the warm cache: one measured run on a 142k-token context read 98% of the prefix from the cache and wrote 526 tokens. Your next prompt then rewrites a small summary instead of the whole old context.
+
+- **No pings, just the compact.** Add `/keepalive done` (before or after): the pings stop and the compact runs in the first lead window, about 50 minutes after the last turn on a 1h TTL. `done` ends at your next prompt, though, so a `/goal`'s first turn brings the pings back; for a goal use `maxPings: 0` instead.
+- **One time.** It fires once, then clears. `/keepalive compact off` cancels it. It is not reset by new turns, so a `/goal`'s continuations (each one a turn) do not drop it; the idle countdown only starts after the goal ends.
+- It fires only in the `capped` phase, so `brb` or a Telegram answer that adds pings postpones it. If the timer fires after the cache already expired (the Mac slept), it does nothing. If you cancel the compaction or the host refuses it, it is not retried.
+- Set the `compactBeforeExpiry` option to make it the default for every idle stretch instead of arming it each time. Set `maxPings` to `0` to compact at the first lead window with no pings.
+- After it runs, nothing is kept warm until your next turn: the new prefix is not cached yet.
+- `/keepalive status` shows `compact before expiry: armed, at HH:MM`.
+
+### Flow chart
+
+```mermaid
+flowchart TD
+  A["You: /keepalive compact<br/>(sets the flag only)"] --> B["A turn ends<br/>(every /goal step too)"]
+  P["Optional: /keepalive done<br/>(skip the pings)"] -.-> F
+  B -->|"5 min TTL"| X1["Keepalive off"]
+  B -->|"error / refusal"| E["No usage read, no pings.<br/>Clock stays at the last good response"]
+  B --> C{"Context at least<br/>50k tokens?"}
+  C -->|no| X2["Phase small:<br/>no pings, no compact"]
+  C -->|yes| D["Pings, up to maxPings,<br/>at TTL - 5 min, each verified"]
+  D -->|"ping misses the cache"| X3["Keepalive off for the session<br/>(no compact)"]
+  D -->|"pings used up (capped)"| F["Compact timer set for<br/>TTL - 10 min"]
+  E --> F
+  F --> G{"Cache still warm<br/>and still armed?"}
+  G -->|"no: timer fired late"| X4["No compact:<br/>the cache has expired"]
+  G -->|yes| H["session.compact()<br/>reads the warm cache"]
+  H -->|"cancelled / refused / vetoed"| X5["One toast, flag cleared,<br/>no retry"]
+  H -->|ok| I["Compacted once.<br/>Flag cleared, phase active"]
+  D -.->|"you send a prompt"| B
+  F -.->|"you send a prompt"| B
+
+  classDef you fill:#e8f0fe,stroke:#1d5fd1,color:#1c1c1a
+  classDef stop fill:#fbe7e5,stroke:#b3261e,color:#1c1c1a,stroke-dasharray:4 3
+  classDef done fill:#e3f4ea,stroke:#17794a,color:#1c1c1a
+  class A,P you
+  class X1,X2,X3,X4,X5 stop
+  class I done
+```
+
+Solid arrows are the main path, dashed arrows are optional or restart it. Red boxes end early: nothing is compacted and the cache expires on its own. Typing a prompt at any point cancels the timers; the armed flag stays, and the flow restarts when that turn ends.
+
+### Timeline
+
+Times are minutes after the last turn ends, with the defaults: 1h TTL, `leadMinutes` 5, `compactLeadMinutes` 10, `maxPings` 2, and `/keepalive compact` armed.
+
+```mermaid
+gantt
+  title Time after the last turn ends (hh:mm, defaults, compact armed)
+  dateFormat HH:mm
+  axisFormat %H:%M
+  section Cache
+    Warm, nothing happens             :done, w1, 00:00, 55m
+    Ping 1, cache now lasts to 1h55   :milestone, p1, 00:55, 0m
+    Warm after ping 1                 :done, w2, 00:55, 55m
+    Ping 2, pings used up, lasts to 2h50 :milestone, p2, 01:50, 0m
+    Warm after ping 2                 :done, w3, 01:50, 50m
+  section Compact
+    Compact window, starts at 2h40    :crit, c, 02:40, 10m
+    Old cache would have expired      :milestone, x, 02:50, 0m
+```
+
+The axis is time since the last turn ended, drawn to scale. The red bar is the 10-minute window `compactLeadMinutes` leaves before the cache would expire, not how long the compaction takes (about a minute at 140k tokens).
+
+- **0 → 55:** nothing happens. The cache is warm and the clock runs from the last response.
+- **55 and 110:** each ping reads the whole prefix, which restarts the 60-minute clock, so the cache would now expire at 115, then at 170. A ping starts `leadMinutes` (5) before the current expiry, hence a 55-minute interval.
+- **After ping 2** the pings are used up (`capped`), so the compact is scheduled for the second lead window: expiry 170 − `compactLeadMinutes` 10 = **160**.
+- **160:** the summary request starts and reads the warm cache. It takes about a minute at 140k tokens (more on a bigger context), so it is done well before 170. The cache now holds a prefix that no longer exists, and nothing is kept warm.
+- **After 160:** your next prompt rewrites the small summary instead of the old context.
+
+The same rule gives these variants (still minutes after the last turn):
+
+| Setup | Pings | Compact |
+|---|---|---|
+| `/keepalive compact` (above) | 55, 110 | 160 |
+| `maxPings` 0 | none | 50 |
+| `/keepalive done` then `/keepalive compact` | none | 50 |
+| `/keepalive brb 180` then `/keepalive compact` | 55, 110, 165, 220 | 270 |
+| you send a prompt at any point | cancelled | cancelled, still armed; the timeline restarts when that turn ends |
+
+The formula is `last response + pings × 55 + (60 − compactLeadMinutes)` minutes. `/keepalive status` and the status line show the result as a clock time, for example `✂13:13`. It is an estimate: if a ping misses the cache, keepalive turns itself off for the session and no compact happens.
 
 ## Telegram (optional)
 
@@ -114,11 +211,12 @@ Keepalive works without any status line. With none, you see it through `/keepali
 The plugin writes its state to `~/.claude/keepalive/<session_id>.json`. `bin/keepalive-cache` turns that into a cache field:
 
 ```
-🟢 58:54 keep 1/2
+🟢58:54 kp 1/2
 ```
 
 - The countdown runs from the later of the transcript's last assistant message and the last ping, with the TTL the plugin read. Counting from the transcript alone, as ccstatusline's built-in Cache Timer does, would fall to `❄️ COLD` after a ping while the cache is still warm: pings never reach the transcript.
-- The tag after it: `keep 1/2` (pings used / cap), `⏸` (capped or stopped), `keep off` / `keep off·5m`.
+- The tag after it: `kp 1/2` (keepalive: pings used / cap), `⏸` (capped or stopped), `kp off` / `kp off·5m`. Emoji and text are joined with no space to save width.
+- An armed compact adds `✂03:12` (the clock time it is due), or `✂armed` while nothing is scheduled yet, for example during a `/goal` turn: `🔥HOT ✂armed`. It clears once the compact has run or you send `/keepalive compact off`.
 - With no state file it prints what ccstatusline's built-in Cache Timer prints.
 
 It reads the JSON Claude Code passes to every status line command (`session_id`, `transcript_path`), so it works with any of the setups below. It needs `node` on the `PATH` the status line runs with. `--ttl <seconds>` is the TTL assumed until the plugin has read the session's own (default 3600).
@@ -169,6 +267,7 @@ or turn on the `engineStatus` option. Claude Code then shows the state as a plug
 ## Limits
 
 - No pings while the Mac sleeps: the process is asleep too. A timer that fires after the cache already expired skips the ping.
+- A turn that ends in an `error` or `refusal` reads no usage and runs no pings, but an armed compact is still scheduled from the last good response, so a `/goal` that dies on an API error does not lose it.
 - A turn waiting on a permission prompt has not finished, so no ping is scheduled during it.
 - After a prefix change (`/model`, a plugin reload that changes the system prompt or tools) the next ping misses once, and keepalive turns off for the session.
 

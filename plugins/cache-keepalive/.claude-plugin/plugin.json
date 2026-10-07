@@ -1,6 +1,6 @@
 {
   "name": "cache-keepalive",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Keeps the main thread's prompt cache warm while you are idle: one cheap fork ping just before the TTL runs out, capped, verified on every hit.",
   "author": {
     "name": "shdennlin"
@@ -25,6 +25,12 @@
       "title": "Minutes before expiry to ping",
       "description": "Ping this many minutes before the cache TTL runs out",
       "default": 5
+    },
+    "compactLeadMinutes": {
+      "type": "number",
+      "title": "Minutes before expiry to compact",
+      "description": "An armed compact starts this many minutes before the cache TTL runs out. Longer ahead than a ping, since compacting a big context takes minutes (about 1 min at 140k tokens)",
+      "default": 10
     },
     "maxPings": {
       "type": "number",
@@ -62,6 +68,12 @@
       "title": "Telegram user ID",
       "description": "Only this user's button presses and replies count. Empty: anyone in the chat",
       "default": ""
+    },
+    "compactBeforeExpiry": {
+      "type": "boolean",
+      "title": "Compact before the cache expires",
+      "description": "Every idle stretch, once the pings are used up, compact in the lead window before expiry while the cache is still warm, so the summary request reads it. Off by default: it changes your context. /keepalive compact arms it for one stretch instead",
+      "default": false
     }
   }
 }

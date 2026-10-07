@@ -29,6 +29,8 @@ export type KeepaliveSession = {
   isOffToastShown: boolean
   /** message_id of the open Telegram question, or null when none is open. */
   tgAskMessageId: number | null
+  /** /keepalive compact: compact once, when the pings run out. Survives turns (a /goal's continuations); cleared when it fires or on `compact off`. */
+  isCompactArmed: boolean
 }
 
 declare module 'claude-code' {

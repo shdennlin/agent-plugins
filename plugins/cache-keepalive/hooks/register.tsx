@@ -37,6 +37,7 @@ const INITIAL: KeepaliveSession = {
   isBandDismissed: false,
   isOffToastShown: false,
   tgAskMessageId: null,
+  isCompactArmed: false,
 }
 
 const session = atom({ plugin: 'cache-keepalive', key: 'session' } as const, INITIAL)
@@ -44,9 +45,11 @@ const session = atom({ plugin: 'cache-keepalive', key: 'session' } as const, INI
 type Config = {
   enabled: boolean
   leadMinutes: number
+  compactLeadMinutes: number
   maxPings: number
   minContextTokens: number
   engineStatus: boolean
+  compactBeforeExpiry: boolean
   telegramChatId: string
   telegramUserId: string
 }
@@ -56,14 +59,18 @@ type Config = {
 let config: Config = {
   enabled: true,
   leadMinutes: 5,
+  compactLeadMinutes: 10,
   maxPings: 2,
   minContextTokens: 50000,
   engineStatus: false,
+  compactBeforeExpiry: false,
   telegramChatId: '',
   telegramUserId: '',
 }
 let pingTimer: Timer | undefined
 let expiryTimer: Timer | undefined
+let compactTimer: Timer | undefined
+let isCompacting = false
 let isRetrying = false
 let sessionId = ''
 let stateDir = ''
@@ -81,9 +88,11 @@ export const register: Register = (on, options) => {
   config = {
     enabled: options.enabled !== false,
     leadMinutes: positiveNumber(options.leadMinutes, 5),
+    compactLeadMinutes: positiveNumber(options.compactLeadMinutes, 10),
     maxPings: Math.max(0, Math.floor(positiveNumber(options.maxPings, 2, true))),
     minContextTokens: positiveNumber(options.minContextTokens, 50000, true),
     engineStatus: options.engineStatus === true,
+    compactBeforeExpiry: options.compactBeforeExpiry === true,
     telegramChatId: String(options.telegramChatId ?? '').trim(),
     telegramUserId: String(options.telegramUserId ?? '').trim(),
   }
@@ -92,8 +101,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'keepalive',
-      description: 'Prompt-cache keepalive: done, brb <minutes>, status',
-      argumentHint: 'done | brb <minutes> | status',
+      description: 'Prompt-cache keepalive: done, brb <minutes>, compact [off], status',
+      argumentHint: 'done | brb <minutes> | compact [off] | status',
     })
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
     stateDir = `${configDir}/keepalive`
@@ -220,7 +229,17 @@ async function onMainTurnComplete($: Engine, reason: string) {
   }
   const now = await $.clock.now()
   if (reason === 'error' || reason === 'refusal') {
-    await save($, v => ({ ...v, phase: 'active', lastActivityAt: now }))
+    // An armed compact must still run (a /goal can end on an error while you
+    // sleep). No usage is read and no pings run, since what the cache holds is
+    // uncertain; the clock stays at the last good response so the lead window is
+    // not pushed past the real expiry.
+    const isArmed = s.isCompactArmed && s.ttlSec !== null && s.lastActivityAt > 0 && s.contextTokens >= config.minContextTokens
+    if (isArmed) {
+      await save($, v => ({ ...v, phase: 'capped' }))
+      await rearm($)
+    } else {
+      await save($, v => ({ ...v, phase: 'active', lastActivityAt: now }))
+    }
     return
   }
   // An aborted turn may carry no usage: keep the last known values then.
@@ -251,9 +270,18 @@ async function onMainTurnComplete($: Engine, reason: string) {
 async function rearm($: Engine) {
   cancelTimers()
   const s = await read($, session)
-  if ((s.phase !== 'armed' && s.phase !== 'capped') || s.ttlSec === null) return
+  if (s.ttlSec === null) return
   const now = await $.clock.now()
   const expiresAt = cacheStart(s) + s.ttlSec * 1000
+  // /keepalive done stops the pings but an armed compact still runs, once, in
+  // the first lead window.
+  if (s.phase === 'stopped' && s.isCompactArmed) {
+    compactTimer = $.clock.after(Math.max(0, expiresAt - config.compactLeadMinutes * 60_000 - now), () => {
+      void compact($)
+    })
+    return
+  }
+  if (s.phase !== 'armed' && s.phase !== 'capped') return
   if (s.phase === 'armed') {
     const pingAt = expiresAt - config.leadMinutes * 60_000
     pingTimer = $.clock.after(Math.max(0, pingAt - now), () => {
@@ -263,6 +291,52 @@ async function rearm($: Engine) {
   expiryTimer = $.clock.after(Math.max(0, expiresAt - now), () => {
     void expire($)
   })
+  // Pings used up: compact while the cache is still warm, so the summary
+  // request reads it instead of rewriting the whole prefix.
+  if (s.phase === 'capped' && (config.compactBeforeExpiry || s.isCompactArmed)) {
+    compactTimer = $.clock.after(Math.max(0, expiresAt - config.compactLeadMinutes * 60_000 - now), () => {
+      void compact($)
+    })
+  }
+}
+
+// Fires from the lead window, only while capped and still warm. It cannot run
+// from a command (the host refuses it under the command's turn), which is why
+// /keepalive compact only arms it.
+async function compact($: Engine) {
+  if (isCompacting) return
+  const s = await read($, session)
+  const isStoppedArmed = s.phase === 'stopped' && s.isCompactArmed
+  if ((s.phase !== 'capped' && !isStoppedArmed) || s.ttlSec === null) return
+  if ((await $.clock.now()) >= cacheStart(s) + s.ttlSec * 1000) {
+    if (!isStoppedArmed) await expire($) // fired late (the Mac slept): the cache is gone
+    return
+  }
+  isCompacting = true
+  let text: string
+  try {
+    const r = await $.session.compact()
+    if (r.skip !== undefined) {
+      text = `Compact skipped: ${r.skip}`
+    } else {
+      const tokens = r.tokensAfter ?? s.contextTokens
+      cancelTimers()
+      // The new prefix is not cached yet: nothing to keep warm until the next turn.
+      await save($, v =>
+        v.phase === 'armed' || v.phase === 'capped' || v.phase === 'expired'
+          ? { ...v, phase: 'active', contextTokens: tokens, isCompactArmed: false }
+          : { ...v, contextTokens: tokens, isCompactArmed: false },
+      )
+      text = `Compacted before the cache expired: ${kilo(r.tokensBefore ?? s.contextTokens)} → ${kilo(tokens)} tokens.`
+    }
+  } catch (err) {
+    // A cancel or a refusal is final: no retry, the cache just expires.
+    text = `Compact did not run: ${String(err).replace(/^.*?session\.compact: /, '')}`
+  } finally {
+    isCompacting = false
+  }
+  await update($, session, v => ({ ...v, isCompactArmed: false }))
+  $.ui.toast(text)
 }
 
 async function ping($: Engine) {
@@ -343,7 +417,10 @@ async function runCommand($: Engine, args: string): Promise<string> {
     if (s.phase === 'off') return 'Keepalive is already off for this session.'
     await save($, v => ({ ...v, phase: 'stopped' }))
     await closeAsk($, '💤 Stopped with /keepalive done.')
-    return 'Keepalive stopped until your next prompt.'
+    await rearm($) // an armed compact stays scheduled
+    return s.isCompactArmed && s.ttlSec !== null
+      ? `Pings stopped until your next prompt; the armed compact still runs at ${clockTime(compactAt({ ...s, phase: 'stopped' }))}.`
+      : 'Keepalive stopped until your next prompt.'
   }
 
   if (verb === 'brb') {
@@ -362,6 +439,26 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return `Keeping the cache warm for about ${minutes} min: up to ${maxPings} pings this idle stretch, next at ${clockTime(next)}.`
   }
 
+  if (verb === 'compact') {
+    // Arms the compact for when keepalive runs out; the built-in /compact does it now.
+    if (value === 'off') {
+      cancelTimers()
+      await save($, v => ({ ...v, isCompactArmed: false })) // save, not update: the state file feeds the status line
+      await rearm($)
+      return 'Compact-before-expiry disarmed.'
+    }
+    if (s.phase === 'off') return `Keepalive is off for this session (${s.offReason}).`
+    if (s.phase === 'expired') return 'The cache has already expired; use the built-in /compact if you still want one.'
+    if (s.phase === 'small') return 'This session’s context is small, so it is not kept warm and nothing is compacted. To compact anyway, use the built-in /compact.'
+    await save($, v => ({ ...v, isCompactArmed: true }))
+    await rearm($)
+    const tail = ' One time; it survives /goal turns. /keepalive compact off cancels. To compact now, use the built-in /compact.'
+    if (s.ttlSec === null || s.phase === 'active') {
+      return `Armed: it is scheduled when the current turn ends, after the pings run out.${tail}`
+    }
+    return `Armed: compact at about ${clockTime(compactAt(s))}${s.phase === 'armed' ? ' (after the remaining pings)' : s.phase === 'stopped' ? ' (no pings, you ran /keepalive done)' : ''}.${tail}`
+  }
+
   if (verb === 'status') {
     const stats = ((await $.store.get('stats')) as Stats | undefined) ?? { pings: 0, hits: 0 }
     const lines = [
@@ -375,12 +472,19 @@ async function runCommand($: Engine, args: string): Promise<string> {
       if (s.phase === 'armed') lines.push(`next ping: ${clockTime(expiresAt - config.leadMinutes * 60_000)}`)
       lines.push(`cache expires: ${clockTime(expiresAt)}`)
     }
+    if (config.compactBeforeExpiry || s.isCompactArmed) {
+      const due = compactDueAt(s)
+      const at = due === null ? null : clockTime(due)
+      lines.push(`compact before expiry: ${s.isCompactArmed ? 'armed' : 'on'}${at ? `, at ${at}` : ''}`)
+    } else {
+      lines.push('compact before expiry: off')
+    }
     lines.push(`telegram: ${isTelegramOn() ? `on (chat ${config.telegramChatId}${s.tgAskMessageId !== null ? ', question open' : ''})` : 'off'}`)
     lines.push(`all sessions: ${stats.pings} pings, ${stats.hits} hits`)
     return lines.join('\n')
   }
 
-  return 'Usage: /keepalive done | brb <minutes> | status'
+  return 'Usage: /keepalive done | brb <minutes> | compact [off] | status'
 }
 
 type Stats = { pings: number; hits: number }
@@ -429,6 +533,9 @@ async function askOnTelegram($: Engine) {
     await sessionHeader($),
     `🧊 Cache expires at <b>${clockTime(expiresAt)}</b> · ${kilo(s.contextTokens)} context`,
     `Rewrite ≈ ${kilo(s.contextTokens * rate)} · one more hour warm ≈ ${kilo(s.contextTokens * 0.1)}`,
+    ...(config.compactBeforeExpiry || s.isCompactArmed
+      ? [`Will compact at ${clockTime(compactAt(s))} unless you keep it warm.`]
+      : []),
     'Tap a button, or reply with minutes (e.g. 120).',
   ].join('\n')
   const sent = (await telegram($, 'sendMessage', {
@@ -596,6 +703,10 @@ async function writeStateFile($: Engine, s: KeepaliveSession) {
     pings: s.pingsSent,
     max: s.maxPings,
     contextTokens: s.contextTokens,
+    // Armed by /keepalive compact, and the epoch ms it is due (null while
+    // nothing is scheduled, e.g. during a turn): the status line shows both.
+    compactArmed: s.isCompactArmed,
+    compactAt: compactDueAt(s),
   }
   await $.fs.write(stateFile(), JSON.stringify(data) + '\n')
   if (config.engineStatus) $.ui.status(engineStatusText(s))
@@ -609,7 +720,9 @@ function engineStatusText(s: KeepaliveSession): string | undefined {
     case 'armed':
       return `keep ${s.pingsSent}/${s.maxPings} · ping ${clockTime(expiresAt - config.leadMinutes * 60_000)}`
     case 'capped':
-      return `keep ${s.pingsSent}/${s.maxPings} ⏸ · expires ${clockTime(expiresAt)}`
+      return config.compactBeforeExpiry || s.isCompactArmed
+        ? `keep ${s.pingsSent}/${s.maxPings} ⏸ · compact ${clockTime(compactAt(s))}`
+        : `keep ${s.pingsSent}/${s.maxPings} ⏸ · expires ${clockTime(expiresAt)}`
     case 'stopped':
       return `keep ⏸ · expires ${clockTime(expiresAt)}`
     case 'expired':
@@ -674,6 +787,27 @@ function stateFile(): string {
   return `${stateDir}/${sessionId}.json`
 }
 
+// When the armed compact fires: compactLeadMinutes before the cache would
+// expire after the last ping, longer ahead than a ping because a compaction
+// takes minutes on a big context. Every ping moves the cache start one
+// interval (TTL minus lead) on.
+function compactAt(s: KeepaliveSession): number {
+  const ttl = s.ttlSec ?? TTL_1H
+  const intervalMs = (ttl - config.leadMinutes * 60) * 1000
+  const pingsLeft = s.phase === 'armed' ? Math.max(0, s.maxPings - s.pingsSent) : 0
+  return cacheStart(s) + pingsLeft * intervalMs + (ttl - config.compactLeadMinutes * 60) * 1000
+}
+
+// When a compact is scheduled for this state, or null: the status line and
+// /keepalive status show it. The option applies to every idle stretch; the
+// flag only to the one it was armed for, and it also survives /keepalive done.
+function compactDueAt(s: KeepaliveSession): number | null {
+  if (s.ttlSec === null) return null
+  const isOn = s.isCompactArmed || config.compactBeforeExpiry
+  const isScheduled = s.phase === 'capped' || s.phase === 'armed' || (s.phase === 'stopped' && s.isCompactArmed)
+  return isOn && isScheduled ? compactAt(s) : null
+}
+
 function cacheStart(s: KeepaliveSession): number {
   return Math.max(s.lastActivityAt, s.lastPingAt)
 }
@@ -682,8 +816,10 @@ function cancelTimers() {
   // The Telegram poller is separate: a question stays open across re-arms.
   pingTimer?.cancel()
   expiryTimer?.cancel()
+  compactTimer?.cancel()
   pingTimer = undefined
   expiryTimer = undefined
+  compactTimer = undefined
 }
 
 function clockTime(ms: number): string {
