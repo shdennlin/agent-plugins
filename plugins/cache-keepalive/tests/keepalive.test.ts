@@ -655,4 +655,106 @@ describe('compact before expiry', () => {
       expect(w.forks).toBe(4)
     })
   }
+
+  describe('brb break-even note', () => {
+    const brb = async ($: Engine, on: On, model: string, minutes: number) => {
+      const w = world(on)
+      on('session.model', async () => ({ value: model }) as never)
+      await start($)
+      await turn($)
+      const r = (await $.command.run({ command: 'keepalive', args: `brb ${minutes}` } as never)) as { text: string }
+      return { w, text: r.text }
+    }
+    test('24 h on Opus 5.5 is under its break-even: no note', async ($, on) => {
+      expect((await brb($, on, 'claude-opus-5-5', 1440)).text).not.toContain('break-even')
+    })
+    test('24 h on Sonnet 5.5 is past its break-even (about 18 h)', async ($, on) => {
+      const { text } = await brb($, on, 'claude-sonnet-5-5', 1440)
+      expect(text).toContain('break-even for claude-sonnet-5-5 (about 20 pings, 18 h)')
+    })
+    test('48 h on Fable 5.1 is under its break-even', async ($, on) => {
+      expect((await brb($, on, 'claude-fable-5-1', 2880)).text).not.toContain('break-even')
+    })
+    test('60 h on Opus 5.5 is past 40 pings', async ($, on) => {
+      expect((await brb($, on, 'claude-opus-5-5', 3600)).text).toContain('about 40 pings, 37 h')
+    })
+    test('an unknown model gets no note', async ($, on) => {
+      expect((await brb($, on, 'some-other-model', 3600)).text).not.toContain('break-even')
+    })
+  })
+
+  describe('the armed flag when you come back', () => {
+    // The engine's classic UserPromptSubmit: `source` says who wrote the prompt.
+    const submit = ($: Engine, prompt: string, source: string) =>
+      ($ as never as { classic: { UserPromptSubmit: (e: object) => Promise<unknown> } }).classic.UserPromptSubmit({ prompt, source })
+    async function armed($: Engine, on: On) {
+      const w = world(on)
+      compacting(on, w)
+      on('classic.UserPromptSubmit', async () => ({}) as never)
+      await start($)
+      await turn($)
+      await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+      return w
+    }
+    test('a plain prompt you typed clears it and says so', async ($, on) => {
+      const w = await armed($, on)
+      await submit($, 'I am back', 'user')
+      expect(stateOf(w)).toMatchObject({ compactArmed: false, compactAt: null })
+      expect(w.toasts.at(-1)).toContain('Armed compact cancelled')
+    })
+    test('a plain prompt with no source (this build omits it) clears it too', async ($, on) => {
+      const w = await armed($, on)
+      await (($ as never as { classic: { UserPromptSubmit: (e: object) => Promise<unknown> } }).classic).UserPromptSubmit({ prompt: 'I am back' })
+      expect(stateOf(w)).toMatchObject({ compactArmed: false })
+    })
+    test('a slash command you typed does not (/goal comes right after arming)', async ($, on) => {
+      const w = await armed($, on)
+      await submit($, '/goal make three files', 'user')
+      await submit($, '/keepalive status', 'user')
+      expect(stateOf(w)).toMatchObject({ compactArmed: true })
+      expect(w.toasts).toEqual([])
+    })
+    test('a prompt the engine wrote (a /goal continuation) does not', async ($, on) => {
+      const w = await armed($, on)
+      await submit($, 'Stop hook feedback: only 1.txt exists', 'system')
+      await submit($, 'wakeup', 'loop_wakeup')
+      expect(stateOf(w)).toMatchObject({ compactArmed: true })
+    })
+    test('with nothing armed it says nothing', async ($, on) => {
+      const w = world(on)
+      compacting(on, w)
+      on('classic.UserPromptSubmit', async () => ({}) as never)
+      await start($)
+      await turn($)
+      await submit($, 'hello', 'user')
+      expect(w.toasts).toEqual([])
+    })
+  })
+
+  describe('brb duration', () => {
+    const run = async ($: Engine, args: string) => ((await $.command.run({ command: 'keepalive', args } as never)) as { text: string }).text
+    test('"24h" is 1440 minutes: 27 pings', async ($, on) => {
+      const w = world(on)
+      await start($)
+      await turn($)
+      expect(await run($, 'brb 24h')).toContain('about 1440 min: up to 27 pings')
+      expect(stateOf(w)).toMatchObject({ max: 27 })
+    })
+    test('"180", "180m" and "3h" all mean the same 180 minutes', async ($, on) => {
+      world(on)
+      await start($)
+      await turn($)
+      for (const v of ['180', '180m', '3h']) {
+        expect(await run($, `brb ${v}`)).toContain('about 180 min: up to 4 pings')
+      }
+    })
+    test('anything else is a usage message', async ($, on) => {
+      world(on)
+      await start($)
+      await turn($)
+      for (const v of ['24hours', 'h', '-5', '0', 'abc']) {
+        expect(await run($, `brb ${v}`)).toContain('Usage: /keepalive brb')
+      }
+    })
+  })
 })

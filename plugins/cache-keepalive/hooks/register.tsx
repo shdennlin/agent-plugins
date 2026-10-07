@@ -19,6 +19,15 @@ const TTL_1H = 3600
 const TTL_5M = 300
 // /keepalive brb completions, the first one offered on an empty argument.
 const BRB_PRESETS = ['180', '60', '480']
+// Pings that cost as much as one 1h-cache rewrite: the 1h write price (2x input)
+// over the cache-read price, per the pricing page (checked 2026-10-07). Reads
+// are 0.1x input on every model but Claude Fable 5.1 / Mythos 5.1 (0.025x) and
+// Claude Opus 5.5 (0.05x).
+function breakEvenPings(model: string): number | null {
+  if (/(fable|mythos)-5-1/.test(model)) return 80
+  if (/opus-5-5/.test(model)) return 40
+  return /(fable|mythos|opus|sonnet|haiku)/.test(model) ? 20 : null
+}
 const TG_POLL_MS = 10_000
 const TG_API = 'https://api.telegram.org'
 const KEYCHAIN_SERVICE = 'claude-code.cache-keepalive'
@@ -101,8 +110,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'keepalive',
-      description: 'Prompt-cache keepalive: done, brb <minutes>, compact [off], status',
-      argumentHint: 'done | brb <minutes> | compact [off] | status',
+      description: 'Prompt-cache keepalive: done, brb <minutes|hours>, compact [off], status',
+      argumentHint: 'done | brb <minutes|hours> | compact [off] | status',
     })
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
     stateDir = `${configDir}/keepalive`
@@ -123,6 +132,19 @@ export const register: Register = (on, options) => {
     const s = await read($, session)
     if (e.transcript_path && e.transcript_path !== s.transcriptPath) {
       await update($, session, v => ({ ...v, transcriptPath: e.transcript_path }))
+    }
+    // You are back: an armed compact was for the time you are away. Only a prompt
+    // you typed counts. `source` tells it from the engine's own turns (a /goal
+    // continuation is `system`) where the engine sends it; this build leaves it
+    // out (measured: undefined on typed prompts, and no event at all on a /goal
+    // continuation), so an absent source counts as typed. A slash command does
+    // not count: /goal and /keepalive status are typed too, and arming comes
+    // before /goal.
+    const isFromYou = e.source === undefined || e.source === 'user'
+    const isTyped = isFromYou && e.prompt.trim() !== '' && !e.prompt.trimStart().startsWith('/')
+    if (isTyped && s.isCompactArmed) {
+      await save($, v => ({ ...v, isCompactArmed: false }))
+      $.ui.toast('Armed compact cancelled: you are back. /keepalive compact arms it again.')
     }
     return next(e)
   })
@@ -424,8 +446,8 @@ async function runCommand($: Engine, args: string): Promise<string> {
   }
 
   if (verb === 'brb') {
-    const minutes = Number(value)
-    if (!Number.isFinite(minutes) || minutes <= 0) return 'Usage: /keepalive brb <minutes>, for example /keepalive brb 180'
+    const minutes = parseDuration(value)
+    if (!Number.isFinite(minutes) || minutes <= 0) return 'Usage: /keepalive brb <minutes or hours>, for example /keepalive brb 180 or /keepalive brb 24h'
     if (s.phase === 'off') return `Keepalive is off for this session (${s.offReason}).`
     if (s.phase === 'small') return 'This session’s context is small enough that a rewrite is cheap; not keeping it warm.'
     if (s.ttlSec === null || s.phase === 'active') return 'Nothing to keep warm yet: wait for the current turn to finish.'
@@ -436,7 +458,14 @@ async function runCommand($: Engine, args: string): Promise<string> {
     await rearm($)
     const now = await $.clock.now()
     const next = Math.max(now, cacheStart(s) + s.ttlSec * 1000 - config.leadMinutes * 60_000)
-    return `Keeping the cache warm for about ${minutes} min: up to ${maxPings} pings this idle stretch, next at ${clockTime(next)}.`
+    const model = (await $.session.model().catch(() => '')) ?? ''
+    const breakEven = breakEvenPings(model)
+    // Only a heads-up: pings past the break-even cost more than the one rewrite they avoid.
+    const warning =
+      breakEven !== null && maxPings > breakEven
+        ? ` Note: that is past the break-even for ${model} (about ${breakEven} pings, ${Math.round((breakEven * intervalSec) / 3600)} h): the pings cost more than the one rewrite they avoid, so it only pays if you are sure to come back.`
+        : ''
+    return `Keeping the cache warm for about ${minutes} min: up to ${maxPings} pings this idle stretch, next at ${clockTime(next)}.${warning}`
   }
 
   if (verb === 'compact') {
@@ -484,7 +513,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return lines.join('\n')
   }
 
-  return 'Usage: /keepalive done | brb <minutes> | compact [off] | status'
+  return 'Usage: /keepalive done | brb <minutes|hours> | compact [off] | status'
 }
 
 type Stats = { pings: number; hits: number }
@@ -757,6 +786,13 @@ async function sweepStaleFiles($: Engine) {
       await $.process.run(['rm', '-f', `${stateDir}/${entry.name}`]).catch(() => undefined)
     }
   }
+}
+
+// "180" and "180m" are minutes, "24h" is hours (the Telegram answer takes both too).
+function parseDuration(value: string | undefined): number {
+  const m = /^(\d+(?:\.\d+)?)([hm])?$/i.exec(value ?? '')
+  if (!m) return NaN
+  return m[2]?.toLowerCase() === 'h' ? Number(m[1]) * 60 : Number(m[1])
 }
 
 function brbCompletion(text: string, cursor: number): string {

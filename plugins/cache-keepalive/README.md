@@ -53,6 +53,16 @@ With a 142k-token context and the 1h TTL:
 
 The ratio does not depend on the context size, so keeping warm pays off when there is more than a 2.5–10% chance you come back before the pings run out. The same prices make compact-before-expiry cheap: the summary request reads the warm cache instead of paying a rewrite.
 
+**How long is it worth keeping warm?** Pings cost as much as one rewrite after about (1h write price ÷ cache-read price) pings, one every 55 minutes. This does not depend on context size, and the pricing page gives the same numbers for every model but two:
+
+| Model | Break-even | About |
+|---|---|---|
+| Claude Fable 5.1, Mythos 5.1 (read 0.025× input) | 80 pings | 73 h |
+| Claude Opus 5.5 (read 0.05×) | 40 pings | 37 h |
+| Every other model: Fable 5, Mythos 5, Opus 5 and 4.x, Sonnet 5.5, 5 and 4.x, Haiku 4.5 and 3.5 (read 0.1×) | 20 pings | 18 h |
+
+Past that, the pings cost more than the single rewrite they avoid. It only pays if you are sure to come back, so the default stays at 2 pings; `/keepalive brb` adds a note to its reply when you ask for more than the break-even for the model in use.
+
 Sessions under 50k tokens of context are not kept warm, since a rewrite is cheap there. A **5-minute TTL** turns keepalive off. That rule assumes the 0.1× read rate: about 13 pings an hour is 1.3× input, more than one 1.25× rewrite. On Opus 5.5 (0.05×) and Fable 5.1 (0.025×) the same 13 pings would cost 0.65× and 0.33×, so the rule is conservative there. The Telegram question also estimates "one more hour warm" at 0.1×.
 
 The TTL is read, not assumed: the turn's `usage` has no 1h/5m split, so the plugin reads `cache_creation.ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens` from the transcript tail.
@@ -62,7 +72,7 @@ The TTL is read, not assumed: the turn's `usage` has no 1h/5m split, so the plug
 | Command | What it does |
 |---|---|
 | `/keepalive status` | Phase, TTL, context size, pings so far, next ping and expiry times |
-| `/keepalive brb <minutes>` | Keep warm for longer this idle stretch, e.g. `brb 180` allows 4 pings. Resets at your next prompt |
+| `/keepalive brb <minutes or hours>` | Keep warm for longer this idle stretch, e.g. `brb 180` allows 4 pings. Resets at your next prompt |
 | `/keepalive done` | Stop for this idle stretch. Resets at your next prompt |
 | `/keepalive compact` | Arm a one-time compact for when keepalive runs out: it compacts in the lead window before the cache expires. Survives `/goal` turns; `/keepalive compact off` cancels. To compact now, use the built-in `/compact` |
 
@@ -92,7 +102,8 @@ Set in `/config` (or `pluginConfigs["cache-keepalive"].options` in settings):
 For when you step away, or leave a `/goal` running while you sleep: run `/keepalive compact` first. Keepalive keeps pinging as usual; once the pings run out, it compacts `compactLeadMinutes` (10) before the cache expires instead of letting it lapse. The summary request only has to start before the expiry, but the extra minutes absorb a retry or a late timer. The summary request is a fork of the same prefix and reads the warm cache: one measured run on a 142k-token context read 98% of the prefix from the cache and wrote 526 tokens. Your next prompt then rewrites a small summary instead of the whole old context.
 
 - **No pings, just the compact.** Add `/keepalive done` (before or after): the pings stop and the compact runs in the first lead window, about 50 minutes after the last turn on a 1h TTL. `done` ends at your next prompt, though, so a `/goal`'s first turn brings the pings back; for a goal use `maxPings: 0` instead.
-- **One time.** It fires once, then clears. `/keepalive compact off` cancels it. It is not reset by new turns, so a `/goal`'s continuations (each one a turn) do not drop it; the idle countdown only starts after the goal ends.
+- **One time.** It fires once, then clears. `/keepalive compact off` cancels it.
+- **It clears when you come back.** A plain prompt you type (not a slash command) cancels it and shows a toast, so it cannot fire in some later idle stretch you forgot about. A slash command does not count (you arm it, then type `/goal`), and neither does a prompt the engine wrote, such as a `/goal` continuation (its `source` is not `user`). Some builds leave `source` out; there, a `/goal` continuation was measured to raise no prompt event at all, so only what you type clears it. New turns do not drop it, so a `/goal` does not either; the idle countdown only starts after the goal ends.
 - It fires only in the `capped` phase, so `brb` or a Telegram answer that adds pings postpones it. If the timer fires after the cache already expired (the Mac slept), it does nothing. If you cancel the compaction or the host refuses it, it is not retried.
 - Set the `compactBeforeExpiry` option to make it the default for every idle stretch instead of arming it each time. Set `maxPings` to `0` to compact at the first lead window with no pings.
 - After it runs, nothing is kept warm until your next turn: the new prefix is not cached yet.
@@ -128,7 +139,7 @@ flowchart TD
   class I done
 ```
 
-Solid arrows are the main path, dashed arrows are optional or restart it. Red boxes end early: nothing is compacted and the cache expires on its own. Typing a prompt at any point cancels the timers; the armed flag stays, and the flow restarts when that turn ends.
+Solid arrows are the main path, dashed arrows are optional or restart it. Red boxes end early: nothing is compacted and the cache expires on its own. Typing a prompt at any point cancels the timers. A plain prompt also clears the armed flag; a slash command or a `/goal` continuation keeps it, and the flow restarts when that turn ends.
 
 ### Timeline
 
@@ -216,7 +227,7 @@ The plugin writes its state to `~/.claude/keepalive/<session_id>.json`. `bin/kee
 
 - The countdown runs from the later of the transcript's last assistant message and the last ping, with the TTL the plugin read. Counting from the transcript alone, as ccstatusline's built-in Cache Timer does, would fall to `❄️ COLD` after a ping while the cache is still warm: pings never reach the transcript.
 - The tag after it: `kp 1/2` (keepalive: pings used / cap), `⏸` (capped or stopped), `kp off` / `kp off·5m`. Emoji and text are joined with no space to save width.
-- An armed compact adds `✂03:12` (the clock time it is due), or `✂armed` while nothing is scheduled yet, for example during a `/goal` turn: `🔥HOT ✂armed`. It clears once the compact has run or you send `/keepalive compact off`.
+- An armed compact adds `✂03:12` (the clock time it is due), or `✂armed` while nothing is scheduled yet, for example during a `/goal` turn: `🔥HOT ✂armed`. It clears once the compact has run, when you send a plain prompt, or with `/keepalive compact off`.
 - With no state file it prints what ccstatusline's built-in Cache Timer prints.
 
 It reads the JSON Claude Code passes to every status line command (`session_id`, `transcript_path`), so it works with any of the setups below. It needs `node` on the `PATH` the status line runs with. `--ttl <seconds>` is the TTL assumed until the plugin has read the session's own (default 3600).
