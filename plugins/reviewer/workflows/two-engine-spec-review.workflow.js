@@ -140,9 +140,12 @@ const reviewPrompt = engine =>
 // A delivery failure dressed up as a finding (seen in the wild: a schema-forced wrapper
 // emitted `DELIVERY-1 MEDIUM "Codex findings not transcribed: output withheld…"` whose own
 // rationale said "placeholder, not a review finding"). It must never count as a blocker.
+// Match only SELF-DECLARED delivery failures — never the bare word "placeholder", which real
+// findings use all the time ("design.md still has placeholder diagrams").
 const isPlaceholder = f =>
   /^DELIVERY-/i.test(f.id || '') ||
-  /\b(placeholder|not transcribed|output withheld|not a review finding)\b/i.test(`${f.title || ''} ${f.rationale || ''}`)
+  /\b(not transcribed|output withheld|not a review finding|this (entry|finding) is a placeholder)\b/i
+    .test(`${f.title || ''} ${f.rationale || ''}`)
 
 // Decide whether an engine's result is a real review. A schema-satisfying object is NOT
 // proof of life: the engine is down if agent() returned null, if it reported a non-ok
@@ -151,8 +154,11 @@ const isPlaceholder = f =>
 function liveness(res, name) {
   if (!res) return { res: { verdict: 'FAIL', findings: [] }, ok: false }
   const real = (res.findings || []).filter(f => !isPlaceholder(f))
-  const dropped = (res.findings || []).length - real.length
-  if (dropped) log(`${name}: dropped ${dropped} delivery placeholder(s) — not review findings`)
+  const droppedList = (res.findings || []).filter(isPlaceholder)
+  const dropped = droppedList.length
+  // Log each dropped title so a false positive is visible, not silent.
+  if (dropped) log(`${name}: dropped ${dropped} delivery placeholder(s) — not review findings: ` +
+                   droppedList.map(f => `"${f.title}"`).join(', '))
   const statusBad = res.engineStatus && res.engineStatus !== 'ok'
   const onlyPlaceholders = dropped > 0 && real.length === 0
   return { res: { ...res, findings: real }, ok: !(statusBad || onlyPlaceholders) }
@@ -304,6 +310,7 @@ const survival = new Map()    // blocker key -> consecutive rounds it has persis
 const escalated = new Set()   // keys already moved to needsHuman (don't re-fix or re-escalate)
 const needsHuman = []         // findings the fixer can't resolve -> returned for human judgement
 let round = 1, cleared = null
+let fixRounds = 0             // fix passes actually run (the loop may exit before fixing)
 let lastAll = []              // final round's union findings, returned for history logging
 let lastCat = null            // final round's categorization, used to attribute engine provenance
 
@@ -367,6 +374,7 @@ while (round <= MAX_ROUNDS + 1) {
     .filter(f => isBlocker(f.severity) && freshKeys.has(keyOf(f)))
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
   const fixResult = await runFix(blockerOrdered, cat, `fix:round${round}`)
+  fixRounds++
   const rejectedN = escalateRejected(fixResult, blockerOrdered, cat)
   const gate = fixResult.gate || { ran: false, regressed: false }
   history[history.length - 1].gate = gate
@@ -395,7 +403,7 @@ if (!cleared) {
       ? `${needsHuman.length} blocker(s) need human judgement — the fixer could not resolve them (see needsHuman)`
       : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${MAX_ROUNDS} fix round(s); ` +
         `the listed findings are from a verification review of the post-fix artifacts`
-  return { ready: false, change: CHANGE, rounds: history.length, fixRounds: Math.min(round, MAX_ROUNDS), reason, needsHuman, history,
+  return { ready: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
             intersection: intersectionSummary(),
             findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
 }
@@ -407,14 +415,18 @@ if (lows.length) {
   phase('Fix')
   const lowResult = await runFix(lows, cleared, 'fix-low')
   lowsFixed = (lowResult.applied || []).length
-  // LOW rejections are informational only — they are not blockers, so they do not go to needsHuman.
+  // LOW rejections are informational only (not blockers), but a LOW fix that regresses the
+  // project gate is still a gate-regression and must reach the human.
   const lowRejected = (lowResult.rejected || []).length
-  log(`LOW pass: applied=${lowsFixed} rejected=${lowRejected}`)
+  const lowGate = lowResult.gate || { ran: false, regressed: false }
+  if (lowGate.regressed) escalateRejected({ rejected: [], gate: lowGate }, lows, cleared)
+  log(`LOW pass: applied=${lowsFixed} rejected=${lowRejected}` +
+      (lowGate.regressed ? ` | ⚠️ GATE REGRESSED: ${lowGate.detail || ''}` : ''))
 }
 
 // ready:true means both engines are MEDIUM-clean on the last review; needsHuman may still be
 // non-empty (fixer-rejected items the engines were told not to re-report) — the caller must
 // surface them.
-return { ready: true, change: CHANGE, rounds: history.length, fixRounds: round - 1, lowsFixed, needsHuman, history,
+return { ready: true, change: CHANGE, rounds: history.length, fixRounds, lowsFixed, needsHuman, history,
          intersection: intersectionSummary(),
          findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
