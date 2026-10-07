@@ -1,6 +1,6 @@
 {
   "name": "cache-keepalive",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Keeps the main thread's prompt cache warm while you are idle: one cheap fork ping just before the TTL runs out, capped, verified on every hit.",
   "author": {
     "name": "shdennlin"

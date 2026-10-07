@@ -42,7 +42,7 @@ Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: o
 | `/keepalive done` | Stop pinging for this idle stretch. Resets at your next prompt |
 | `/keepalive compact` | Arm a one-time compact for when keepalive runs out ([below](#compact-before-expiry)). `compact off` cancels |
 
-Typing `/keepalive brb ` offers `180` as a dim completion; Right arrow accepts. When you come back to an expired cache, a one-line band above the prompt says how much the next request will rewrite; your next prompt or Dismiss clears it.
+In a terminal the replies are coloured (a past-break-even warning in yellow, errors in red, the phase in `status` by state); other surfaces get plain text. Typing `/keepalive brb ` offers `180` as a dim completion; Right arrow accepts. When you come back to an expired cache, a one-line band above the prompt says how much the next request will rewrite; your next prompt or Dismiss clears it.
 
 ## Options
 

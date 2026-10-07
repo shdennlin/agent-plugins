@@ -816,4 +816,34 @@ describe('compact before expiry', () => {
       expect(await run($, 'brb reset')).toContain('small enough')
     })
   })
+
+  describe('colour in command replies', () => {
+    const ESC = String.fromCharCode(27)
+    const run = async ($: Engine, args: string) => ((await $.command.run({ command: 'keepalive', args } as never)) as { text: string }).text
+    test('on a terminal the usage error is red and the break-even warning is yellow, on its own line', async ($, on) => {
+      const w = world(on)
+      on('session.model', async () => ({ value: 'claude-sonnet-5-5' }) as never)
+      await start($)
+      await turn($)
+      expect(await run($, 'brb abc')).toContain(`${ESC}[31mUsage`)
+      const text = await run($, 'brb 24h')
+      expect(text).toContain(`\n${ESC}[33m⚠ Past the break-even for claude-sonnet-5-5`)
+      expect(stateOf(w)).toMatchObject({ max: 27 })
+    })
+    test('status colours the phase: armed green', async ($, on) => {
+      world(on)
+      await start($)
+      await turn($)
+      expect(await run($, 'status')).toContain(`phase: ${ESC}[32marmed${ESC}[0m`)
+    })
+    test('off a terminal there are no escape codes at all', async ($, on) => {
+      world(on)
+      on('session.model', async () => ({ value: 'claude-sonnet-5-5' }) as never)
+      await $.session.start({ cwd: '/work/proj', surface: 'desktop', isInteractive: true })
+      await turn($)
+      for (const args of ['brb abc', 'brb 24h', 'status', 'compact']) {
+        expect(await run($, args)).not.toContain(ESC)
+      }
+    })
+  })
 })

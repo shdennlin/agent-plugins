@@ -81,6 +81,9 @@ let expiryTimer: Timer | undefined
 let compactTimer: Timer | undefined
 let isCompacting = false
 let isRetrying = false
+// ANSI colour in a command's reply: the terminal draws it (checked: bold, dim,
+// 16 colours, backgrounds and truecolor), other surfaces may show the codes.
+let isTerminal = false
 let sessionId = ''
 let stateDir = ''
 let projectsDir = ''
@@ -117,6 +120,7 @@ export const register: Register = (on, options) => {
     stateDir = `${configDir}/keepalive`
     projectsDir = `${configDir}/projects/${e.cwd.replace(/[^A-Za-z0-9]/g, '-')}`
     cwd = e.cwd
+    isTerminal = e.surface === 'terminal'
     tgToken = await resolveTelegramToken($)
     await bindSession($)
     await rearm($)
@@ -436,7 +440,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
 
   if (verb === 'done') {
     cancelTimers()
-    if (s.phase === 'off') return 'Keepalive is already off for this session.'
+    if (s.phase === 'off') return paint('Keepalive is already off for this session.', 'red')
     await save($, v => ({ ...v, phase: 'stopped' }))
     await closeAsk($, '💤 Stopped with /keepalive done.')
     await rearm($) // an armed compact stays scheduled
@@ -449,12 +453,12 @@ async function runCommand($: Engine, args: string): Promise<string> {
     const isReset = value?.toLowerCase() === 'reset'
     const minutes = isReset ? 0 : parseDuration(value)
     if (!isReset && (!Number.isFinite(minutes) || minutes <= 0)) {
-      return 'Usage: /keepalive brb <minutes or hours> | reset, for example /keepalive brb 180, /keepalive brb 24h or /keepalive brb reset'
+      return paint('Usage: /keepalive brb <minutes or hours> | reset, for example /keepalive brb 180, /keepalive brb 24h or /keepalive brb reset', 'red')
     }
-    if (s.phase === 'off') return `Keepalive is off for this session (${s.offReason}).`
-    if (s.phase === 'small') return 'This session’s context is small enough that a rewrite is cheap; not keeping it warm.'
-    if (s.ttlSec === null || s.phase === 'active') return 'Nothing to keep warm yet: wait for the current turn to finish.'
-    if (s.phase === 'expired') return 'The cache has already expired; your next prompt rewrites it.'
+    if (s.phase === 'off') return paint(`Keepalive is off for this session (${s.offReason}).`, 'red')
+    if (s.phase === 'small') return paint('This session’s context is small enough that a rewrite is cheap; not keeping it warm.', 'yellow')
+    if (s.ttlSec === null || s.phase === 'active') return paint('Nothing to keep warm yet: wait for the current turn to finish.', 'yellow')
+    if (s.phase === 'expired') return paint('The cache has already expired; your next prompt rewrites it.', 'yellow')
     const intervalSec = s.ttlSec - config.leadMinutes * 60
     // reset: the configured cap again (the pings already sent stay sent).
     const maxPings = isReset ? Math.max(config.maxPings, s.pingsSent) : Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
@@ -473,7 +477,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     // Only a heads-up: pings past the break-even cost more than the one rewrite they avoid.
     const warning =
       breakEven !== null && maxPings > breakEven
-        ? ` Note: that is past the break-even for ${model} (about ${breakEven} pings, ${Math.round((breakEven * intervalSec) / 3600)} h): the pings cost more than the one rewrite they avoid, so it only pays if you are sure to come back.`
+        ? `\n${paint(`⚠ Past the break-even for ${model} (about ${breakEven} pings, ${Math.round((breakEven * intervalSec) / 3600)} h): the pings cost more than the one rewrite they avoid, so it only pays if you are sure to come back.`, 'yellow')}`
         : ''
     return `Keeping the cache warm for about ${minutes} min: up to ${pingCount(maxPings)} this idle stretch, next at ${clockTime(next)}.${warning}`
   }
@@ -486,9 +490,9 @@ async function runCommand($: Engine, args: string): Promise<string> {
       await rearm($)
       return 'Compact-before-expiry disarmed.'
     }
-    if (s.phase === 'off') return `Keepalive is off for this session (${s.offReason}).`
-    if (s.phase === 'expired') return 'The cache has already expired; use the built-in /compact if you still want one.'
-    if (s.phase === 'small') return 'This session’s context is small, so it is not kept warm and nothing is compacted. To compact anyway, use the built-in /compact.'
+    if (s.phase === 'off') return paint(`Keepalive is off for this session (${s.offReason}).`, 'red')
+    if (s.phase === 'expired') return paint('The cache has already expired; use the built-in /compact if you still want one.', 'yellow')
+    if (s.phase === 'small') return paint('This session’s context is small, so it is not kept warm and nothing is compacted. To compact anyway, use the built-in /compact.', 'yellow')
     await save($, v => ({ ...v, isCompactArmed: true }))
     await rearm($)
     const tail = ' One time; it survives /goal turns. /keepalive compact off cancels. To compact now, use the built-in /compact.'
@@ -501,7 +505,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
   if (verb === 'status') {
     const stats = ((await $.store.get('stats')) as Stats | undefined) ?? { pings: 0, hits: 0 }
     const lines = [
-      `phase: ${s.phase}${s.offReason ? ` (${s.offReason})` : ''}`,
+      `phase: ${paintPhase(s.phase)}${s.offReason ? ` (${s.offReason})` : ''}`,
       `ttl: ${s.ttlSec === null ? 'not read yet' : `${s.ttlSec / 60} min`}`,
       `context: ${kilo(s.contextTokens)} tokens (minimum ${kilo(config.minContextTokens)})`,
       `pings this idle stretch: ${s.pingsSent}/${s.maxPings}`,
@@ -523,7 +527,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return lines.join('\n')
   }
 
-  return 'Usage: /keepalive done | brb <minutes|hours|reset> | compact [off] | status'
+  return paint('Usage: /keepalive done | brb <minutes|hours|reset> | compact [off] | status', 'red')
 }
 
 type Stats = { pings: number; hits: number }
@@ -796,6 +800,17 @@ async function sweepStaleFiles($: Engine) {
       await $.process.run(['rm', '-f', `${stateDir}/${entry.name}`]).catch(() => undefined)
     }
   }
+}
+
+const ANSI = { red: '31', green: '32', yellow: '33', dim: '2' } as const
+function paint(text: string, colour: keyof typeof ANSI): string {
+  return isTerminal ? `\u001b[${ANSI[colour]}m${text}\u001b[0m` : text
+}
+
+// armed is working, capped has run out of pings, expired and off need your attention.
+function paintPhase(phase: KeepaliveSession['phase']): string {
+  const colour = { armed: 'green', capped: 'yellow', expired: 'red', off: 'red', stopped: 'dim' } as const
+  return phase in colour ? paint(phase, colour[phase as keyof typeof colour]) : phase
 }
 
 function pingCount(n: number): string {
