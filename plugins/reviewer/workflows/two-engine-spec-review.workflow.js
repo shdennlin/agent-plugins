@@ -44,6 +44,9 @@ const FINDINGS = {
   required: ['verdict', 'findings'],
   properties: {
     verdict:  { enum: ['PASS', 'FAIL'] },
+    // How the engine actually ran. A wrapper that could not obtain the engine's output
+    // reports 'withheld' / 'error' with findings: [] — NEVER a placeholder finding.
+    engineStatus: { enum: ['ok', 'withheld', 'error'] },
     findings: { type: 'array', items: {
       type: 'object',
       required: ['id', 'severity', 'title', 'location'],
@@ -115,23 +118,43 @@ const reviewPrompt = engine =>
 
 // One full dual-engine round. The barrier is real: both engines' findings must
 // be in hand to build the union, categorize, and count blockers.
+// A delivery failure dressed up as a finding (seen in the wild: a schema-forced wrapper
+// emitted `DELIVERY-1 MEDIUM "Codex findings not transcribed: output withheld…"` whose own
+// rationale said "placeholder, not a review finding"). It must never count as a blocker.
+const isPlaceholder = f =>
+  /^DELIVERY-/i.test(f.id || '') ||
+  /\b(placeholder|not transcribed|output withheld|not a review finding)\b/i.test(`${f.title || ''} ${f.rationale || ''}`)
+
+// Decide whether an engine's result is a real review. A schema-satisfying object is NOT
+// proof of life: the engine is down if agent() returned null, if it reported a non-ok
+// engineStatus, or if it emitted only delivery placeholders. Placeholders are stripped
+// from the findings either way so they can never reach the union.
+function liveness(res, name) {
+  if (!res) return { res: { verdict: 'FAIL', findings: [] }, ok: false }
+  const real = (res.findings || []).filter(f => !isPlaceholder(f))
+  const dropped = (res.findings || []).length - real.length
+  if (dropped) log(`${name}: dropped ${dropped} delivery placeholder(s) — not review findings`)
+  const statusBad = res.engineStatus && res.engineStatus !== 'ok'
+  const onlyPlaceholders = dropped > 0 && real.length === 0
+  return { res: { ...res, findings: real }, ok: !(statusBad || onlyPlaceholders) }
+}
+
 async function reviewRound(round) {
-  const [claude, codex] = await parallel([
+  const [claudeRaw, codexRaw] = await parallel([
     () => agent(reviewPrompt('Claude'),
       { label: `claude:${round}`, phase: 'Review', schema: FINDINGS }),
     () => agent(
       `On the Codex side, run /reviewer:spec for the change under "${CHANGE}". ` +
-      `Do NOT pass --fix or --fix-all. Report findings only.\n` + reviewPrompt('Codex'),
+      `Do NOT pass --fix or --fix-all. Report findings only.\n` +
+      `If Codex produced no usable output (withheld, blocked, timed out, errored), set engineStatus to ` +
+      `"withheld" or "error" and return findings: [] — do NOT fabricate a placeholder finding to describe the failure. ` +
+      `Set engineStatus "ok" when the findings are genuinely Codex's.\n` + reviewPrompt('Codex'),
       { label: `codex:${round}`, phase: 'Review', agentType: 'codex:codex-rescue', schema: FINDINGS }),
   ])
-  // agent() returns null on failure (engine died / plugin missing). Track that
-  // explicitly via *Ok flags: a dead engine must NOT count as a clean review.
-  return {
-    claude:   claude || { verdict: 'FAIL', findings: [] },
-    codex:    codex  || { verdict: 'FAIL', findings: [] },
-    claudeOk: !!claude,
-    codexOk:  !!codex,
-  }
+  const c = liveness(claudeRaw, `claude:${round}`)
+  const x = liveness(codexRaw,  `codex:${round}`)
+  // A dead engine must NOT count as a clean review — the *Ok flags gate `cleared`.
+  return { claude: c.res, codex: x.res, claudeOk: c.ok, codexOk: x.ok }
 }
 
 // Pure-code categorization. BLOCKER rule: MEDIUM+ in EITHER engine counts;
@@ -269,7 +292,8 @@ while (round <= MAX_ROUNDS) {
       `fresh=${fresh.length} escalated=${escalated.size}` +
       (down.length ? ` | ⚠️ ENGINE DOWN: ${down.join('+')} — NOT a clean review` : ''))
   history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length,
-                 fresh: fresh.length, escalated: escalated.size, degraded: down.length > 0 })
+                 fresh: fresh.length, escalated: escalated.size, degraded: down.length > 0,
+                 enginesDown: down })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
 
   // Clear only when both engines ran, neither said FAIL, and NO blockers remain.
   if (enginesOk && noFailVerdict && cat.blockers.length === 0) { cleared = cat; break }
