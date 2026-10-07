@@ -257,11 +257,14 @@ function batchFixPrompt(findings, cat) {
 
 // One fixer per round (session model by default), holding all the findings + shared context at once.
 // Returns the fixer's structured dispositions; a dead fixer yields nothing applied and nothing rejected.
+// A dead fixer (agent() → null) is reported as `down: true` — the caller must not treat it as
+// "applied nothing" (that would let the stale tracker claim fixes ran when none did).
 async function runFix(findings, cat, label) {
   const r = await agent(batchFixPrompt(findings, cat),
     { label, phase: 'Fix', agentType: 'reviewer:spec-fixer', schema: FIX_RESULT,
       ...(FIX_MODEL ? { model: FIX_MODEL } : {}) })
-  return r || { applied: [], rejected: [] }
+  if (!r) { log(`${label}: ⚠️ FIXER DOWN — no fix was applied this pass`); return { applied: [], rejected: [], down: true } }
+  return { ...r, down: false }
 }
 
 // Move fixer-rejected findings out of the loop: escalate by key (so this round's exact key is
@@ -311,6 +314,7 @@ const escalated = new Set()   // keys already moved to needsHuman (don't re-fix 
 const needsHuman = []         // findings the fixer can't resolve -> returned for human judgement
 let round = 1, cleared = null
 let fixRounds = 0             // fix passes actually run (the loop may exit before fixing)
+let fixerDownRounds = 0       // fix passes where the fixer agent died (nothing applied)
 let lastAll = []              // final round's union findings, returned for history logging
 let lastCat = null            // final round's categorization, used to attribute engine provenance
 
@@ -325,7 +329,11 @@ while (round <= MAX_ROUNDS + 1) {
   lastAll = cat.all
   lastCat = cat
   const enginesOk = r.claudeOk && r.codexOk
-  const noFailVerdict = r.claude.verdict !== 'FAIL' && r.codex.verdict !== 'FAIL'
+  // The verdict field is informational only: "blocker" is defined in code as MEDIUM+, and an
+  // engine's own PASS/FAIL is never consulted for clearing. Log a mismatch so it is visible.
+  for (const [name, res] of [['claude', r.claude], ['codex', r.codex]])
+    if (res.verdict === 'FAIL' && !res.findings.some(f => isBlocker(f.severity)))
+      log(`${name}:${round} said FAIL but reported no MEDIUM+ finding — verdict ignored, blockers rule`)
   const down = [!r.claudeOk && 'claude', !r.codexOk && 'codex'].filter(Boolean)
 
   // Track persistence of each blocker NOT already escalated. A blocker still
@@ -341,7 +349,10 @@ while (round <= MAX_ROUNDS + 1) {
     escalated.add(keyOf(f))
     const entry = { severity: f.severity, title: f.title, location: f.location,
                     rationale: f.rationale || '', seenBy: seenBy(cat, f),
-                    disposition: 'stale', reason: `survived ${STALE} consecutive review rounds despite fixes` }
+                    disposition: 'stale',
+                    reason: fixRounds > 0
+                      ? `survived ${STALE} consecutive review rounds despite fixes`
+                      : `survived ${STALE} consecutive review rounds (no fix pass ran — see history.fixerDown)` }
     needsHuman.push(entry)
     dismissed.push(entry)
   }
@@ -358,8 +369,8 @@ while (round <= MAX_ROUNDS + 1) {
                  fresh: fresh.length, escalated: escalated.size, degraded: down.length > 0,
                  enginesDown: down })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
 
-  // Clear only when both engines ran, neither said FAIL, and NO blockers remain.
-  if (enginesOk && noFailVerdict && cat.blockers.length === 0) { cleared = cat; break }
+  // Clear only when both engines ran and NO blockers remain (verdict strings are not consulted).
+  if (enginesOk && cat.blockers.length === 0) { cleared = cat; break }
 
   // If nothing fresh is left to auto-fix (only human-judgement blockers remain),
   // stop looping and escalate rather than burning rounds re-finding the same items.
@@ -374,7 +385,7 @@ while (round <= MAX_ROUNDS + 1) {
     .filter(f => isBlocker(f.severity) && freshKeys.has(keyOf(f)))
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
   const fixResult = await runFix(blockerOrdered, cat, `fix:round${round}`)
-  fixRounds++
+  if (fixResult.down) { history[history.length - 1].fixerDown = true; fixerDownRounds++ } else fixRounds++
   const rejectedN = escalateRejected(fixResult, blockerOrdered, cat)
   const gate = fixResult.gate || { ran: false, regressed: false }
   history[history.length - 1].gate = gate
@@ -399,10 +410,13 @@ if (!cleared) {
   const lastDegraded = history.length > 0 && history[history.length - 1].degraded
   const reason = lastDegraded
     ? 'an engine was DOWN on the final round — the review is NOT trustworthy (see history)'
-    : needsHuman.length > 0
-      ? `${needsHuman.length} blocker(s) need human judgement — the fixer could not resolve them (see needsHuman)`
-      : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${MAX_ROUNDS} fix round(s); ` +
-        `the listed findings are from a verification review of the post-fix artifacts`
+    : fixerDownRounds > 0 && fixRounds === 0
+      ? `the fixer agent was DOWN on every fix pass (${fixerDownRounds}) — nothing was fixed (see history.fixerDown)`
+      : needsHuman.length > 0
+        ? `${needsHuman.length} blocker(s) need human judgement — the fixer would not or could not resolve them (see needsHuman)` +
+          (fixerDownRounds ? `; the fixer was DOWN on ${fixerDownRounds} pass(es)` : '')
+        : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${fixRounds} fix round(s); ` +
+          `the listed findings are from a verification review of the post-fix artifacts`
   return { ready: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
             intersection: intersectionSummary(),
             findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }

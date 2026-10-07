@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
 const scenario = process.argv[2]
-const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate']
+const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict']
 if (!scenario) {
   let failed = 0
   for (const sc of ALL) {
@@ -34,6 +34,8 @@ const scenarios = {
   delivery: {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Thing A','spec.md:10'), F('C2','MEDIUM','Thing B','spec.md:20')] },
     'codex:1':  { verdict: 'FAIL', findings: [F('X1','MEDIUM','Other C','tasks.md:3')] },
+    'fix:round1': { applied: [{ index: 1 }, { index: 2 }, { index: 3 }], rejected: [] },
+    'fix:round2': { applied: [{ index: 1 }], rejected: [] },
     'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Thing A','spec.md:10')] },
     'codex:2':  { verdict: 'FAIL', findings: [F('DELIVERY-1','MEDIUM','Codex findings not transcribed: output withheld by a safety classifier','n/a',{rationale:'This entry is a placeholder, not a review finding.'})] },
   },
@@ -41,8 +43,10 @@ const scenarios = {
   drift: {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Missing session param guard','spec.md:10')] },
     'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [] },
     'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Session parameter is optional with no guard','spec.md:11')] },
     'codex:2':  { verdict: 'PASS', findings: [] },
+    'fix:round2': { applied: [{ index: 1 }], rejected: [] },
     'claude:3': { verdict: 'FAIL', findings: [F('C1','HIGH','Optional session arg silently yields logged-out crawl','spec.md:12')] },
     'codex:3':  { verdict: 'PASS', findings: [] },
   },
@@ -50,7 +54,7 @@ const scenarios = {
   reject: {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Add frontend work','design.md:5'), F('C2','MEDIUM','Typo in goal','proposal.md:2')] },
     'codex:1':  { verdict: 'PASS', findings: [] },
-    'fix:round1': { applied: ['2'], rejected: [{ index: 1, disposition: 'out-of-scope', reason: 'Non-Goals excludes frontend' }], gate: { ran: true, regressed: false } },
+    'fix:round1': { applied: [{ index: 2 }], rejected: [{ index: 1, disposition: 'out-of-scope', reason: 'Non-Goals excludes frontend' }], gate: { ran: true, regressed: false } },
     'claude:2': { verdict: 'PASS', findings: [] },
     'codex:2':  { verdict: 'PASS', findings: [] },
   },
@@ -81,6 +85,7 @@ const scenarios = {
       F('X1','MEDIUM','design.md still has placeholder diagrams','design.md:40'),
       F('DELIVERY-1','MEDIUM','Codex findings not transcribed','n/a',{rationale:'This entry is a placeholder, not a review finding.'}),
     ] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [] },
     'claude:2': { verdict: 'PASS', findings: [] },
     'codex:2':  { verdict: 'PASS', findings: [] },
   },
@@ -90,12 +95,31 @@ const scenarios = {
     'codex:1':  { verdict: 'PASS', findings: [] },
     'fix-low':  { applied: [{ index: 1 }], rejected: [], gate: { ran: true, regressed: true, detail: 'validate: invalid', blamed: [{ index: 1, detail: 'broke frontmatter' }] } },
   },
+  // (i) fixer dies (agent() -> null): must be visible, must not count as a fix pass
+  fixerdown: {
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Thing A','spec.md:10')] },
+    'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': null,
+    'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Thing A','spec.md:10')] },
+    'codex:2':  { verdict: 'PASS', findings: [] },
+    'fix:round2': null,
+    'claude:3': { verdict: 'FAIL', findings: [F('C1','HIGH','Thing A','spec.md:10')] },
+    'codex:3':  { verdict: 'PASS', findings: [] },
+  },
+  // (j) an engine says FAIL but reports only a LOW: blockers=0 is the rule, not the verdict
+  failverdict: {
+    'claude:1': { verdict: 'PASS', findings: [] },
+    'codex:1':  { verdict: 'FAIL', findings: [F('X1','LOW','Nit','spec.md:3')] },
+    'fix-low':  { applied: [{ index: 1 }], rejected: [], gate: { ran: true, regressed: false } },
+  },
   // (d) clean on final re-review after last-round fix
   finalreview: {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','A','spec.md:1')] },
     'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [] },
     'claude:2': { verdict: 'FAIL', findings: [F('C2','MEDIUM','B','spec.md:2')] },
     'codex:2':  { verdict: 'PASS', findings: [] },
+    'fix:round2': { applied: [{ index: 1 }], rejected: [] },
     'claude:3': { verdict: 'PASS', findings: [] },
     'codex:3':  { verdict: 'PASS', findings: [] },
   },
@@ -105,10 +129,30 @@ globalThis.args = { change: 'openspec/changes/identity-x/', maxRounds: scenario 
 globalThis.log = m => logs.push(m)
 globalThis.phase = () => {}
 globalThis.parallel = async thunks => Promise.all(thunks.map(t => t().catch(() => null)))
+// Minimal contract check so stubs cannot drift from the schemas the script declares.
+const SEVS = ['CRITICAL','HIGH','MEDIUM','LOW']
+const DISP = ['out-of-scope','contradicts-spec','new-mechanism','bogus','already-escalated']
+function checkShape(label, r) {
+  const bad = m => { throw new Error(`stub "${label}" violates contract: ${m}`) }
+  if (r === null) return
+  if (/^(claude|codex):/.test(label)) {
+    if (!['PASS','FAIL'].includes(r.verdict)) bad('verdict')
+    if (!Array.isArray(r.findings)) bad('findings[]')
+    for (const f of r.findings) for (const k of ['id','severity','title','location']) if (typeof f[k] !== 'string') bad(`finding.${k}`)
+    for (const f of r.findings) if (!SEVS.includes(f.severity)) bad('severity enum')
+    if (r.engineStatus && !['ok','withheld','error'].includes(r.engineStatus)) bad('engineStatus enum')
+  } else if (/^fix/.test(label)) {
+    if (!Array.isArray(r.applied) || !Array.isArray(r.rejected)) bad('applied[]/rejected[]')
+    for (const a of r.applied) if (!Number.isInteger(a.index)) bad('applied.index integer')
+    for (const x of r.rejected) { if (!Number.isInteger(x.index)) bad('rejected.index'); if (!DISP.includes(x.disposition)) bad('disposition enum'); if (typeof x.reason !== 'string') bad('reason') }
+    if (r.gate && (typeof r.gate.ran !== 'boolean' || typeof r.gate.regressed !== 'boolean')) bad('gate.ran/regressed')
+  }
+}
 globalThis.agent = async (prompt, opts = {}) => {
   calls.push({ label: opts.label, prompt })
+  if (!(opts.label in S)) throw new Error(`scenario "${scenario}" has no stub for label "${opts.label}" — define it (null = dead agent)`)
   const r = S[opts.label]
-  if (r === undefined) { if (opts.schema) return { applied: [], rejected: [] , gate: {ran:false}}; return '' }
+  checkShape(opts.label, r)
   return r
 }
 const fn = new (Object.getPrototypeOf(async function(){}).constructor)(src)
@@ -125,6 +169,17 @@ if (scenario === 'reraise') {
   const lines = (r3?.prompt.match(/^- \[HIGH\]/gm) || []).length
   assert(lines === 1, 'escalated block rendered once in round-3 prompt (got ' + lines + ')')
   assert(result.ready === true, 'clean on round 3 -> ready:true')
+}
+if (scenario === 'fixerdown') {
+  assert(result.history[0].fixerDown === true, 'dead fixer is recorded on the history row')
+  assert(result.fixRounds === 0, 'dead fixer does not count as a fix pass (got ' + result.fixRounds + ')')
+  assert(!result.needsHuman.some(h => /despite fixes/.test(h.reason)), 'stale escalation does not claim fixes ran when none did')
+  assert(result.ready === false && /fixer/i.test(result.reason), 'reason names the fixer outage')
+}
+if (scenario === 'failverdict') {
+  assert(result.ready === true, 'FAIL verdict with zero MEDIUM+ still clears (got ready=' + result.ready + ')')
+  assert(calls.some(c => c.label === 'fix-low'), 'LOW pass runs after clearing')
+  assert(result.fixRounds === 0, 'no fix round ran')
 }
 if (scenario === 'legit') {
   assert(result.history[0].blockers === 1, 'legitimate "placeholder diagrams" finding survives as a blocker (got ' + result.history[0].blockers + ')')
