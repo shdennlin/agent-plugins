@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
 const scenario = process.argv[2]
-const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict']
+const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger']
 if (!scenario) {
   let failed = 0
   for (const sc of ALL) {
@@ -44,11 +44,8 @@ const scenarios = {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Missing session param guard','spec.md:10')] },
     'codex:1':  { verdict: 'PASS', findings: [] },
     'fix:round1': { applied: [{ index: 1 }], rejected: [] },
-    'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Session parameter is optional with no guard','spec.md:11')] },
+    'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Session parameter is optional with no guard','spec.md:11',{ priorId: 'R1-1' })] },
     'codex:2':  { verdict: 'PASS', findings: [] },
-    'fix:round2': { applied: [{ index: 1 }], rejected: [] },
-    'claude:3': { verdict: 'FAIL', findings: [F('C1','HIGH','Optional session arg silently yields logged-out crawl','spec.md:12')] },
-    'codex:3':  { verdict: 'PASS', findings: [] },
   },
   // (c) fixer rejects a finding as out of scope; next round it should not loop
   reject: {
@@ -63,9 +60,18 @@ const scenarios = {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Add frontend work','design.md:5')] },
     'codex:1':  { verdict: 'PASS', findings: [] },
     'fix:round1': { applied: [], rejected: [{ index: 1, disposition: 'out-of-scope', reason: 'Non-Goals excludes frontend' }] },
-    'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Frontend changes are required but missing','design.md:9')] },
+    'claude:2': { verdict: 'FAIL', findings: [F('C1','HIGH','Frontend changes are required but missing','design.md:9',{ priorId: 'R1-1' })] },
     'codex:2':  { verdict: 'PASS', findings: [] },
-    'fix:round2': { applied: [], rejected: [{ index: 1, disposition: 'already-escalated', reason: 'restates escalated item' }] },
+  },
+  // (e2) Codex side cannot carry priorId: an exact-key re-raise still links (fallback), a reworded one
+  //      reaches the fixer, which can still say already-escalated
+  reraisecodex: {
+    'claude:1': { verdict: 'PASS', findings: [] },
+    'codex:1':  { verdict: 'FAIL', findings: [F('X1','HIGH','Add frontend work','design.md:5')] },
+    'fix:round1': { applied: [], rejected: [{ index: 1, disposition: 'out-of-scope', reason: 'Non-Goals excludes frontend' }] },
+    'claude:2': { verdict: 'PASS', findings: [] },
+    'codex:2':  { verdict: 'FAIL', findings: [F('X1','HIGH','Frontend work is still missing','design.md:9')] },
+    'fix:round2': { applied: [], rejected: [{ index: 1, disposition: 'already-escalated', reason: 'restates R1-1' }] },
     'claude:3': { verdict: 'PASS', findings: [] },
     'codex:3':  { verdict: 'PASS', findings: [] },
   },
@@ -94,6 +100,17 @@ const scenarios = {
     'claude:1': { verdict: 'PASS', findings: [F('C1','LOW','Minor wording','spec.md:3')] },
     'codex:1':  { verdict: 'PASS', findings: [] },
     'fix-low':  { applied: [{ index: 1 }], rejected: [], gate: { ran: true, regressed: true, detail: 'validate: invalid', blamed: [{ index: 1, detail: 'broke frontmatter' }] } },
+  },
+  // (k) escalated ledger reaches the round-2 fixer prompt; unlinked new finding is fresh
+  fixerledger: {
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Add frontend work','design.md:5'), F('C2','MEDIUM','Vague verb','spec.md:9')] },
+    'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 2 }], rejected: [{ index: 1, disposition: 'out-of-scope', reason: 'Non-Goals excludes frontend' }] },
+    'claude:2': { verdict: 'FAIL', findings: [F('C3','MEDIUM','Brand-new concern','tasks.md:2')] },
+    'codex:2':  { verdict: 'PASS', findings: [] },
+    'fix:round2': { applied: [{ index: 1 }], rejected: [] },
+    'claude:3': { verdict: 'PASS', findings: [] },
+    'codex:3':  { verdict: 'PASS', findings: [] },
   },
   // (i) fixer dies (agent() -> null): must be visible, must not count as a fix pass
   fixerdown: {
@@ -125,7 +142,7 @@ const scenarios = {
   },
 }
 const S = scenarios[scenario]
-globalThis.args = { change: 'openspec/changes/identity-x/', maxRounds: scenario === 'reraise' ? 3 : 2 }
+globalThis.args = { change: 'openspec/changes/identity-x/', maxRounds: ['reraise','reraisecodex','fixerledger'].includes(scenario) ? 3 : 2 }
 globalThis.log = m => logs.push(m)
 globalThis.phase = () => {}
 globalThis.parallel = async thunks => Promise.all(thunks.map(t => t().catch(() => null)))
@@ -164,11 +181,25 @@ console.log(JSON.stringify(result, null, 1))
 // --- assertions (TDD): expected behaviour per scenario ---
 const assert = (cond, msg) => { if (!cond) { console.error('ASSERT FAIL: ' + msg); process.exitCode = 1 } else console.log('ok: ' + msg) }
 if (scenario === 'reraise') {
-  assert(result.needsHuman.length === 1, 'already-escalated does not duplicate needsHuman (got ' + result.needsHuman.length + ')')
-  const r3 = calls.find(c => c.label === 'claude:3')
-  const lines = (r3?.prompt.match(/^- \[HIGH\]/gm) || []).length
-  assert(lines === 1, 'escalated block rendered once in round-3 prompt (got ' + lines + ')')
-  assert(result.ready === true, 'clean on round 3 -> ready:true')
+  const labels = calls.map(c => c.label)
+  assert(result.needsHuman.length === 1, 'linked re-raise does not duplicate needsHuman (got ' + result.needsHuman.length + ')')
+  assert(!labels.includes('fix:round2'), 'a re-raise linked to an escalated root is not sent to the fixer')
+  assert(!labels.includes('claude:3'), 'loop stops once only escalated blockers remain')
+  assert(result.ready === false, 'an unresolved HIGH in human hands is NOT ready (got ready=' + result.ready + ')')
+  const r2 = calls.find(c => c.label === 'claude:2')
+  assert(/R1-1\b.*out-of-scope/.test(r2?.prompt || ''), 'round-2 review prompt lists R1-1 with its escalated status')
+  assert(result.history[1].linked === 1, 'history row counts priorId-linked findings (got ' + result.history[1].linked + ')')
+}
+if (scenario === 'reraisecodex') {
+  const labels = calls.map(c => c.label)
+  assert(labels.includes('fix:round2'), 'reworded Codex re-raise without priorId reaches the fixer')
+  assert(result.needsHuman.length === 1, 'already-escalated from the fixer does not duplicate needsHuman')
+  assert(result.ready === false, 'unresolved HIGH escalated -> ready:false')
+}
+if (scenario === 'fixerledger') {
+  const f2 = calls.find(c => c.label === 'fix:round2')
+  assert(f2 && /R1-1\b.*out-of-scope/.test(f2.prompt), 'round-2 FIXER prompt carries the escalated ledger entry')
+  assert(result.history[1].fresh === 1 && result.history[1].linked === 0, 'unlinked new finding counts as fresh')
 }
 if (scenario === 'fixerdown') {
   assert(result.history[0].fixerDown === true, 'dead fixer is recorded on the history row')
@@ -202,7 +233,7 @@ if (scenario === 'gate') {
   assert(/GATE REGRESSED/.test(logs.join('\n')), 'gate regression is logged')
   assert(result.history[0].intersection === 1, 'history row exposes cross-engine intersection (got ' + result.history[0].intersection + ')')
   assert(result.intersection && result.intersection.both === 0 && result.intersection.rounds === 2, 'result exposes intersection summary for the final round')
-  assert(result.ready === true, 'clean on round 2 -> ready:true (gate regression is surfaced, not blocking)')
+  assert(result.enginesClean === true && result.ready === false, 'engines clean but the HIGH gate-regression keeps ready:false')
 }
 if (scenario === 'finalreview') {
   const labels = calls.map(c => c.label)
@@ -215,12 +246,14 @@ if (scenario === 'finalreview') {
   assert(!/NOT re-reviewed/.test(result.reason || ''), 'reason no longer says NOT re-reviewed')
 }
 if (scenario === 'drift') {
-  // drift: 2 rounds, still dirty on the verification pass -> ready:false but verified
+  // reworded re-raise linked via priorId: same root survives one fix -> stale -> human, loop stops
   const labels = calls.map(c => c.label)
-  assert(labels.includes('claude:3'), 'verification pass also runs when still dirty')
+  assert(result.needsHuman.length === 1 && result.needsHuman[0].disposition === 'stale', 'reworded re-raise escalates as stale after ONE fix (got ' + JSON.stringify(result.needsHuman.map(h => h.disposition)) + ')')
+  assert(!labels.includes('fix:round2'), 'stale item is not re-fixed')
+  assert(!labels.includes('claude:3'), 'loop stops when only the stale item remains')
   assert(result.ready === false, 'still dirty -> ready:false')
-  assert(!/NOT re-reviewed/.test(result.reason || ''), 'reason no longer claims findings are unverified')
-  assert(result.findings.length === 1, 'findings reflect the post-fix state')
+  assert(result.history[1].fresh === 0, 'fresh is 0 once the only blocker is linked+stale (got ' + result.history[1].fresh + ')')
+  assert(result.findings[0].root === 'R1-1', 'result findings carry the root id')
 }
 if (scenario === 'delivery') {
   assert(result.fixRounds === 1, 'fixRounds counts fixes actually run on the escalation-only exit (got ' + result.fixRounds + ')')
@@ -242,5 +275,6 @@ if (scenario === 'reject') {
   assert(result.needsHuman[0]?.title === 'Add frontend work', 'needsHuman maps index back to the right finding')
   const r2 = calls.find(c => c.label === 'claude:2')
   assert(r2 && r2.prompt.includes('Add frontend work'), 'round-2 review prompt lists the escalated finding so it is not re-reported')
-  assert(result.ready === true, 'engines clean on round 2 -> ready:true')
+  assert(result.enginesClean === true, 'engines clean on round 2 -> enginesClean:true')
+  assert(result.ready === false && /escalated to the human/.test(result.reason), 'a HIGH in human hands keeps ready:false with a reason')
 }

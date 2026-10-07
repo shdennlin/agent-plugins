@@ -67,6 +67,9 @@ const FINDINGS = {
         location:  { type: 'string' },   // file:line or artifact name
         rationale: { type: 'string' },
         category: { type: 'string' },
+        // Set when this finding is the SAME concern as a prior-round finding listed in the
+        // prompt (by the script-assigned id, e.g. "R1-3"), even if reworded or evolved by a fix.
+        priorId:  { type: 'string' },
       },
     }},
   },
@@ -115,15 +118,47 @@ const ANGLES =
   'tasks (task list correctness/ordering), platform (platform-specific gaps), ' +
   'design (design soundness vs the proposal), consistency (contradictions across artifacts)'
 
-// Findings already handed to the human. Rendered into BOTH engines' review prompts and the
-// fixer prompt, so a re-found-with-different-wording item is recognised by meaning, not by
-// string key (LLM-worded keys drift between rounds; see keyOf).
-const dismissed = []           // { severity, title, location, disposition, reason }
-const escalatedBlock = () => dismissed.length
-  ? `\n\n## Already escalated to the human — out of this loop's reach\n` +
-    `Do NOT re-report or re-fix these (or restatements of them); they are being decided by a person:\n` +
-    dismissed.map(d => `- [${d.severity}] ${d.title} (${d.location}) — ${d.disposition}: ${d.reason}`).join('\n') + '\n'
-  : ''
+// ---- Cross-round identity -------------------------------------------------------------
+// Measured on a real run: the same concern never gets the same title twice, and fixes shift
+// line numbers, so `location::title` matches ~never across rounds. Identity is therefore a
+// CHAIN the reviewer declares: every finding gets a script-assigned id (R{round}-{n}); the
+// previous round's findings are rendered into the next review prompt with their status, and a
+// reviewer that re-raises one sets `priorId`. root(f) follows the chain back to the first id.
+// Exact keyOf is kept only as a fallback link for an engine that cannot carry priorId (the Codex
+// wrapper), so that side degrades to the old behaviour instead of breaking.
+const ledger = new Map()       // root id -> { id, severity, title, location, status, reason, escalated }
+let prior = new Map()          // last round: rid -> { root, keyOf }
+let priorByKey = new Map()     // last round: keyOf -> root (fallback link)
+
+function rootOf(f) {
+  if (f.priorId && prior.has(f.priorId)) return prior.get(f.priorId).root
+  const byKey = priorByKey.get(keyOf(f))
+  if (byKey) return byKey
+  return f.rid
+}
+const isLinked = f => (f.priorId && prior.has(f.priorId)) || priorByKey.has(keyOf(f))
+
+function setStatus(root, status, reason) {
+  const e = ledger.get(root)
+  if (e) { e.status = status; if (reason) e.reason = reason; if (/^(rejected:|stale|gate-regression)/.test(status)) e.escalated = true }
+}
+
+// Rendered into BOTH engines' review prompts and the fixer prompt: escalated entries always
+// (they stay in the human's hands for the rest of the run), plus every entry from the last round.
+const ledgerBlock = (forFixer) => {
+  const rows = [...ledger.values()].filter(e => e.escalated || e.lastRound)
+  if (!rows.length) return ''
+  const lines = rows.map(e => `- ${e.id} [${e.severity}] ${e.title} (${e.location}) — ${e.status}${e.reason ? ': ' + e.reason : ''}`).join('\n')
+  return forFixer
+    ? `\n\n## Ledger of prior-round findings\n` +
+      `Entries marked rejected:*, stale or gate-regression are in the human's hands: if a finding below restates one, ` +
+      `reject it as already-escalated and name the id.\n${lines}\n`
+    : `\n\n## Prior-round findings — for linkage only\n` +
+      `Judge the CURRENT artifacts fresh; this list is not a checklist. If a finding you raise is the same concern as ` +
+      `one below — even reworded, even changed by a fix — set its priorId to that id so it is tracked as one item. ` +
+      `Entries marked rejected:*, stale or gate-regression are being decided by a person and will not be re-fixed, ` +
+      `but still link them if you re-raise them.\n${lines}\n`
+}
 
 const reviewPrompt = engine =>
   `Review the spec/proposal/design under "${CHANGE}" (relative to git root). ` +
@@ -132,7 +167,7 @@ const reviewPrompt = engine =>
   `(CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick. ` +
   `Also assign each finding a category: scope, completeness, design, tasks, platform, consistency, or cross-cutting. ` +
   (CONTEXT ? `\n\n## Codebase context\n${CONTEXT}\n` : '') +
-  escalatedBlock() +
+  ledgerBlock(false) +
   `\n(Engine: ${engine}.)`
 
 // One full dual-engine round. The barrier is real: both engines' findings must
@@ -184,7 +219,12 @@ async function reviewRound(round) {
 
 // Pure-code categorization. BLOCKER rule: MEDIUM+ in EITHER engine counts;
 // a PASS verdict from one engine alone is NOT enough (matches the spec prompt).
-function categorize({ claude, codex }) {
+function categorize({ claude, codex }, round) {
+  // Two findings with the same key from ONE engine collapse (Map overwrite) — log it.
+  for (const [name, fs] of [['claude', claude.findings], ['codex', codex.findings]]) {
+    const seen = new Set()
+    for (const f of fs) { const k = keyOf(f); if (seen.has(k)) log(`${name}:${round} reported "${f.title}" at ${f.location} twice — collapsed`); seen.add(k) }
+  }
   const cMap = new Map(claude.findings.map(f => [keyOf(f), f]))
   const xMap = new Map(codex.findings.map(f => [keyOf(f), f]))
   const both = [], onlyClaude = [], onlyCodex = []
@@ -199,6 +239,13 @@ function categorize({ claude, codex }) {
   }
   for (const [k, f] of xMap) if (!cMap.has(k)) onlyCodex.push(f)
   const all = [...both, ...onlyClaude, ...onlyCodex]
+  // Script-assigned ids: the engine's own `id` is free text and is never used for identity.
+  // A both-engine finding takes the Claude side's priorId, or the Codex side's if only it linked.
+  all.forEach((f, i) => {
+    f.rid = `R${round}-${i + 1}`
+    if (!f.priorId && both.includes(f)) { const x = xMap.get(keyOf(f)); if (x && x.priorId) f.priorId = x.priorId }
+    f.root = rootOf(f)
+  })
   return { both, onlyClaude, onlyCodex, all, blockers: all.filter(f => isBlocker(f.severity)) }
 }
 
@@ -217,7 +264,7 @@ function batchFixPrompt(findings, cat) {
     const trust = who === 'both'
       ? 'Both engines flagged this — treat it as real.'
       : `Only the ${who} engine flagged this — verify it is real (not a hallucination) before editing; skip if bogus or trivial.`
-    return `${i + 1}. [${f.severity}] ${f.title}\n` +
+    return `${i + 1}. [${f.severity}] ${f.title}  (id ${f.rid}${f.root !== f.rid ? ', continues ' + f.root : ''})\n` +
            `   Location: ${f.location}\n` +
            `   ${trust}\n` +
            `   Rationale: ${f.rationale || '(none provided)'}`
@@ -234,7 +281,7 @@ function batchFixPrompt(findings, cat) {
     `- contradicts-spec: the finding conflicts with another already-clear part of the spec and you cannot tell which side is the source of truth.\n` +
     `- new-mechanism: the remedy requires inventing a NEW requirement, capability, field, parameter, or mechanism rather than clarifying an existing one. Resolving an ambiguity by writing the current (possibly hazardous) behaviour into a SHALL counts as new-mechanism — do not codify the status quo to make a finding disappear.\n` +
     `- bogus: you verified it against the artifacts and it is not real, or it is trivial.\n` +
-    `- already-escalated: it restates an item in the "Already escalated" list below.\n` +
+    `- already-escalated: it restates a ledger entry below that is marked rejected:*, stale or gate-regression.\n` +
     `APPLY a fix only when it is a clarification, restatement, or filling in obviously-missing structure, or when the fix is mechanically forced by the spec's own statements. ` +
     `Multiple valid fixes that change product behaviour, API shape, or scope → reject (new-mechanism), the human owns that call.\n` +
     `Report every finding exactly once, in applied[] or rejected[], by its 1-based index in the list below.` +
@@ -250,7 +297,7 @@ function batchFixPrompt(findings, cat) {
         `The human decides. If a gate command is unavailable, set gate.ran=false and say why in gate.detail.`
       : '') +
     (CONTEXT ? `\n\n## Codebase context (shared)\n${CONTEXT}\n` : '') +
-    escalatedBlock() +
+    ledgerBlock(true) +
     `\n\n## Findings to triage (${findings.length})\n${items}`
   )
 }
@@ -271,19 +318,21 @@ async function runFix(findings, cat, label) {
 // not re-fixed) AND by meaning (dismissed → rendered into every later prompt).
 function escalateRejected(fixResult, ordered, cat) {
   let n = 0
+  for (const a of fixResult.applied || []) {
+    const f = ordered[Number(a.index) - 1]
+    if (f && !escalated.has(f.root)) setStatus(f.root, 'applied', a.note || '')
+  }
   for (const rej of fixResult.rejected || []) {
     const f = ordered[Number(rej.index) - 1]
     if (!f) { log(`fixer rejected index ${rej.index} which is out of range — ignored`); continue }
-    const k = keyOf(f)
-    if (escalated.has(k)) continue
-    escalated.add(k)
-    // A restatement of something already in the human's hands: silence this round's key so the
-    // stale tracker stops counting it, but do NOT add a second copy to needsHuman/dismissed.
-    if (rej.disposition === 'already-escalated') continue
-    const entry = { severity: f.severity, title: f.title, location: f.location, rationale: f.rationale || '',
-                    seenBy: seenBy(cat, f), disposition: rej.disposition, reason: rej.reason || '' }
-    needsHuman.push(entry)
-    dismissed.push(entry)
+    if (escalated.has(f.root)) continue
+    escalated.add(f.root)
+    // A restatement of something already in the human's hands: silence this root so the stale
+    // tracker stops counting it, but do NOT add a second copy to needsHuman.
+    if (rej.disposition === 'already-escalated') { setStatus(f.root, 'rejected:already-escalated', rej.reason || ''); continue }
+    setStatus(f.root, `rejected:${rej.disposition}`, rej.reason || '')
+    needsHuman.push({ id: f.root, severity: f.severity, title: f.title, location: f.location, rationale: f.rationale || '',
+                      seenBy: seenBy(cat, f), disposition: rej.disposition, reason: rej.reason || '' })
     n++
   }
   // A fix that regressed the project gate is escalated too (disposition gate-regression); the
@@ -293,14 +342,12 @@ function escalateRejected(fixResult, ordered, cat) {
     for (const b of g.blamed || []) {
       const f = ordered[Number(b.index) - 1]
       if (!f) continue
-      const k = keyOf(f)
-      if (escalated.has(k)) continue
-      escalated.add(k)
-      const entry = { severity: f.severity, title: f.title, location: f.location, rationale: f.rationale || '',
-                      seenBy: seenBy(cat, f), disposition: 'gate-regression',
-                      reason: b.detail || g.detail || 'fix regressed the project gate' }
-      needsHuman.push(entry)
-      dismissed.push(entry)
+      if (escalated.has(f.root)) continue
+      escalated.add(f.root)
+      const reason = b.detail || g.detail || 'fix regressed the project gate'
+      setStatus(f.root, 'gate-regression', reason)
+      needsHuman.push({ id: f.root, severity: f.severity, title: f.title, location: f.location, rationale: f.rationale || '',
+                        seenBy: seenBy(cat, f), disposition: 'gate-regression', reason })
       n++
     }
   }
@@ -309,8 +356,8 @@ function escalateRejected(fixResult, ordered, cat) {
 
 phase('Review')
 const history = []
-const survival = new Map()    // blocker key -> consecutive rounds it has persisted
-const escalated = new Set()   // keys already moved to needsHuman (don't re-fix or re-escalate)
+const survival = new Map()    // root id -> consecutive rounds the blocker chain has persisted
+const escalated = new Set()   // root ids already moved to needsHuman (don't re-fix or re-escalate)
 const needsHuman = []         // findings the fixer can't resolve -> returned for human judgement
 let round = 1, cleared = null
 let fixRounds = 0             // fix passes actually run (the loop may exit before fixing)
@@ -325,9 +372,17 @@ const isVerifyOnly = () => round > MAX_ROUNDS
 
 while (round <= MAX_ROUNDS + 1) {
   const r = await reviewRound(round)
-  const cat = categorize(r)
+  const cat = categorize(r, round)
   lastAll = cat.all
   lastCat = cat
+  // Ledger upkeep: new roots get an entry; linked ones refresh title/location; mark this round's.
+  for (const e of ledger.values()) e.lastRound = false
+  for (const f of cat.all) {
+    if (!ledger.has(f.root)) ledger.set(f.root, { id: f.root, severity: f.severity, title: f.title, location: f.location,
+                                                  status: isBlocker(f.severity) ? 'open' : 'open (LOW)', reason: '', escalated: false })
+    const e = ledger.get(f.root); e.lastRound = true; e.title = f.title; e.location = f.location; e.severity = worseSeverity(e.severity, f.severity)
+  }
+  const linked = cat.all.filter(isLinked).length
   const enginesOk = r.claudeOk && r.codexOk
   // The verdict field is informational only: "blocker" is defined in code as MEDIUM+, and an
   // engine's own PASS/FAIL is never consulted for clearing. Log a mismatch so it is visible.
@@ -338,35 +393,36 @@ while (round <= MAX_ROUNDS + 1) {
 
   // Track persistence of each blocker NOT already escalated. A blocker still
   // present after STALE consecutive rounds is one the fixer can't resolve.
-  const live = cat.blockers.filter(f => !escalated.has(keyOf(f)))
-  const seenNow = new Set(live.map(keyOf))
+  const live = cat.blockers.filter(f => !escalated.has(f.root))
+  const seenNow = new Set(live.map(f => f.root))
   for (const k of [...survival.keys()]) if (!seenNow.has(k)) survival.delete(k)  // fixed -> reset
-  for (const f of live) survival.set(keyOf(f), (survival.get(keyOf(f)) || 0) + 1)
+  for (const f of live) survival.set(f.root, (survival.get(f.root) || 0) + 1)
 
-  const stale = live.filter(f => survival.get(keyOf(f)) >= STALE)
-  const fresh = live.filter(f => survival.get(keyOf(f)) < STALE)
+  const stale = live.filter(f => survival.get(f.root) >= STALE)
+  const fresh = live.filter(f => survival.get(f.root) < STALE)
   for (const f of stale) {
-    escalated.add(keyOf(f))
-    const entry = { severity: f.severity, title: f.title, location: f.location,
-                    rationale: f.rationale || '', seenBy: seenBy(cat, f),
-                    disposition: 'stale',
-                    reason: fixRounds > 0
-                      ? `survived ${STALE} consecutive review rounds despite fixes`
-                      : `survived ${STALE} consecutive review rounds (no fix pass ran — see history.fixerDown)` }
-    needsHuman.push(entry)
-    dismissed.push(entry)
+    escalated.add(f.root)
+    const reason = fixRounds > 0
+      ? `survived ${STALE} consecutive review rounds despite fixes`
+      : `survived ${STALE} consecutive review rounds (no fix pass ran — see history.fixerDown)`
+    setStatus(f.root, 'stale', reason)
+    needsHuman.push({ id: f.root, severity: f.severity, title: f.title, location: f.location,
+                      rationale: f.rationale || '', seenBy: seenBy(cat, f), disposition: 'stale', reason })
   }
+  // Next round links against THIS round's findings.
+  prior = new Map(cat.all.map(f => [f.rid, { root: f.root, keyOf: keyOf(f) }]))
+  priorByKey = new Map(cat.all.map(f => [keyOf(f), f.root]))
 
   log(`Round ${round} REVIEW_RESULT(union): ${fmtCounts(cat.all)} | ` +
       `blockers=${cat.blockers.length} (both ${cat.both.length}, ` +
       `claude-only ${cat.onlyClaude.length}, codex-only ${cat.onlyCodex.length}) | ` +
-      `fresh=${fresh.length} escalated=${escalated.size}` +
+      `fresh=${fresh.length} linked=${linked} escalated=${escalated.size}` +
       (down.length ? ` | ⚠️ ENGINE DOWN: ${down.join('+')} — NOT a clean review` : ''))
   history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length,
                  // intersection = findings BOTH engines reported (by key). ~0 is normal with independent
                  // engines and means every blocker is single-engine; surfaced so the consumer can weigh it.
                  intersection: cat.both.length, claudeOnly: cat.onlyClaude.length, codexOnly: cat.onlyCodex.length,
-                 fresh: fresh.length, escalated: escalated.size, degraded: down.length > 0,
+                 fresh: fresh.length, linked, escalated: escalated.size, degraded: down.length > 0,
                  enginesDown: down })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
 
   // Clear only when both engines ran and NO blockers remain (verdict strings are not consulted).
@@ -380,9 +436,9 @@ while (round <= MAX_ROUNDS + 1) {
   if (isVerifyOnly()) break
 
   phase('Fix')
-  const freshKeys = new Set(fresh.map(keyOf))
+  const freshRoots = new Set(fresh.map(f => f.root))
   const blockerOrdered = [...cat.both, ...cat.onlyClaude, ...cat.onlyCodex]
-    .filter(f => isBlocker(f.severity) && freshKeys.has(keyOf(f)))
+    .filter(f => isBlocker(f.severity) && freshRoots.has(f.root))
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
   const fixResult = await runFix(blockerOrdered, cat, `fix:round${round}`)
   if (fixResult.down) { history[history.length - 1].fixerDown = true; fixerDownRounds++ } else fixRounds++
@@ -417,7 +473,7 @@ if (!cleared) {
           (fixerDownRounds ? `; the fixer was DOWN on ${fixerDownRounds} pass(es)` : '')
         : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${fixRounds} fix round(s); ` +
           `the listed findings are from a verification review of the post-fix artifacts`
-  return { ready: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
+  return { ready: false, enginesClean: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
             intersection: intersectionSummary(),
             findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
 }
@@ -438,9 +494,11 @@ if (lows.length) {
       (lowGate.regressed ? ` | ⚠️ GATE REGRESSED: ${lowGate.detail || ''}` : ''))
 }
 
-// ready:true means both engines are MEDIUM-clean on the last review; needsHuman may still be
-// non-empty (fixer-rejected items the engines were told not to re-report) — the caller must
-// surface them.
-return { ready: true, change: CHANGE, rounds: history.length, fixRounds, lowsFixed, needsHuman, history,
+// enginesClean: both engines MEDIUM-clean on the last review. ready additionally requires that no
+// MEDIUM+ item is waiting on the human (needsHuman) — an escalated blocker is still a blocker.
+const openHuman = needsHuman.filter(h => isBlocker(h.severity))
+const ready = openHuman.length === 0
+return { ready, enginesClean: true, change: CHANGE, rounds: history.length, fixRounds, lowsFixed, needsHuman, history,
+         ...(ready ? {} : { reason: `engines are clean but ${openHuman.length} MEDIUM+ blocker(s) are escalated to the human (see needsHuman)` }),
          intersection: intersectionSummary(),
          findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
