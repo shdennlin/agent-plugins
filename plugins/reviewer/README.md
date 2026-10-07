@@ -66,6 +66,9 @@ How the loop stays honest (1.9.0):
   reported `findings` describe the post-fix artifacts.
 - **Cross-engine intersection is surfaced** per round and in the result. Near-zero is normal.
 
+Regression test (no Claude, no network): `node plugins/reviewer/tests/two-engine.harness.mjs`
+stubs the Workflow runtime and asserts each of these behaviours against the script.
+
 ### Result Review
 
 ```bash
