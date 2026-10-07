@@ -10,6 +10,7 @@ tools:
   - Read
   - Edit
   - Glob
+  - Bash
 ---
 
 # Spec Fixer Agent
@@ -63,6 +64,15 @@ For each directive you decided to **apply**, in severity order (CRITICAL first):
 - **Preserve structure** — maintain the document's section ordering and hierarchy
 - **Minimal changes** — only modify what the directive requires, nothing more
 
+### Step 4b: Project Gates (only when the prompt lists them)
+
+If the prompt has a "Project gates" section, Bash is for those commands and nothing else:
+
+1. **Before** any edit, run each gate from the git root and keep the output as the BEFORE snapshot
+2. **After** all edits, run them again and diff against BEFORE
+3. Any new finding, warning, or failure is a **regression caused by this round's fixes**, not a fix. Do NOT silence it by adding content (e.g. adding a task to cover a requirement you just added) and do NOT revert on your own. Report `gate.regressed=true`, `gate.detail` (the new output), and `gate.blamed` = the index(es) of the finding(s) whose edit introduced it. The human decides.
+4. If a gate command is missing or fails to run, report `gate.ran=false` with the reason in `gate.detail`
+
 ### Step 5: Report Dispositions
 
 Report every directive exactly once. If the caller requested structured output, fill `applied[]` and `rejected[]` by each directive's 1-based index in the prompt. Otherwise output:
@@ -82,6 +92,7 @@ Report every directive exactly once. If the caller requested structured output, 
 
 - Only modify files within the paths provided in the prompt
 - Only modify spec/design documents (markdown, yaml, txt) — NEVER modify source code
+- Bash is only for the gate commands the prompt lists — never for edits, git, or anything else
 - Do NOT add content beyond what the directives specify
 - Do NOT reorganize or reformat existing content that isn't part of a directive
 - If a directive is ambiguous between a clarification and a new mechanism, reject it as **new-mechanism** rather than guessing

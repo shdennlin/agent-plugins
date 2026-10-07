@@ -34,6 +34,16 @@ const STALE = Number(A.staleThreshold) > 0 ? Number(A.staleThreshold) : 2
 // coherent cross-file edits — the way a single long-context session would. Default: inherit the session model;
 // override via args.fixModel if a run needs something cheaper.
 const FIX_MODEL = (typeof A.fixModel === 'string' && A.fixModel.trim()) ? A.fixModel.trim() : ''
+// Project gates the fixer must leave clean. Default: the Spectra analyzer + validator when the
+// change is a single openspec/changes/<name> folder; args.gateCommands (string[]) overrides,
+// [] disables. The script has no shell — the fixer runs them (it has Bash for this purpose).
+const changeName = (() => {
+  const m = String(CHANGE).trim().match(/^openspec\/changes\/([^\/\s]+)\/?$/)
+  return m ? m[1] : ''
+})()
+const GATES = Array.isArray(A.gateCommands)
+  ? A.gateCommands.filter(c => typeof c === 'string' && c.trim())
+  : (changeName ? [`spectra analyze ${changeName} --json`, `spectra validate ${changeName} --json`] : [])
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -79,6 +89,15 @@ const FIX_RESULT = {
     rejected: { type: 'array', items: {
       type: 'object', required: ['index', 'disposition', 'reason'],
       properties: { index: { type: 'integer' }, disposition: { enum: DISPOSITIONS }, reason: { type: 'string' } },
+    }},
+    // Outcome of the project gates (see GATES). A regression is an ESCALATION signal: the fixer
+    // neither auto-reverts nor auto-patches; it names the finding(s) whose fix caused it.
+    gate: { type: 'object', required: ['ran', 'regressed'], properties: {
+      ran:       { type: 'boolean' },
+      regressed: { type: 'boolean' },
+      detail:    { type: 'string' },
+      blamed:    { type: 'array', items: { type: 'object', required: ['index'],
+                   properties: { index: { type: 'integer' }, detail: { type: 'string' } } } },
     }},
   },
 }
@@ -213,6 +232,17 @@ function batchFixPrompt(findings, cat) {
     `APPLY a fix only when it is a clarification, restatement, or filling in obviously-missing structure, or when the fix is mechanically forced by the spec's own statements. ` +
     `Multiple valid fixes that change product behaviour, API shape, or scope → reject (new-mechanism), the human owns that call.\n` +
     `Report every finding exactly once, in applied[] or rejected[], by its 1-based index in the list below.` +
+    (GATES.length
+      ? `\n\n## Project gates — hard post-condition\n` +
+        `Before editing anything, run each gate from the git root and keep its output as the BEFORE snapshot:\n` +
+        GATES.map(g => `- \`${g}\``).join('\n') + '\n' +
+        `After all edits, run them again and compare AFTER against BEFORE. Any new finding, warning, or ` +
+        `failure that was not present before is a REGRESSION caused by this round's fixes — it is not a ` +
+        `fix. Do NOT silence it by adding more content (e.g. adding a task to cover a requirement you just ` +
+        `added), and do NOT revert on your own: report gate.regressed=true with gate.detail (the new ` +
+        `gate output) and gate.blamed = the index(es) of the finding(s) whose edit introduced it. ` +
+        `The human decides. If a gate command is unavailable, set gate.ran=false and say why in gate.detail.`
+      : '') +
     (CONTEXT ? `\n\n## Codebase context (shared)\n${CONTEXT}\n` : '') +
     escalatedBlock() +
     `\n\n## Findings to triage (${findings.length})\n${items}`
@@ -246,6 +276,24 @@ function escalateRejected(fixResult, ordered, cat) {
     needsHuman.push(entry)
     dismissed.push(entry)
     n++
+  }
+  // A fix that regressed the project gate is escalated too (disposition gate-regression); the
+  // edit stays in place for the human to judge, but the loop stops re-fixing that finding.
+  const g = fixResult.gate
+  if (g && g.regressed) {
+    for (const b of g.blamed || []) {
+      const f = ordered[Number(b.index) - 1]
+      if (!f) continue
+      const k = keyOf(f)
+      if (escalated.has(k)) continue
+      escalated.add(k)
+      const entry = { severity: f.severity, title: f.title, location: f.location, rationale: f.rationale || '',
+                      seenBy: seenBy(cat, f), disposition: 'gate-regression',
+                      reason: b.detail || g.detail || 'fix regressed the project gate' }
+      needsHuman.push(entry)
+      dismissed.push(entry)
+      n++
+    }
   }
   return n
 }
@@ -297,6 +345,9 @@ while (round <= MAX_ROUNDS + 1) {
       `fresh=${fresh.length} escalated=${escalated.size}` +
       (down.length ? ` | ⚠️ ENGINE DOWN: ${down.join('+')} — NOT a clean review` : ''))
   history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length,
+                 // intersection = findings BOTH engines reported (by key). ~0 is normal with independent
+                 // engines and means every blocker is single-engine; surfaced so the consumer can weigh it.
+                 intersection: cat.both.length, claudeOnly: cat.onlyClaude.length, codexOnly: cat.onlyCodex.length,
                  fresh: fresh.length, escalated: escalated.size, degraded: down.length > 0,
                  enginesDown: down })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
 
@@ -317,11 +368,24 @@ while (round <= MAX_ROUNDS + 1) {
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
   const fixResult = await runFix(blockerOrdered, cat, `fix:round${round}`)
   const rejectedN = escalateRejected(fixResult, blockerOrdered, cat)
+  const gate = fixResult.gate || { ran: false, regressed: false }
+  history[history.length - 1].gate = gate
   log(`Round ${round} FIX_RESULT: applied=${(fixResult.applied || []).length} rejected=${rejectedN}` +
-      (rejectedN ? ` → escalated to human (${escalated.size} total)` : ''))
+      (rejectedN ? ` → escalated to human (${escalated.size} total)` : '') +
+      (gate.regressed ? ` | ⚠️ GATE REGRESSED: ${gate.detail || ''}` : (gate.ran ? ' | gate clean' : (GATES.length ? ' | gate not run' : ''))))
   round++
   phase('Review')
 }
+
+// Cross-engine agreement on the final round, for the result object. `both` is the count of
+// findings the two engines reported identically; `anyRound` is the max over all rounds.
+const intersectionSummary = () => ({
+  both: lastCat ? lastCat.both.length : 0,
+  claudeOnly: lastCat ? lastCat.onlyClaude.length : 0,
+  codexOnly: lastCat ? lastCat.onlyCodex.length : 0,
+  anyRound: Math.max(0, ...history.map(h => h.intersection || 0)),
+  rounds: history.length,
+})
 
 if (!cleared) {
   const lastDegraded = history.length > 0 && history[history.length - 1].degraded
@@ -332,6 +396,7 @@ if (!cleared) {
       : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${MAX_ROUNDS} fix round(s); ` +
         `the listed findings are from a verification review of the post-fix artifacts`
   return { ready: false, change: CHANGE, rounds: history.length, fixRounds: Math.min(round, MAX_ROUNDS), reason, needsHuman, history,
+            intersection: intersectionSummary(),
             findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
 }
 
@@ -351,4 +416,5 @@ if (lows.length) {
 // non-empty (fixer-rejected items the engines were told not to re-report) — the caller must
 // surface them.
 return { ready: true, change: CHANGE, rounds: history.length, fixRounds: round - 1, lowsFixed, needsHuman, history,
+         intersection: intersectionSummary(),
          findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
