@@ -757,4 +757,63 @@ describe('compact before expiry', () => {
       }
     })
   })
+
+  describe('brb reset and wording', () => {
+    const run = async ($: Engine, args: string) => ((await $.command.run({ command: 'keepalive', args } as never)) as { text: string }).text
+    test('"1 ping" is singular, "2 pings" plural', async ($, on) => {
+      world(on)
+      await start($)
+      await turn($)
+      expect(await run($, 'brb 30')).toContain('up to 1 ping this idle stretch')
+      expect(await run($, 'brb 60')).toContain('up to 2 pings this idle stretch')
+    })
+    test('brb reset goes back to the configured cap and keeps the armed compact', async ($, on) => {
+      const w = world(on)
+      compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await run($, 'brb 24h')
+      expect(stateOf(w)).toMatchObject({ max: 27, phase: 'armed' })
+      const text = await run($, 'brb reset')
+      expect(text).toContain('Back to the default: up to 2 pings this idle stretch')
+      expect(stateOf(w)).toMatchObject({ max: 2, phase: 'armed', compactArmed: true, compactAt: T0 + 160 * MIN })
+    })
+    test('"RESET" works too, and the pings really are 2 again', async ($, on) => {
+      const w = world(on)
+      await start($)
+      await turn($)
+      await run($, 'brb 24h')
+      await run($, 'brb RESET')
+      await w.clock.advance(110 * MIN)
+      expect(w.forks).toBe(2)
+      expect(stateOf(w)).toMatchObject({ phase: 'capped' })
+    })
+    test('reset after the default pings are already sent leaves it capped', async ($, on) => {
+      const w = world(on)
+      await start($)
+      await turn($)
+      await run($, 'brb 24h')
+      await w.clock.advance(165 * MIN) // 3 pings sent, more than the default of 2
+      expect(w.forks).toBe(3)
+      const text = await run($, 'brb reset')
+      expect(text).toContain('Back to the default of 2 pings: the 3 pings already sent use it up')
+      expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 3, max: 3 })
+      await w.clock.advance(4 * 60 * MIN)
+      expect(w.forks).toBe(3)
+    })
+    test('with a default of 0 pings, reset says so', { options: { maxPings: 0 } }, async ($, on) => {
+      world(on)
+      await start($)
+      await turn($)
+      expect(await run($, 'brb 120')).toContain('up to 3 pings')
+      expect(await run($, 'brb reset')).toBe('Back to the default: no pings this idle stretch.')
+    })
+    test('reset is refused where brb is: off, small, expired', async ($, on) => {
+      const w = world(on, { context: 10_000 })
+      await start($)
+      await turn($)
+      expect(await run($, 'brb reset')).toContain('small enough')
+    })
+  })
 })

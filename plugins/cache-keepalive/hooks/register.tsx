@@ -110,8 +110,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'keepalive',
-      description: 'Prompt-cache keepalive: done, brb <minutes|hours>, compact [off], status',
-      argumentHint: 'done | brb <minutes|hours> | compact [off] | status',
+      description: 'Prompt-cache keepalive: done, brb <minutes|hours|reset>, compact [off], status',
+      argumentHint: 'done | brb <minutes|hours|reset> | compact [off] | status',
     })
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
     stateDir = `${configDir}/keepalive`
@@ -446,18 +446,28 @@ async function runCommand($: Engine, args: string): Promise<string> {
   }
 
   if (verb === 'brb') {
-    const minutes = parseDuration(value)
-    if (!Number.isFinite(minutes) || minutes <= 0) return 'Usage: /keepalive brb <minutes or hours>, for example /keepalive brb 180 or /keepalive brb 24h'
+    const isReset = value?.toLowerCase() === 'reset'
+    const minutes = isReset ? 0 : parseDuration(value)
+    if (!isReset && (!Number.isFinite(minutes) || minutes <= 0)) {
+      return 'Usage: /keepalive brb <minutes or hours> | reset, for example /keepalive brb 180, /keepalive brb 24h or /keepalive brb reset'
+    }
     if (s.phase === 'off') return `Keepalive is off for this session (${s.offReason}).`
     if (s.phase === 'small') return 'This session’s context is small enough that a rewrite is cheap; not keeping it warm.'
     if (s.ttlSec === null || s.phase === 'active') return 'Nothing to keep warm yet: wait for the current turn to finish.'
     if (s.phase === 'expired') return 'The cache has already expired; your next prompt rewrites it.'
     const intervalSec = s.ttlSec - config.leadMinutes * 60
-    const maxPings = Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
+    // reset: the configured cap again (the pings already sent stay sent).
+    const maxPings = isReset ? Math.max(config.maxPings, s.pingsSent) : Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
     await save($, v => ({ ...v, maxPings, phase: v.pingsSent < maxPings ? 'armed' : 'capped' }))
     await rearm($)
     const now = await $.clock.now()
     const next = Math.max(now, cacheStart(s) + s.ttlSec * 1000 - config.leadMinutes * 60_000)
+    if (isReset) {
+      if (maxPings === 0) return 'Back to the default: no pings this idle stretch.'
+      return s.pingsSent >= maxPings
+        ? `Back to the default of ${pingCount(config.maxPings)}: the ${pingCount(s.pingsSent)} already sent use it up, so the cache expires at ${clockTime(cacheStart(s) + s.ttlSec * 1000)}.`
+        : `Back to the default: up to ${pingCount(maxPings)} this idle stretch, next at ${clockTime(next)}.`
+    }
     const model = (await $.session.model().catch(() => '')) ?? ''
     const breakEven = breakEvenPings(model)
     // Only a heads-up: pings past the break-even cost more than the one rewrite they avoid.
@@ -465,7 +475,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
       breakEven !== null && maxPings > breakEven
         ? ` Note: that is past the break-even for ${model} (about ${breakEven} pings, ${Math.round((breakEven * intervalSec) / 3600)} h): the pings cost more than the one rewrite they avoid, so it only pays if you are sure to come back.`
         : ''
-    return `Keeping the cache warm for about ${minutes} min: up to ${maxPings} pings this idle stretch, next at ${clockTime(next)}.${warning}`
+    return `Keeping the cache warm for about ${minutes} min: up to ${pingCount(maxPings)} this idle stretch, next at ${clockTime(next)}.${warning}`
   }
 
   if (verb === 'compact') {
@@ -513,7 +523,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return lines.join('\n')
   }
 
-  return 'Usage: /keepalive done | brb <minutes|hours> | compact [off] | status'
+  return 'Usage: /keepalive done | brb <minutes|hours|reset> | compact [off] | status'
 }
 
 type Stats = { pings: number; hits: number }
@@ -786,6 +796,10 @@ async function sweepStaleFiles($: Engine) {
       await $.process.run(['rm', '-f', `${stateDir}/${entry.name}`]).catch(() => undefined)
     }
   }
+}
+
+function pingCount(n: number): string {
+  return `${n} ${n === 1 ? 'ping' : 'pings'}`
 }
 
 // "180" and "180m" are minutes, "24h" is hours (the Telegram answer takes both too).
