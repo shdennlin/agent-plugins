@@ -6,10 +6,11 @@ description: "Dual-engine spec review — Claude and Codex review the same chang
 # Dual-Engine Spec Review
 
 Review a change with **two independent engines** (Claude + Codex) and drive fixes
-off the **union** of their findings. A finding only one engine sees is signal, not
-noise — different models have different blind spots. The blocker rule is deliberately
-strict: **MEDIUM or above in EITHER engine is a blocker**, and a PASS from one engine
-alone is not enough.
+off the **union** of their findings. This is coverage-by-union, not corroboration: a
+finding only one engine sees is signal (different models have different blind spots),
+and the engines agree on almost nothing — expect `intersection` near zero. The rule is
+**a blocker needs only one engine; clearing needs both**: MEDIUM or above in EITHER
+engine is a blocker. Do not read a 17-blocker union as 17 corroborated defects.
 
 This skill dispatches a **Workflow** that owns the fan-out, the cross-engine union,
 the pure-code blocker count, and the fix loop — so there is no Stop-hook iteration to
@@ -19,8 +20,9 @@ burn and no `<promise>` signal to fake.
 
 - **`reviewer:spec-fixer`** — ships with this plugin (used to fix findings).
 - **`codex:codex-rescue`** — from the external `openai-codex` plugin (the Codex engine).
-  If it is not installed, the Codex engine degrades to empty findings and the review
-  becomes Claude-only. Tell the user to install `openai-codex` for true dual-engine review.
+  If it is not installed, the Codex engine is reported DOWN every round: the run ends
+  `ready: false` with `degraded: true` rows, and the Claude findings are still returned.
+  Tell the user to install `openai-codex` for a review that can clear.
 
 ## Usage
 
@@ -79,28 +81,30 @@ git root before and after each fix pass. Default when `change` is a single `open
 folder: `spectra analyze <name> --json` and `spectra validate <name> --json`; pass `[]` to disable.
 A gate regression is escalated to `needsHuman` (disposition `gate-regression`), never auto-reverted.
 
-```
-```
-
 This is a sanctioned use of the Workflow tool: this skill's instructions direct you
 to call it. Only the main agent runs this skill — do not invoke it from inside another
 subagent (a Workflow subagent cannot itself call Workflow).
 
 ### Step 5: Report and resolve escalations
-The Workflow returns `{ ready, change, rounds, fixRounds, lowsFixed?, needsHuman, intersection, history, findings }`.
+The Workflow returns `{ ready, enginesClean, reason?, change, rounds, fixRounds, lowsFixed?, needsHuman, intersection, gateRan, history, findings }`.
+`enginesClean` means both engines were MEDIUM-clean on the last review. `ready` additionally requires
+that no MEDIUM+ item is waiting in `needsHuman` — an escalated blocker is still a blocker — so
+`ready: false` with `enginesClean: true` means "clean except for what the human must decide".
+`gateRan: false` means a fix pass could not run the project gates (tool missing); `null` = no gates.
 `rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
 come from the LAST review, i.e. they describe the post-fix artifacts, never a pre-fix snapshot.
 `intersection` is `{ both, claudeOnly, codexOnly, anyRound, rounds }` — how many findings BOTH engines
 reported. Near-zero is normal for independent engines; report it so the user knows every blocker was
 single-engine and the strict either-engine rule is doing the work. Each `history` row also carries
-`intersection`, `enginesDown` and (after a fix pass) `gate`.
+`intersection`, `linked` (findings the reviewer tied to a prior-round id), `enginesDown`, and after a fix pass
+`gate`, `fixerDown`, `fixerReportMismatch` (and `lowGate` on the clearing row).
 Retain `findings` for Step 6 (history logging).
 - If `ready: true`, report that both engines are MEDIUM-clean after `fixRounds` fix round(s) and `rounds` reviews,
   note `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point
   out which rounds still had blockers.
 
-If `needsHuman` is non-empty (possible even when `ready: true`), these are blockers the fixer would not or could not resolve on its own —
+If `needsHuman` is non-empty (then `ready` is false unless every entry is LOW), these are blockers the fixer would not or could not resolve on its own —
 they need the user's judgement. The Workflow runs autonomously in the background and cannot
 pause to ask, so resolve them HERE in the interactive session: present them with
 AskUserQuestion (one question per finding, or grouped if few), each showing severity,

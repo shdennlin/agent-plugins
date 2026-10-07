@@ -95,4 +95,4 @@ Report every directive exactly once. If the caller requested structured output, 
 - Bash is only for the gate commands the prompt lists — never for edits, git, or anything else
 - Do NOT add content beyond what the directives specify
 - Do NOT reorganize or reformat existing content that isn't part of a directive
-- If a directive is ambiguous between a clarification and a new mechanism, reject it as **new-mechanism** rather than guessing
+- If a directive is ambiguous between a clarification and a new mechanism, reject it as **new-mechanism** rather than guessing — unless the caller marked the directives human-approved, in which case apply the most conservative reading and note it in the report

@@ -12,9 +12,11 @@ argument-hint: "[path...] [-n N] [--no-explore] [--help/-h]"
 # Dual-Engine Spec Review Command
 
 Review a change with **two independent engines** (Claude + Codex) in parallel and drive
-fixes off the **union** of their findings. A finding only one engine sees is signal, not
-noise. The blocker rule is strict: **MEDIUM or above in EITHER engine is a blocker**, and
-a PASS from one engine alone is not enough.
+fixes off the **union** of their findings. This is coverage-by-union, not corroboration: a
+finding only one engine sees is signal, and the engines agree on almost nothing (expect
+`intersection` near zero). The rule is **a blocker needs only one engine; clearing needs both**
+— MEDIUM or above in EITHER engine is a blocker. Do not read a 17-blocker union as 17
+corroborated defects.
 
 This command dispatches a **Workflow** that owns the fan-out, the cross-engine union, the
 pure-code blocker count, and the fix loop — so there is no per-turn Stop hook to burn and
@@ -24,8 +26,9 @@ no completion string to fake.
 
 - **`reviewer:spec-fixer`** — ships with this plugin (applies fixes).
 - **`codex:codex-rescue`** — from the external `openai-codex` plugin (the Codex engine).
-  Without it, the Codex engine degrades to empty findings and the review becomes
-  Claude-only; tell the user to install `openai-codex` for true dual-engine review.
+  Without it, the Codex engine is reported DOWN every round: the run ends `ready: false`
+  with `degraded: true` rows, and the Claude findings are still returned. Tell the user to
+  install `openai-codex` for a review that can clear.
 
 ## Instructions
 
@@ -57,7 +60,7 @@ Options:
                                 review is verification-only and its findings are reported
   --no-explore                  Skip the shared codebase-context scan
 
-Requires the openai-codex plugin for the Codex engine. Without it, review is Claude-only.
+Requires the openai-codex plugin for the Codex engine. Without it, the run cannot clear (Codex is DOWN).
 
 Examples:
   /reviewer:spec-dual openspec/changes/my-change/
@@ -104,30 +107,32 @@ git root before and after each fix pass. Default when `change` is a single `open
 folder: `spectra analyze <name> --json` and `spectra validate <name> --json`; pass `[]` to disable.
 A gate regression is escalated to `needsHuman` (disposition `gate-regression`), never auto-reverted.
 
-```
-```
-
 Calling Workflow here is sanctioned: this command's instructions direct you to call it.
 
 ### Step 5: Report and resolve escalations
 
-The Workflow returns `{ ready, change, rounds, fixRounds, lowsFixed?, needsHuman, intersection, history, findings }`.
+The Workflow returns `{ ready, enginesClean, reason?, change, rounds, fixRounds, lowsFixed?, needsHuman, intersection, gateRan, history, findings }`.
+`enginesClean` means both engines were MEDIUM-clean on the last review. `ready` additionally requires
+that no MEDIUM+ item is waiting in `needsHuman` — an escalated blocker is still a blocker — so
+`ready: false` with `enginesClean: true` means "clean except for what the human must decide".
+`gateRan: false` means a fix pass could not run the project gates (tool missing); `null` = no gates.
 `rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
 come from the LAST review, i.e. they describe the post-fix artifacts, never a pre-fix snapshot.
 `intersection` is `{ both, claudeOnly, codexOnly, anyRound, rounds }` — how many findings BOTH engines
 reported. Near-zero is normal for independent engines; report it so the user knows every blocker was
 single-engine and the strict either-engine rule is doing the work. Each `history` row also carries
-`intersection`, `enginesDown` and (after a fix pass) `gate`.
+`intersection`, `linked` (findings the reviewer tied to a prior-round id), `enginesDown`, and after a fix pass
+`gate`, `fixerDown`, `fixerReportMismatch` (and `lowGate` on the clearing row).
 Retain `findings` for Step 6 (history logging).
 - If `ready: true`, report that both engines are MEDIUM-clean after `fixRounds` fix round(s) and `rounds` reviews, note
   `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point out
-  which rounds still had blockers. The last `history` row is the verification review. The last `history` row is the verification review.
+  which rounds still had blockers. The last `history` row is the verification review.
 
-If `needsHuman` is non-empty (possible even when `ready: true`), these are blockers the fixer would not or could not resolve on its own —
+If `needsHuman` is non-empty (then `ready` is false unless every entry is LOW), these are blockers the fixer would not or could not resolve on its own —
 they need the user's judgement. The Workflow runs autonomously in the background and cannot
 pause to ask, so resolve them HERE: present them with AskUserQuestion (one per finding, or
-grouped if few), each showing severity, location, which engine(s) saw it (`seenBy`), the rationale, and the fixer's `disposition` + `reason` (out-of-scope / contradicts-spec / new-mechanism / bogus / gate-regression / stale), then ask how to handle each (fix a specific way / accept as-is / defer). Apply the
+grouped if few), each showing its `id`, severity, location, which engine(s) saw it (`seenBy`), the rationale, and the fixer's `disposition` + `reason` (out-of-scope / contradicts-spec / new-mechanism / bogus / gate-regression / stale), then ask how to handle each (fix a specific way / accept as-is / defer). Apply the
 chosen fixes — and if changes were made, offer to re-run `/reviewer:spec-dual` to confirm.
 
 ### Step 6: Log findings history (best-effort)
