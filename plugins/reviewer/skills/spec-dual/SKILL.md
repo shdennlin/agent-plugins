@@ -54,7 +54,9 @@ run in this working directory).
 ### Step 3: (Optional) shared codebase context
 Unless `--no-explore` is set, dispatch the `feature-dev:code-explorer` agent once to
 summarize codebase context relevant to the change (relevant files, architecture
-patterns, existing interfaces). Capture its output as `CODEBASE_CONTEXT`. This is
+patterns, existing interfaces). If that agent type is not available in this session
+(the `feature-dev` plugin is not installed), use the built-in `Explore` agent with the
+same brief instead. Capture its output as `CODEBASE_CONTEXT`. This is
 shared by BOTH engines, so exploration happens once, not twice. If `--no-explore`,
 set `CODEBASE_CONTEXT` to empty.
 
@@ -72,14 +74,26 @@ Workflow({
 })
 ```
 
+Optional `args`: `gateCommands` (string[]) — project gates the fixer must leave clean, run from the
+git root before and after each fix pass. Default when `change` is a single `openspec/changes/<name>/`
+folder: `spectra analyze <name> --json` and `spectra validate <name> --json`; pass `[]` to disable.
+A gate regression is escalated to `needsHuman` (disposition `gate-regression`), never auto-reverted.
+
+```
+```
+
 This is a sanctioned use of the Workflow tool: this skill's instructions direct you
 to call it. Only the main agent runs this skill — do not invoke it from inside another
 subagent (a Workflow subagent cannot itself call Workflow).
 
 ### Step 5: Report and resolve escalations
-The Workflow returns `{ ready, change, rounds, fixRounds, lowsFixed?, needsHuman, history, findings }`.
+The Workflow returns `{ ready, change, rounds, fixRounds, lowsFixed?, needsHuman, intersection, history, findings }`.
 `rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
 come from the LAST review, i.e. they describe the post-fix artifacts, never a pre-fix snapshot.
+`intersection` is `{ both, claudeOnly, codexOnly, anyRound, rounds }` — how many findings BOTH engines
+reported. Near-zero is normal for independent engines; report it so the user knows every blocker was
+single-engine and the strict either-engine rule is doing the work. Each `history` row also carries
+`intersection`, `enginesDown` and (after a fix pass) `gate`.
 Retain `findings` for Step 6 (history logging).
 - If `ready: true`, report that both engines are MEDIUM-clean after `fixRounds` fix round(s) and `rounds` reviews,
   note `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
@@ -90,7 +104,7 @@ If `needsHuman` is non-empty (possible even when `ready: true`), these are block
 they need the user's judgement. The Workflow runs autonomously in the background and cannot
 pause to ask, so resolve them HERE in the interactive session: present them with
 AskUserQuestion (one question per finding, or grouped if few), each showing severity,
-location, which engine(s) saw it (`seenBy`), the rationale, and the fixer's `disposition` + `reason` (out-of-scope / contradicts-spec / new-mechanism / bogus / stale), then ask the user how to
+location, which engine(s) saw it (`seenBy`), the rationale, and the fixer's `disposition` + `reason` (out-of-scope / contradicts-spec / new-mechanism / bogus / gate-regression / stale), then ask the user how to
 handle each (fix a specific way / accept as-is / defer). Apply the chosen fixes — and if
 changes were made, offer to re-run `/reviewer:spec-dual` to confirm the spec now clears.
 

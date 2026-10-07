@@ -35,7 +35,7 @@ fixes highest-confidence (both-saw) items first, and re-reviews until both engin
 MEDIUM-clean — then clears any remaining LOW issues.
 
 ```bash
-# Dual-engine review of a change folder (default 3 review→fix rounds)
+# Dual-engine review of a change folder (default 3 fix rounds, each followed by a review)
 /reviewer:spec-dual openspec/changes/my-change/
 
 # Cap rounds and skip the shared codebase scan
@@ -49,6 +49,22 @@ completion string to fake; the stop condition is a pure-code `blockers === 0`.
 > **Requires the `openai-codex` plugin** for the Codex engine (`codex:codex-rescue`).
 > Without it, the Codex side degrades to empty findings and the review becomes
 > Claude-only. The Claude engine and the fixer (`reviewer:spec-fixer`) ship with this plugin.
+
+How the loop stays honest (1.9.0):
+
+- **The fixer can say no.** Every finding gets a disposition — `applied`, or rejected as
+  `out-of-scope`, `contradicts-spec`, `new-mechanism`, `bogus`, `already-escalated`. Rejected
+  items go to `needsHuman` and are rendered into every later review/fix prompt so the engines
+  do not re-report them. "Findings → 0 by adding more SHALLs" is explicitly a rejection reason.
+- **Project gates are a hard post-condition.** In a Spectra repo the fixer runs
+  `spectra analyze` / `spectra validate` before and after each pass; a regression is escalated
+  as `gate-regression`, never auto-reverted or patched over. Override with `gateCommands`.
+- **A delivery failure is never a finding.** A Codex wrapper that got no output reports
+  `engineStatus: withheld|error`; placeholder entries are stripped and the round is marked
+  `degraded` with `enginesDown`.
+- **The final fix is always verified.** `-n N` bounds fix passes; N+1 reviews run and the
+  reported `findings` describe the post-fix artifacts.
+- **Cross-engine intersection is surfaced** per round and in the result. Near-zero is normal.
 
 ### Result Review
 
