@@ -316,8 +316,28 @@ async function runFix(findings, cat, label) {
 
 // Move fixer-rejected findings out of the loop: escalate by key (so this round's exact key is
 // not re-fixed) AND by meaning (dismissed → rendered into every later prompt).
+// Validate the fixer's index space against 1..n. A 0 means the fixer used 0-based indices, so
+// every other index is suspect too: flag the whole report and do not remap. Duplicates and
+// unreported indices are logged (and flagged) but the remaining report is still used.
+function validateFixReport(fixResult, n, label) {
+  const idx = [...(fixResult.applied || []), ...(fixResult.rejected || []), ...((fixResult.gate && fixResult.gate.blamed) || [])]
+    .map(x => Number(x.index))
+  const problems = []
+  if (idx.includes(0)) problems.push('index 0 reported (0-based indices?) — whole report treated as suspect')
+  const outOfRange = idx.filter(i => i < 0 || i > n || !Number.isInteger(i))
+  if (outOfRange.length) problems.push(`out-of-range index(es) ${outOfRange.join(',')} of 1..${n}`)
+  const seen = new Set(), dup = new Set()
+  for (const i of [...(fixResult.applied || []), ...(fixResult.rejected || [])].map(x => Number(x.index))) { if (seen.has(i)) dup.add(i); seen.add(i) }
+  if (dup.size) problems.push(`index(es) ${[...dup].join(',')} reported in both applied and rejected`)
+  const missing = []; for (let i = 1; i <= n; i++) if (!seen.has(i)) missing.push(i)
+  if (missing.length && !fixResult.down) problems.push(`index(es) ${missing.join(',')} not reported at all`)
+  if (problems.length) log(`${label}: ⚠️ fixer report mismatch — ${problems.join('; ')}`)
+  return { mismatch: problems.length > 0, suspect: idx.includes(0) }
+}
+
 function escalateRejected(fixResult, ordered, cat) {
   let n = 0
+  if (fixResult.suspect) return 0   // see validateFixReport: never remap a 0-based report
   for (const a of fixResult.applied || []) {
     const f = ordered[Number(a.index) - 1]
     if (f && !escalated.has(f.root)) setStatus(f.root, 'applied', a.note || '')
@@ -339,6 +359,18 @@ function escalateRejected(fixResult, ordered, cat) {
   // edit stays in place for the human to judge, but the loop stops re-fixing that finding.
   const g = fixResult.gate
   if (g && g.regressed) {
+    if (!(g.blamed || []).length) {
+      // Regressed but the fixer could not say which edit did it: the human still has to see it,
+      // and it must still block ready, so it is a HIGH entry on its own.
+      const key = `gate:${g.detail || 'unattributed'}`
+      if (!escalated.has(key)) {
+        escalated.add(key)
+        needsHuman.push({ id: key, severity: 'HIGH', title: 'Project gate regressed after this fix pass (unattributed)',
+                          location: GATES.join(' ; '), rationale: '', seenBy: 'gate', disposition: 'gate-regression',
+                          reason: g.detail || 'fix regressed the project gate' })
+        n++
+      }
+    }
     for (const b of g.blamed || []) {
       const f = ordered[Number(b.index) - 1]
       if (!f) continue
@@ -362,6 +394,7 @@ const needsHuman = []         // findings the fixer can't resolve -> returned fo
 let round = 1, cleared = null
 let fixRounds = 0             // fix passes actually run (the loop may exit before fixing)
 let fixerDownRounds = 0       // fix passes where the fixer agent died (nothing applied)
+let gateRan = true            // false if any fix pass could not run the project gates (tool missing)
 let lastAll = []              // final round's union findings, returned for history logging
 let lastCat = null            // final round's categorization, used to attribute engine provenance
 
@@ -442,9 +475,13 @@ while (round <= MAX_ROUNDS + 1) {
     .sort((a, b) => SEV_RANK[b.severity] - SEV_RANK[a.severity])  // CRITICAL first
   const fixResult = await runFix(blockerOrdered, cat, `fix:round${round}`)
   if (fixResult.down) { history[history.length - 1].fixerDown = true; fixerDownRounds++ } else fixRounds++
+  const v = validateFixReport(fixResult, blockerOrdered.length, `fix:round${round}`)
+  if (v.mismatch) history[history.length - 1].fixerReportMismatch = true
+  fixResult.suspect = v.suspect
   const rejectedN = escalateRejected(fixResult, blockerOrdered, cat)
   const gate = fixResult.gate || { ran: false, regressed: false }
   history[history.length - 1].gate = gate
+  if (GATES.length && !fixResult.down) gateRan = gateRan && gate.ran
   log(`Round ${round} FIX_RESULT: applied=${(fixResult.applied || []).length} rejected=${rejectedN}` +
       (rejectedN ? ` → escalated to human (${escalated.size} total)` : '') +
       (gate.regressed ? ` | ⚠️ GATE REGRESSED: ${gate.detail || ''}` : (gate.ran ? ' | gate clean' : (GATES.length ? ' | gate not run' : ''))))
@@ -474,6 +511,7 @@ if (!cleared) {
         : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${fixRounds} fix round(s); ` +
           `the listed findings are from a verification review of the post-fix artifacts`
   return { ready: false, enginesClean: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
+            gateRan: GATES.length ? gateRan : null,
             intersection: intersectionSummary(),
             findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
 }
@@ -489,6 +527,8 @@ if (lows.length) {
   // project gate is still a gate-regression and must reach the human.
   const lowRejected = (lowResult.rejected || []).length
   const lowGate = lowResult.gate || { ran: false, regressed: false }
+  history[history.length - 1].lowGate = lowGate
+  if (GATES.length && !lowResult.down) gateRan = gateRan && lowGate.ran
   if (lowGate.regressed) escalateRejected({ rejected: [], gate: lowGate }, lows, cleared)
   log(`LOW pass: applied=${lowsFixed} rejected=${lowRejected}` +
       (lowGate.regressed ? ` | ⚠️ GATE REGRESSED: ${lowGate.detail || ''}` : ''))
@@ -499,6 +539,7 @@ if (lows.length) {
 const openHuman = needsHuman.filter(h => isBlocker(h.severity))
 const ready = openHuman.length === 0
 return { ready, enginesClean: true, change: CHANGE, rounds: history.length, fixRounds, lowsFixed, needsHuman, history,
+         gateRan: GATES.length ? gateRan : null,
          ...(ready ? {} : { reason: `engines are clean but ${openHuman.length} MEDIUM+ blocker(s) are escalated to the human (see needsHuman)` }),
          intersection: intersectionSummary(),
          findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }

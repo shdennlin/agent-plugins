@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
 const scenario = process.argv[2]
-const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger']
+const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex']
 if (!scenario) {
   let failed = 0
   for (const sc of ALL) {
@@ -112,6 +112,30 @@ const scenarios = {
     'claude:3': { verdict: 'PASS', findings: [] },
     'codex:3':  { verdict: 'PASS', findings: [] },
   },
+  // (l) gate regressed but the fixer could not attribute it -> synthetic escalation, still not ready
+  gateunblamed: {
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','Vague verb','spec.md:9')] },
+    'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [], gate: { ran: true, regressed: true, detail: 'validate: invalid frontmatter', blamed: [] } },
+    'claude:2': { verdict: 'PASS', findings: [] },
+    'codex:2':  { verdict: 'PASS', findings: [] },
+  },
+  // (m) gate command unavailable -> surfaced, does not block ready
+  gatenotrun: {
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','Vague verb','spec.md:9')] },
+    'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [], gate: { ran: false, regressed: false, detail: 'spectra: command not found' } },
+    'claude:2': { verdict: 'PASS', findings: [] },
+    'codex:2':  { verdict: 'PASS', findings: [] },
+  },
+  // (n) fixer reports a 0-based / duplicate / missing index -> flagged, not remapped
+  badindex: {
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','A','spec.md:1'), F('C2','MEDIUM','B','spec.md:2'), F('C3','MEDIUM','C','spec.md:3')] },
+    'codex:1':  { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 0 }, { index: 1 }], rejected: [{ index: 1, disposition: 'bogus', reason: 'x' }] },
+    'claude:2': { verdict: 'PASS', findings: [] },
+    'codex:2':  { verdict: 'PASS', findings: [] },
+  },
   // (i) fixer dies (agent() -> null): must be visible, must not count as a fix pass
   fixerdown: {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','HIGH','Thing A','spec.md:10')] },
@@ -200,6 +224,25 @@ if (scenario === 'fixerledger') {
   const f2 = calls.find(c => c.label === 'fix:round2')
   assert(f2 && /R1-1\b.*out-of-scope/.test(f2.prompt), 'round-2 FIXER prompt carries the escalated ledger entry')
   assert(result.history[1].fresh === 1 && result.history[1].linked === 0, 'unlinked new finding counts as fresh')
+}
+if (scenario === 'gateunblamed') {
+  const gh = result.needsHuman.find(h => h.disposition === 'gate-regression')
+  assert(gh && /invalid frontmatter/.test(gh.reason), 'unattributed gate regression yields a synthetic needsHuman entry')
+  assert(gh && gh.severity === 'HIGH', 'synthetic entry is HIGH so it blocks ready')
+  assert(result.enginesClean === true && result.ready === false, 'engines clean but gate regression keeps ready:false')
+}
+if (scenario === 'gatenotrun') {
+  assert(result.ready === true, 'missing gate tool does not block ready')
+  assert(result.gateRan === false, 'result surfaces gateRan:false')
+  assert(/command not found/.test(result.history[0].gate.detail), 'history keeps the gate detail')
+}
+if (scenario === 'badindex') {
+  assert(result.history[0].fixerReportMismatch === true, 'index 0 flags the whole fixer report')
+  assert(result.needsHuman.length === 0, 'suspect report is not used to escalate (nothing remapped)')
+  assert(/index 0|0-based/i.test(logs.join('\n')), 'mismatch is logged')
+}
+if (scenario === 'lowgate') {
+  assert(result.history[0].lowGate && result.history[0].lowGate.regressed === true, 'LOW-pass gate outcome is recorded in history')
 }
 if (scenario === 'fixerdown') {
   assert(result.history[0].fixerDown === true, 'dead fixer is recorded on the history row')
