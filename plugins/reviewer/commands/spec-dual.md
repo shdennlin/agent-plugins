@@ -52,7 +52,9 @@ Positional arguments:
 
 Options:
   -h, --help                    Show this help message
-  -n, --max-rounds <N>          Maximum review→fix rounds (default: 3, hard cap)
+  -n, --max-rounds <N>          Maximum fix rounds (default: 3, hard cap). Every fix is
+                                followed by a review, so N fixes = N+1 reviews; the last
+                                review is verification-only and its findings are reported
   --no-explore                  Skip the shared codebase-context scan
 
 Requires the openai-codex plugin for the Codex engine. Without it, review is Claude-only.
@@ -99,12 +101,14 @@ Calling Workflow here is sanctioned: this command's instructions direct you to c
 
 ### Step 5: Report and resolve escalations
 
-The Workflow returns `{ ready, change, rounds, lowsFixed?, needsHuman, history, findings }`.
+The Workflow returns `{ ready, change, rounds, fixRounds, lowsFixed?, needsHuman, history, findings }`.
+`rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
+come from the LAST review, i.e. they describe the post-fix artifacts, never a pre-fix snapshot.
 Retain `findings` for Step 6 (history logging).
-- If `ready: true`, report that both engines are MEDIUM-clean after `rounds` rounds, note
+- If `ready: true`, report that both engines are MEDIUM-clean after `fixRounds` fix round(s) and `rounds` reviews, note
   `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point out
-  which rounds still had blockers.
+  which rounds still had blockers. The last `history` row is the verification review. The last `history` row is the verification review.
 
 If `needsHuman` is non-empty (possible even when `ready: true`), these are blockers the fixer would not or could not resolve on its own —
 they need the user's judgement. The Workflow runs autonomously in the background and cannot

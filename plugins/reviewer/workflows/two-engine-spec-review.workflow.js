@@ -259,7 +259,12 @@ let round = 1, cleared = null
 let lastAll = []              // final round's union findings, returned for history logging
 let lastCat = null            // final round's categorization, used to attribute engine provenance
 
-while (round <= MAX_ROUNDS) {
+// MAX_ROUNDS bounds the number of FIX passes. Every fix pass is followed by a review, so the
+// loop runs up to MAX_ROUNDS + 1 reviews: the last one is a verification-only pass whose
+// findings are what the result reports — never a pre-fix snapshot.
+const isVerifyOnly = () => round > MAX_ROUNDS
+
+while (round <= MAX_ROUNDS + 1) {
   const r = await reviewRound(round)
   const cat = categorize(r)
   lastAll = cat.all
@@ -302,6 +307,9 @@ while (round <= MAX_ROUNDS) {
   // stop looping and escalate rather than burning rounds re-finding the same items.
   if (fresh.length === 0) break
 
+  // Fix budget exhausted: this review was the verification pass; its findings stand as-is.
+  if (isVerifyOnly()) break
+
   phase('Fix')
   const freshKeys = new Set(fresh.map(keyOf))
   const blockerOrdered = [...cat.both, ...cat.onlyClaude, ...cat.onlyCodex]
@@ -321,8 +329,9 @@ if (!cleared) {
     ? 'an engine was DOWN on the final round — the review is NOT trustworthy (see history)'
     : needsHuman.length > 0
       ? `${needsHuman.length} blocker(s) need human judgement — the fixer could not resolve them (see needsHuman)`
-      : `still had blockers after ${MAX_ROUNDS} rounds; final-round fixes were applied but NOT re-reviewed`
-  return { ready: false, change: CHANGE, rounds: round - 1, reason, needsHuman, history,
+      : `still had ${lastCat ? lastCat.blockers.length : '?'} blocker(s) after ${MAX_ROUNDS} fix round(s); ` +
+        `the listed findings are from a verification review of the post-fix artifacts`
+  return { ready: false, change: CHANGE, rounds: history.length, fixRounds: Math.min(round, MAX_ROUNDS), reason, needsHuman, history,
             findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
 }
 
@@ -341,5 +350,5 @@ if (lows.length) {
 // ready:true means both engines are MEDIUM-clean on the last review; needsHuman may still be
 // non-empty (fixer-rejected items the engines were told not to re-report) — the caller must
 // surface them.
-return { ready: true, change: CHANGE, rounds: round, lowsFixed, needsHuman, history,
+return { ready: true, change: CHANGE, rounds: history.length, fixRounds: round - 1, lowsFixed, needsHuman, history,
          findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }

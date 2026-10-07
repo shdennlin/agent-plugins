@@ -31,7 +31,7 @@ burn and no `<promise>` signal to fake.
 ```
 
 Options:
-- `-n <N>` / `--max-rounds <N>` — max review→fix rounds (default 3, hard cap).
+- `-n <N>` / `--max-rounds <N>` — max fix rounds (default 3, hard cap). Every fix is followed by a review, so N fixes = N+1 reviews; the last review is verification-only and its findings are what gets reported.
 - `--no-explore` — skip the shared codebase-context scan.
 - `--help` / `-h` — show usage and stop.
 
@@ -77,9 +77,11 @@ to call it. Only the main agent runs this skill — do not invoke it from inside
 subagent (a Workflow subagent cannot itself call Workflow).
 
 ### Step 5: Report and resolve escalations
-The Workflow returns `{ ready, change, rounds, lowsFixed?, needsHuman, history, findings }`.
+The Workflow returns `{ ready, change, rounds, fixRounds, lowsFixed?, needsHuman, history, findings }`.
+`rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
+come from the LAST review, i.e. they describe the post-fix artifacts, never a pre-fix snapshot.
 Retain `findings` for Step 6 (history logging).
-- If `ready: true`, report that both engines are MEDIUM-clean after `rounds` rounds,
+- If `ready: true`, report that both engines are MEDIUM-clean after `fixRounds` fix round(s) and `rounds` reviews,
   note `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point
   out which rounds still had blockers.
