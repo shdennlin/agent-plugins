@@ -231,6 +231,26 @@
         "mod"
       ],
       "category": "workflow"
+    },
+    {
+      "name": "image-peek",
+      "source": "./plugins/image-peek",
+      "description": "Thumbnails of the images you paste, above the prompt; click the magnifier to enlarge one in a pane.",
+      "version": "0.1.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": [
+        "image",
+        "paste",
+        "preview",
+        "thumbnail",
+        "mod"
+      ],
+      "category": "workflow"
     }
   ]
 }

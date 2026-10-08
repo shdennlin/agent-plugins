@@ -30,6 +30,7 @@ Plugins are grouped by what they do. **Type** is how each one is built: *Command
 | [ralph-loop](./plugins/ralph-loop) | Continuous self-referential AI loops with session isolation | Command + Hook | `/ralph-loop:ralph-loop`, `/ralph-loop:cancel-ralph` |
 | [cache-keepalive](./plugins/cache-keepalive) | Keeps the prompt cache warm while you are idle with one cheap ping just before the TTL runs out | Hook module | `/keepalive` |
 | [cut-input](./plugins/cut-input) | Copy the prompt box to the clipboard and clear it | Hook module | Ctrl+U, Ctrl+K, `✂ Cut input` button |
+| [image-peek](./plugins/image-peek) | Thumbnails of the images you paste above the prompt; click the magnifier to enlarge one in a pane | Hook module | `Ctrl+V`, `🔍 #N` button |
 
 ## Getting Started
 
