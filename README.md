@@ -14,6 +14,7 @@ A collection of plugins for AI coding agents including [Claude Code](https://cod
 | [project-notes](./plugins/project-notes) | Capture sessions to a structured journal, then harvest ⭐ items into permanent-note drafts | Command + Agent | `/project-notes:log`, `/project-notes:harvest` |
 | [discuss](./plugins/discuss) | Portable framing discussions — size the decision, then list assumptions, rank hypotheses, or interview, converging on an explicit decision | Command + Skill | `/discuss:discuss` |
 | [prompt-builder](./plugins/prompt-builder) | Build paste-ready prompts from messy context — conversation extraction, multi-task decomposition, rewind-safe output | Command + Skill | `/prompt-builder:build` |
+| [cut-input](./plugins/cut-input) | Copy the prompt box to the clipboard and clear it — Ctrl+U/Ctrl+K copy what they kill, plus a Cut button while the box has text | Hook module | Ctrl+U, Ctrl+K, `✂ Cut input` button |
 
 ## Getting Started
 

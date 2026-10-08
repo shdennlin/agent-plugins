@@ -1,0 +1,15 @@
+{
+  "name": "cut-input",
+  "version": "0.1.0",
+  "description": "Copy the prompt box to the clipboard and clear it: Ctrl+U / Ctrl+K copy what they kill, and a Cut button shows while the box has text.",
+  "author": {
+    "name": "shdennlin"
+  },
+  "keywords": [
+    "clipboard",
+    "prompt",
+    "input",
+    "mod"
+  ],
+  "types": "./types/index.d.ts"
+}

@@ -212,6 +212,25 @@
         "statusline"
       ],
       "category": "workflow"
+    },
+    {
+      "name": "cut-input",
+      "source": "./plugins/cut-input",
+      "description": "Copy the prompt box to the clipboard and clear it: Ctrl+U / Ctrl+K copy what they kill, and a Cut button shows while the box has text.",
+      "version": "0.1.0",
+      "author": {
+        "name": "shdennlin"
+      },
+      "homepage": "https://github.com/shdennlin/agent-plugins",
+      "repository": "https://github.com/shdennlin/agent-plugins",
+      "license": "MIT",
+      "keywords": [
+        "clipboard",
+        "prompt",
+        "input",
+        "mod"
+      ],
+      "category": "workflow"
     }
   ]
 }
