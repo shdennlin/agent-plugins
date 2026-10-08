@@ -216,8 +216,8 @@
     {
       "name": "cut-input",
       "source": "./plugins/cut-input",
-      "description": "Copy the prompt box to the clipboard and clear it: Ctrl+U / Ctrl+K copy what they kill, and a Cut button shows while the box has text.",
-      "version": "0.1.1",
+      "description": "Copy the prompt box to the clipboard and clear it: Ctrl+Shift+U cuts the whole draft, and a Cut button shows while the box has text.",
+      "version": "0.2.0",
       "author": {
         "name": "shdennlin"
       },

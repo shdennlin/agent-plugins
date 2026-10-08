@@ -37,19 +37,35 @@ describe('band above the prompt', () => {
 })
 
 describe('cut-input', () => {
-  test('Ctrl+U copies the text it kills', async ($, on) => {
+  test('Ctrl+Shift+U cuts the whole draft regardless of cursor', async ($, on) => {
+    const copied: string[] = []
+    composer(on, copied)
+    const result = await $.prompt.edit({
+      origin: { kind: 'composer' },
+      key: { key: 'u', ctrl: true, shift: true },
+      text: 'line one\nline two\nline three',
+      cursor: 9,
+      start: 9,
+      end: 9,
+      inputText: '',
+    } as never)
+    expect(copied).toEqual(['line one\nline two\nline three'])
+    expect(result).toEqual({ text: '', cursor: 0 })
+  })
+
+  test('Ctrl+U without Shift does not cut the whole draft', async ($, on) => {
     const copied: string[] = []
     composer(on, copied)
     await $.prompt.edit({
       origin: { kind: 'composer' },
       key: { key: 'u', ctrl: true },
-      text: 'hello world',
-      cursor: 11,
-      start: 0,
-      end: 11,
+      text: 'line one\nline two\nline three',
+      cursor: 9,
+      start: 9,
+      end: 9,
       inputText: '',
     } as never)
-    expect(copied).toEqual(['hello world'])
+    expect(copied).toEqual([])
   })
 
   test('a plain keystroke copies nothing', async ($, on) => {

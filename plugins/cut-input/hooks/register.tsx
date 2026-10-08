@@ -4,15 +4,23 @@ import type { Register } from 'claude-code'
 const hasText = atom({ plugin: 'cut-input', key: 'hasText' } as const, false)
 
 export const register: Register = on => {
-  // ctrl+u / ctrl+k kill text in the composer; also put the killed span on the clipboard
+  // ctrl+shift+u cuts the whole draft, regardless of cursor position
   on('prompt.edit', async ($, e, next) => {
-    const result = await next(e)
-    const isKill = e.key?.ctrl === true && (e.key.key === 'u' || e.key.key === 'k')
-    const killed = e.text.slice(e.start, e.end)
+    const isKillAll = e.key?.ctrl === true && e.key.shift === true && e.key.key === 'u'
 
-    if (isKill && e.inputText === '' && killed !== '') {
-      await $.ui.copy({ text: killed })
+    if (isKillAll && e.text !== '') {
+      const { isCopied } = await $.ui.copy({ text: e.text })
+
+      if (!isCopied) {
+        return next(e)
+      }
+
+      await update($, hasText, () => false)
+
+      return { text: '', cursor: 0 }
     }
+
+    const result = await next(e)
 
     await update($, hasText, () => result.text !== '')
 
