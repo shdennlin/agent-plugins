@@ -13,6 +13,29 @@ function composer(on: On, copied: string[]) {
   })
 }
 
+describe('band above the prompt', () => {
+  test('keeps what the plugins beneath draw, next to the Cut button', async ($, on) => {
+    composer(on, [])
+    on('ui.render', { component: 'AbovePrompt' }, async ($, e) =>
+      h($.ui.resolve(e).Text, {}, 'beneath') as never,
+    )
+    await $.prompt.edit({
+      origin: { kind: 'composer' },
+      key: { key: 'a' },
+      text: '',
+      cursor: 0,
+      start: 0,
+      end: 0,
+      inputText: 'hello',
+    } as never)
+
+    const props = { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 120 } as never
+    const band = await $.ui.mount({ plugin: 'cut-input', surface: 'terminal', component: 'AbovePrompt', props })
+    expect(await band.find({ key: 'cut' })).toBeDefined()
+    expect(await band.find({ text: /beneath/ })).toBeDefined()
+  })
+})
+
 describe('cut-input', () => {
   test('Ctrl+U copies the text it kills', async ($, on) => {
     const copied: string[] = []

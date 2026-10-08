@@ -7,6 +7,8 @@ A mod (function hooks that run inside Claude Code) that copies the prompt box to
 
 If the copy fails the draft is kept and a toast says so.
 
+The button joins the band above the prompt instead of replacing it: it draws what the plugins beneath it drew and adds itself, so mods such as `image-peek` keep their own band (0.1.0 hid them; fixed in 0.1.1).
+
 ## Install
 
 ```

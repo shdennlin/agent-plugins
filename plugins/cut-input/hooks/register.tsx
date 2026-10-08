@@ -38,31 +38,35 @@ export const register: Register = on => {
     }
 
     const { Box, Button } = $.ui.resolve(e)
+    const below = await next(e)
 
     return (
-      <Box justifyContent="flex-end">
-        <Button
-          key="cut"
-          label="✂ Cut input"
-          onPress={async press => {
-            const { text } = await $.prompt.read()
+      <Box flexDirection="column">
+        {below}
+        <Box justifyContent="flex-end">
+          <Button
+            key="cut"
+            label="✂ Cut input"
+            onPress={async press => {
+              const { text } = await $.prompt.read()
 
-            if (text === '') {
-              return
-            }
+              if (text === '') {
+                return
+              }
 
-            const { isCopied } = await $.ui.copy({ text, surface: press.surface })
+              const { isCopied } = await $.ui.copy({ text, surface: press.surface })
 
-            if (!isCopied) {
-              $.ui.toast('Copy failed, input kept')
-              return
-            }
+              if (!isCopied) {
+                $.ui.toast('Copy failed, input kept')
+                return
+              }
 
-            await $.prompt.fill({ text: '' })
-            await update($, hasText, () => false)
-            $.ui.toast('Copied and cleared')
-          }}
-        />
+              await $.prompt.fill({ text: '' })
+              await update($, hasText, () => false)
+              $.ui.toast('Copied and cleared')
+            }}
+          />
+        </Box>
       </Box>
     )
   })
