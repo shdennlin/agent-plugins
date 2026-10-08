@@ -236,7 +236,7 @@
       "name": "image-peek",
       "source": "./plugins/image-peek",
       "description": "Thumbnails of the images you paste, above the prompt; click the magnifier to enlarge one in a pane.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "shdennlin"
       },

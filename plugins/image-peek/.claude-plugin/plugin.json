@@ -1,6 +1,6 @@
 {
   "name": "image-peek",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Thumbnails of the images you paste, above the prompt; click the magnifier to enlarge one in a pane.",
   "author": {
     "name": "shdennlin"

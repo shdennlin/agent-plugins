@@ -24,7 +24,7 @@ The thumbnail itself is not clickable (an `Image` element takes no `onPress`), h
 
 - Claude Code writes a pasted image to `<tmp>/claude-<uid>/<project>/<session>/images/N.png` as soon as it is pasted. The mod reads the file from there, the terminal decodes it (`Image` with a `file` source), nothing is copied.
 - A paste raises no `prompt.edit`, so the mod looks at the box every 300 ms with `$.prompt.read()` and follows the `[Image #N]` tags.
-- If a tag stays without its file for about a second (Claude Code's store is off), the mod copies the clipboard's PNG to `/private/tmp/image-peek/<session>/N.png` and shows that.
+- If a tag stays without its file for about a second (Claude Code's store is off), the mod copies the clipboard's PNG to `$DARWIN_USER_TEMP_DIR/image-peek/<session>/N.png` (macOS's per-user temp folder; each folder is created mode 700 and checked to be a real directory of yours before anything is written) and shows that.
 - The band draws on top of whatever the plugins beneath it drew (`await next(e)`), so it sits beside other mods' bands such as `cut-input` instead of replacing them.
 
 ## Develop

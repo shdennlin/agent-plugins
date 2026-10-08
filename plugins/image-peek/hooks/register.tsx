@@ -10,6 +10,7 @@ const tags = atom({ plugin: 'image-peek', key: 'tags' } as const, [])
 const selected = atom({ plugin: 'image-peek', key: 'selected' } as const, null)
 
 let imagesDir: string | null = null
+let cacheBase: string | null = null
 const sizes = new Map<string, { w: number; h: number }>()
 const snapped = new Set<number>()
 const missingFor = new Map<number, number>() // polls a tag has gone without its file
@@ -32,9 +33,28 @@ async function dirOf($: Engine): Promise<string | null> {
   return null
 }
 
+// The copy lives under macOS's per-user temp folder (mode 700), never the shared /tmp, so no
+// other user can plant a link at the path or read the picture.
+async function cacheRoot($: Engine): Promise<string> {
+  if (cacheBase === null) {
+    const base = (await $.process.run(['getconf', 'DARWIN_USER_TEMP_DIR'])).stdout.trim().replace(/\/$/, '')
+    cacheBase = `${base}/image-peek`
+  }
+  return cacheBase
+}
+
 async function cacheOf($: Engine, n: number): Promise<string> {
   const session = await $.session.id()
-  return `/private/tmp/image-peek/${session}/${n}.png`
+  return `${await cacheRoot($)}/${session}/${n}.png`
+}
+
+// Make `dir` ourselves (no -p) and use it only if it is a real directory, ours, mode 700; stat
+// does not follow a link, so a planted link shows as something else and is refused.
+async function isPrivateDir($: Engine, dir: string): Promise<boolean> {
+  const uid = (await $.process.run(['id', '-u'])).stdout.trim()
+  await $.process.run(['mkdir', '-m', '700', dir])
+  const seen = (await $.process.run(['stat', '-f', '%u %Lp %HT', dir])).stdout.trim()
+  return seen === `${uid} 700 Directory`
 }
 
 async function fileOf($: Engine, n: number): Promise<string | null> {
@@ -47,7 +67,8 @@ async function fileOf($: Engine, n: number): Promise<string | null> {
 // Fallback for a paste whose file Claude Code has not written: copy the clipboard's PNG.
 async function snapshot($: Engine, n: number) {
   const file = await cacheOf($, n)
-  await $.process.run(['mkdir', '-p', file.slice(0, file.lastIndexOf('/'))])
+  const session = file.slice(0, file.lastIndexOf('/'))
+  if (!(await isPrivateDir($, await cacheRoot($))) || !(await isPrivateDir($, session))) return
   await $.process.run([
     'osascript',
     '-e', 'set d to (the clipboard as «class PNGf»)',
