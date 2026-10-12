@@ -8,6 +8,7 @@ const RETRIES = 12
 
 const tags = atom({ plugin: 'image-peek', key: 'tags' } as const, [])
 const selected = atom({ plugin: 'image-peek', key: 'selected' } as const, null)
+const isHidden = atom({ plugin: 'image-peek', key: 'isHidden' } as const, false)
 
 let imagesDir: string | null = null
 let cacheBase: string | null = null
@@ -166,6 +167,23 @@ export const register: Register = on => {
 
     const { Box, Text, Image, Button } = $.ui.resolve(e)
     const below = await next(e)
+    const toggle = async () => {
+      await update($, isHidden, hidden => !hidden)
+    }
+
+    // Hidden: one small button keeps the way back; no thumbnails, no file lookups.
+    if (await read($, isHidden)) {
+      isWaiting = false
+      return (
+        <Box flexDirection="column">
+          {below}
+          <Box flexDirection="row">
+            <Button key="show" label={`👁 Show preview (${list.length})`} onPress={toggle} />
+          </Box>
+        </Box>
+      )
+    }
+
     const items = await Promise.all(
       list.map(async n => {
         const file = await fileOf($, n)
@@ -203,6 +221,7 @@ export const register: Register = on => {
               }}
             />
           ))}
+          <Button key="hide" label="🙈 Hide preview" onPress={toggle} />
         </Box>
       </Box>
     )

@@ -4,6 +4,7 @@ A mod (function hooks that run inside Claude Code) that shows the images you pas
 
 - Paste an image (`Ctrl+V`): a thumbnail of it appears above the prompt, one per `[Image #N]` in the box.
 - Click the `🔍 #N` button under a thumbnail: the picture opens enlarged in a pane, with its pixel size.
+- Click `🙈 Hide preview` (end of the button row): the thumbnails fold away, leaving a `👁 Show preview (N)` button to bring them back. The choice lasts for the session.
 - The thumbnails go away when the prompt is sent or the tag is deleted.
 
 The thumbnail itself is not clickable (an `Image` element takes no `onPress`), hence the button under it.

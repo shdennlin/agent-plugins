@@ -57,3 +57,26 @@ describe('band above the prompt', () => {
     expect(await band.find({ key: 'open-1' })).toBeUndefined()
   })
 })
+
+describe('hide preview', () => {
+  test('the Hide button swaps the thumbnails for a Show button, and back', async ($, on) => {
+    const clock = mock.clock(on, { now: 0 })
+    world(on, { text: '[Image #3]' })
+    await start($)
+    await clock.advance(400)
+
+    const mount = () => $.ui.mount({ plugin: 'image-peek', surface: 'terminal', component: 'AbovePrompt', props: PROPS })
+    let band = await mount()
+    expect(await band.find({ key: 'img-3' })).toBeDefined()
+    await band.press({ key: 'hide' })
+
+    band = await mount()
+    expect(await band.find({ key: 'img-3' })).toBeUndefined()
+    expect(await band.find({ key: 'open-3' })).toBeUndefined()
+    expect((await band.find({ key: 'show' }))?.text).toMatch(/Show preview/)
+    await band.press({ key: 'show' })
+
+    band = await mount()
+    expect(await band.find({ key: 'img-3' })).toBeDefined()
+  })
+})
