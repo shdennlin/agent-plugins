@@ -37,6 +37,12 @@ cmd /c mklink /J "$env:USERPROFILE\.agents\skills\reviewer" "$env:USERPROFILE\.c
 
 3. **Restart Codex** (quit and relaunch the CLI) to discover the skills.
 
+## Codex differences
+
+`/reviewer:result --with-code-review <level>` relies on Claude Code's built-in `/code-review`
+skill, which Codex does not have. Under Codex the flag is ignored and the spec review runs
+alone; the report says so in one line.
+
 ## Verify
 
 Confirm the symlink resolves correctly:

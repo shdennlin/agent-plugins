@@ -10,7 +10,7 @@ Plugins are grouped by what they do. **Type** is how each one is built: *Command
 
 | Plugin | Description | Type | Entry points |
 |--------|-------------|------|--------------|
-| [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff, plus dual-engine (Claude + Codex) spec review | Command + Agent + Skill | `/reviewer:spec`, `/reviewer:spec-dual`, `/reviewer:result`, `/reviewer:init` |
+| [reviewer](./plugins/reviewer) | Structured spec and implementation review with agent-loop handoff, dual-engine (Claude + Codex) spec review, and result review that can add the built-in `/code-review` as a second engine | Command + Agent + Skill | `/reviewer:spec`, `/reviewer:spec-dual`, `/reviewer:result`, `/reviewer:init` |
 | [discuss](./plugins/discuss) | Portable framing discussions — size the decision, then list assumptions, rank hypotheses, or interview, converging on an explicit decision | Command + Skill | `/discuss:discuss` |
 | [prompt-builder](./plugins/prompt-builder) | Build paste-ready prompts from messy context — conversation extraction, multi-task decomposition, rewind-safe output | Command + Skill | `/prompt-builder:build` |
 

@@ -8,7 +8,7 @@ Structured spec and implementation review with iterative fix loops and parallel 
 |---------|---------|
 | `/reviewer:spec [path...] [--fix]` | Review specs before implementation |
 | `/reviewer:spec-dual [path...] [-n N] [--no-explore]` | Dual-engine (Claude + Codex) spec review, looped to MEDIUM-clean |
-| `/reviewer:result [path...] [--base branch] [--fix]` | Review implementation against specs |
+| `/reviewer:result [path...] [--base branch] [--with-code-review level] [--fix]` | Review implementation against specs; optionally add the built-in `/code-review` as a second engine |
 | `/reviewer:init [--dry-run/-n]` | Inject reviewer rules into openspec/config.yaml |
 
 ## Usage
@@ -87,7 +87,41 @@ stubs the Workflow runtime and asserts each of these behaviours against the scri
 
 # Review specific spec files
 /reviewer:result spec.md tasks.md -b main
+
+# Add the built-in /code-review as a second, spec-blind engine (Claude Code only)
+/reviewer:result openspec/changes/my-change/ --base develop --with-code-review medium
 ```
+
+#### Why a second engine on result review
+
+The spec review asks "does the diff do what the spec says". It takes the spec as truth, so a
+behaviour the spec sanctions is ticked, never questioned, and a defect that violates no spec
+sentence (a manifest value silently overriding a caller's config, one config tree with two
+roots, a constructor doing CWD-relative I/O) is not in its question set. `/code-review` asks
+"will this code break" and never reads the spec. On one 264-file refactor (2026-10-13) five
+spec-review passes — including two that read every source file — produced 2 LOW findings and
+overlapped with none of `/code-review`'s 9; all five judged a spec-mandated allowlist exemption
+"correct" that `/code-review` flagged as a bypass. Reading more does not close that gap; a
+second question does.
+
+With `--with-code-review <level>`:
+- the level is required (`/code-review` otherwise reuses whatever level you typed last);
+  `medium` is the recommended default, `high` took over ten minutes per PR on ~180 files;
+- the base branch is passed to `/code-review` as its target so both engines review the same
+  `<base>...HEAD` diff (with no target it diffs against the default branch and may narrow a
+  large diff to the last few commits);
+- `/code-review` findings get a severity (`CONFIRMED` → medium, `PLAUSIBLE` → low, raised only
+  for data loss / security bypass / startup crash), an `engine` tag, and are merged with the
+  spec findings — same file and same root cause collapse to one `engine: both` entry;
+- a behaviour the spec sanctions and `/code-review` flags is reported as a `spec-conflict`
+  entry for a human decision, never dropped;
+- the report shows both verdict lines; the merged list is logged once to `history.jsonl` with
+  `engine` per finding;
+- `--fix` and `--comment` are never passed to `/code-review`; the flag is not available with
+  `--fix` in this version; if `/code-review` is unavailable or fails (e.g. under Codex) the
+  report says so in one line and the spec findings are still reported and logged;
+- it passes `--max-findings all`, which `/code-review` remembers for your own later runs until
+  you pass `--max-findings default`.
 
 ### Init (Pre-Review Setup)
 
@@ -155,6 +189,7 @@ Composition (cross-cutting) angle auto-runs when the orchestrator judges multipl
 | `--no-parallel` | off | Disable parallel multi-angle review (requires `--fix`) |
 | `--parallel <angles>` | built-in | Custom review angles (comma-separated; requires `--fix`) |
 | `-n, --max-iterations <N>` | 3 | Maximum iteration rounds |
+| `--with-code-review <level>` | off | Run the built-in `/code-review` at `level` (`low\|medium\|high\|xhigh\|max`, required) on the same diff and merge its findings; not with `--fix` |
 
 #### Default Review Angles
 
@@ -225,6 +260,8 @@ Multi-model review's value scales with **error propagation cost** and inversely 
 | Multi-model ROI | High | Low |
 
 Result review is usually fine with one engine + TDD + verification. Use Codex on result review only for **specific high-risk implementations** (auth/crypto, concurrency, performance hotpaths) — invoke `/codex:review` manually rather than baking it into a loop.
+
+The exception is a different *question*, not a different model: `/reviewer:result --with-code-review` adds the built-in spec-blind bug hunt for large refactors where "matches the spec" and "will not break" diverge (see [Why a second engine on result review](#why-a-second-engine-on-result-review)).
 
 ## Checkpoint reviews for long implementations
 
