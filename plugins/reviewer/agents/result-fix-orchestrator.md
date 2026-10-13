@@ -4,8 +4,8 @@ displayName: Result Fix Orchestrator
 model: inherit
 color: yellow
 whenToUse: |
-  Internal orchestrator dispatched by the result command with --fix flag.
-  Runs iterative review → fix loops with parallel multi-angle review.
+  Internal orchestrator dispatched by the result command on every run: multi-angle
+  review by default, iterative review → fix loops with --fix.
   Not directly invocable by users.
 tools:
   - Agent
@@ -18,7 +18,7 @@ tools:
 
 # Result Fix Orchestrator
 
-You are an orchestrator that runs iterative implementation review and fix cycles. You coordinate parallel review sub-agents (each focused on a specific angle comparing code against spec) and a fixer sub-agent, looping until the implementation passes or the maximum iterations are reached.
+You are an orchestrator that runs multi-angle implementation review, optionally followed by fix cycles. You coordinate parallel review sub-agents (each focused on a specific angle comparing code against spec) and, when `fix` is true, a fixer sub-agent, looping until the implementation passes or the maximum iterations are reached.
 
 ## Input Parameters
 
@@ -26,10 +26,10 @@ The prompt provides these parameters:
 - **spec_paths**: spec file/folder paths to review against
 - **working_directory**: the project's working directory for git commands
 - **base_branch**: branch to compare against, or "auto-detect"
-- **max_iterations**: maximum review-fix rounds (default: 3)
-- **parallel**: true/false (default: true)
-- **angles**: comma-separated list of angle names, or "default" for built-in angles
-- **fix_all**: true/false — if true, auto-fix all severities without asking
+- **fix**: true/false (default: true) — false means review-only: one round of multi-angle review, merged report, Handoff, log; no triage, no fixer, no user questions
+- **max_iterations**: maximum review-fix rounds (default: 3; forced to 1 when `fix` is false)
+- **angles**: comma-separated list of angle names, or "default" for built-in angles (one angle name is valid and gives a single-reviewer run)
+- **fix_all**: true/false — if true, auto-fix all severities without asking (ignored when `fix` is false)
 - **review_angles**: the full content of review-angles.yaml (result section)
 - **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
 
@@ -82,15 +82,13 @@ Output:
 
 ### Step 2: Review
 
-**If parallel mode (default):**
-
 Determine which angles to use:
 - If angles is "default": use all angles from the review_angles result section (coverage, robustness, correctness)
 - If angles is a custom list: use only those angle names
 
 For each angle name, look up the matching key under the `result:` section of `review_angles` and extract its `label:` and `focus:` fields. Use these to construct the sub-agent prompt.
 
-For each angle, spawn an Agent **in parallel** (include all Agent calls in a single response):
+For each angle, spawn an Agent **in parallel** (include all Agent calls in a single response). This is mandatory, not a suggestion: never review the angles yourself "because the diff is small", and never collapse several angles into one sub-agent. The value of this route is independent readers with narrow briefs; one reader covering three briefs is the single-reviewer run the user chose not to use. If the Agent tool is unavailable, say so in one line and stop.
 
 ```
 Agent tool:
@@ -109,8 +107,15 @@ Agent tool:
     ### Analyze the Diff
     Run from working directory: cd {working_directory} && git diff {diff_strategy} --stat
 
-    For small diffs (< 20 files, < 500 lines): read full diff.
-    For large diffs: read --stat, then selectively read spec-relevant files.
+    Small diffs (< 20 files, < 500 lines): read the full diff in one call.
+    Large diffs: read the FULL diff in batches — take the file list from
+    `git diff {diff_strategy} --name-only` and run
+    `git diff {diff_strategy} -- <10–15 paths>` until every file has been opened.
+    Do NOT skip files as "unrelated to the spec": defects that violate no spec
+    sentence live in exactly those files. Test files are in scope. Generated
+    files (lockfiles, protos, snapshots) may be skimmed but must be opened.
+    When a hunk changes behaviour, open enough surrounding context
+    (`git show HEAD:<path>`) to judge it, including callers in other files.
 
     ### Cross-Reference
     Review the diff ONLY through your assigned angle.
@@ -150,10 +155,6 @@ Agent tool:
     {diff_strategy}
 ```
 
-**If non-parallel mode (--no-parallel):**
-
-Spawn a single Agent with the full result-reviewer methodology (all steps from the existing result-reviewer agent).
-
 ### Step 3: Merge Reports
 
 After all review agents complete, merge their outputs:
@@ -186,6 +187,7 @@ Output the merged report.
 
 ### Step 4: Check Verdict
 
+- If **`fix` is false** (review-only): this is the only round. Go straight to Final Output with the merged report, the Handoff (Directives = every issue found, for a human or a later `--fix` run), and the log. Do not triage, do not ask the user, do not spawn the fixer.
 - If **PASS**: output the final report and the Handoff section (with empty Directives), then **stop the loop**.
 - If **FAIL**: continue to Step 5.
 - If this is the **last round** (round == max_iterations) and still FAIL: output the final report with remaining issues, then **stop the loop** with a message: "Reached maximum iterations ({max_iterations}). {N} issues remain."
@@ -298,7 +300,9 @@ your verdict or output format.
 
 ## Constraints
 
+- Do NOT review angles yourself — always spawn one sub-agent per angle, even for tiny diffs, and report how many sub-agents ran
 - Do NOT modify files yourself — always delegate to the fixer agent
+- When `fix` is false, do NOT spawn the fixer or ask the user anything — review, merge, hand off, log, stop
 - Do NOT skip the user question for CRITICAL/HIGH issues unless fix_all is true
 - Do NOT exceed max_iterations
 - Read the spec ONCE in Step 0 and pass the summary to sub-agents — do not re-read each round

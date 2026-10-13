@@ -71,12 +71,15 @@ git diff <strategy>
 ```
 
 **For large diffs (>= 20 files or >= 500 lines changed):**
-- Read the `--stat` output to identify which files are relevant to the spec
-- Read diffs selectively for spec-relevant files only:
+- Take the file list from `git diff <strategy> --name-only`
+- Read the FULL diff in batches, 10–15 paths per call, until every file has been opened:
 ```bash
-git diff <strategy> -- <relevant-file-1> <relevant-file-2>
+git diff <strategy> -- <path-1> <path-2> ... <path-15>
 ```
-- Skip files unrelated to the spec (e.g., lockfiles, config, unrelated modules)
+- Do NOT skip files as "unrelated to the spec": defects that violate no spec sentence (a value silently overriding a caller, two roots for one config tree, I/O in a constructor) live in exactly those files
+- Test files are in scope — read them, do not triage them by grep
+- Generated files (lockfiles, protos, snapshots) may be skimmed, but open them
+- When a hunk changes behaviour, open enough surrounding context (`git show HEAD:<path>`) to judge it, including callers in other files
 
 **When using working tree diffs (no --base), also check staged:**
 ```bash

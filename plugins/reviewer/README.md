@@ -8,7 +8,7 @@ Structured spec and implementation review with iterative fix loops and parallel 
 |---------|---------|
 | `/reviewer:spec [path...] [--fix]` | Review specs before implementation |
 | `/reviewer:spec-dual [path...] [-n N] [--no-explore]` | Dual-engine (Claude + Codex) spec review, looped to MEDIUM-clean |
-| `/reviewer:result [path...] [--base branch] [--with-code-review level] [--fix]` | Review implementation against specs; optionally add the built-in `/code-review` as a second engine |
+| `/reviewer:result [path...] [--base branch] [--angles list] [-c level] [--fix [all]]` | Review implementation against specs, multi-angle by default; add the built-in `/code-review` as a second engine with `-c` |
 | `/reviewer:init [--dry-run/-n]` | Inject reviewer rules into openspec/config.yaml |
 
 ## Usage
@@ -79,17 +79,17 @@ stubs the Workflow runtime and asserts each of these behaviours against the scri
 ### Result Review
 
 ```bash
-# Review implementation against spec (auto-detect base branch)
+# Review implementation against spec (multi-angle by default, auto-detect base branch)
 /reviewer:result docs/plans/auth-flow/
 
 # Compare against specific branch
 /reviewer:result docs/plans/auth-flow/ --base develop
 
-# Review specific spec files
-/reviewer:result spec.md tasks.md -b main
+# Review specific spec files, one angle only (cheapest run)
+/reviewer:result spec.md tasks.md -b main --angles coverage
 
 # Add the built-in /code-review as a second, spec-blind engine (Claude Code only)
-/reviewer:result openspec/changes/my-change/ --base develop --with-code-review medium
+/reviewer:result openspec/changes/my-change/ --base develop -c medium
 ```
 
 #### Why a second engine on result review
@@ -104,7 +104,7 @@ overlapped with none of `/code-review`'s 9; all five judged a spec-mandated allo
 "correct" that `/code-review` flagged as a bypass. Reading more does not close that gap; a
 second question does.
 
-With `--with-code-review <level>`:
+With `--with-code-review <level>` (short `-c <level>`):
 - the level is required (`/code-review` otherwise reuses whatever level you typed last);
   `medium` is the recommended default, `high` took over ten minutes per PR on ~180 files;
 - the base branch is passed to `/code-review` as its target so both engines review the same
@@ -141,7 +141,7 @@ Rules are appended per artifact ID (`proposal`, `specs`, `design`, `tasks`). Exi
 
 `/reviewer:spec` runs multi-angle parallel review on every invocation — first pass extracts maximum signal across all built-in angles. Add `--fix` to layer an iterative review → fix loop on top.
 
-`/reviewer:result` currently couples parallel review with `--fix` (use `--fix` to enable multi-angle; use `--no-parallel` to opt out).
+`/reviewer:result` is multi-angle on every invocation too (since 1.12.0); `--angles <list>` narrows it, `--fix` layers the review → fix loop, `--fix all` also auto-fixes critical/high. Since 1.11.0 large diffs are read in full, in batches of 10–15 files, in every result route — the old "skip files unrelated to the spec" rule is gone, because the defects it skipped were exactly the ones a spec-blind reviewer finds.
 
 The spec fix loop:
 1. Runs the multi-angle review
@@ -166,7 +166,7 @@ The spec fix loop:
 /reviewer:result docs/plan/ --fix --base main
 
 # Result: custom angles
-/reviewer:result docs/plan/ --fix --parallel "security,coverage"
+/reviewer:result docs/plan/ --fix --angles security,coverage
 ```
 
 #### Spec Flags
@@ -184,12 +184,10 @@ Composition (cross-cutting) angle auto-runs when the orchestrator judges multipl
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--fix` | off | Enable iterative review → fix loop (also enables parallel multi-angle review) |
-| `--fix-all` | off | Auto-fix all severities (implies `--fix`) |
-| `--no-parallel` | off | Disable parallel multi-angle review (requires `--fix`) |
-| `--parallel <angles>` | built-in | Custom review angles (comma-separated; requires `--fix`) |
-| `-n, --max-iterations <N>` | 3 | Maximum iteration rounds |
-| `--with-code-review <level>` | off | Run the built-in `/code-review` at `level` (`low\|medium\|high\|xhigh\|max`, required) on the same diff and merge its findings; not with `--fix` |
+| `--angles <list>` | all | Narrow to these angles (comma-separated); one angle = single reviewer |
+| `-c, --with-code-review <level>` | off | Run the built-in `/code-review` at `level` (`low\|medium\|high\|xhigh\|max`, required) on the same diff and merge its findings; not with `--fix` |
+| `--fix [all]` | off | Iterative review → fix loop; `all` also auto-fixes critical/high instead of asking |
+| `-n, --max-iterations <N>` | 3 | Maximum iteration rounds (with `--fix`) |
 
 #### Default Review Angles
 
