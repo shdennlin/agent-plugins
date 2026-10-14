@@ -191,6 +191,28 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // The engine's own compaction (over the context threshold, a prompt too
+  // long, or idle ahead of the cache TTL, added 2.1.299): not a turn, so
+  // turn.complete never tells the mod. Without this it would keep pinging a
+  // prefix that no longer exists, read the miss as a ttl-mismatch, and turn
+  // itself off for the rest of the session. Cancel first: compaction takes
+  // about a minute at 140k tokens, long enough to overlap a ping or expiry
+  // timer due during it.
+  on('session.compact', { trigger: 'auto' }, async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e) // a subagent's or fork's own transcript
+    cancelTimers()
+    const result = await next(e)
+    if (result.skip !== undefined) {
+      await rearm($) // vetoed: nothing changed, restore the schedule
+      return result
+    }
+    const tokens = result.tokensAfter ?? (await read($, session)).contextTokens
+    await closeAsk($, 'Compacted automatically before the cache expired.')
+    await save($, v => ({ ...v, phase: 'active', contextTokens: tokens, isCompactArmed: false }))
+    $.ui.toast('Compacted automatically before the cache expired.')
+    return result
+  })
+
   // Fish-style completion for /keepalive brb: a dim tail after the draft,
   // Right arrow to accept. Tab and Up/Down never reach prompt.edit (the
   // editor keeps them), and Enter runs what the box shows, tail included.

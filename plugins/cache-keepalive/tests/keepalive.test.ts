@@ -847,3 +847,56 @@ describe('compact before expiry', () => {
     })
   })
 })
+
+describe("the engine's own auto compaction (idle or over threshold)", () => {
+  const FAKE_TRANSCRIPT = [{ role: 'user', text: 'hi', toolUses: [] }]
+  // The engine compacting on its own, not through the mod's /keepalive compact:
+  // tests raise it the same way the host does, by calling $.session.compact
+  // with trigger 'auto' directly.
+  test('cancels the pending ping and resets state when the engine compacts while idle', async ($, on) => {
+    const w = world(on)
+    on('session.compact', async () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 180_000, tokensAfter: 14_000 }) as never)
+    await start($)
+    await turn($)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0 })
+
+    await w.clock.advance(54 * MIN)
+    await $.session.compact({ trigger: 'auto', messages: FAKE_TRANSCRIPT } as never)
+    expect(stateOf(w)).toMatchObject({ phase: 'active', contextTokens: 14_000 })
+    expect(w.toasts.at(-1)).toContain('Compacted automatically before the cache expired')
+
+    // The old ping timer (due at +55) must not have survived the reconciliation.
+    await w.clock.advance(10 * MIN)
+    expect(w.forks).toBe(0)
+  })
+
+  test('a vetoed auto compaction restores the schedule instead of dropping it', async ($, on) => {
+    const w = world(on)
+    on('session.compact', async () => ({ skip: 'off' }) as never)
+    await start($)
+    await turn($)
+    await w.clock.advance(54 * MIN)
+    await $.session.compact({ trigger: 'auto', messages: FAKE_TRANSCRIPT } as never)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0 })
+
+    await w.clock.advance(1 * MIN)
+    expect(w.forks).toBe(1) // the ping at +55 still fires, as if nothing happened
+  })
+
+  test("a subagent's or fork's own auto compaction is left alone", async ($, on) => {
+    const w = world(on)
+    let calls = 0
+    on('session.compact', async () => {
+      calls += 1
+      return { messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensAfter: 1_000 } as never
+    })
+    await start($)
+    await turn($)
+    await $.session.compact({ trigger: 'auto', messages: FAKE_TRANSCRIPT, agentId: 'fork-1' } as never)
+    expect(calls).toBe(1)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed' }) // unaffected
+
+    await w.clock.advance(55 * MIN)
+    expect(w.forks).toBe(1) // the main session's own ping still ran on schedule
+  })
+})

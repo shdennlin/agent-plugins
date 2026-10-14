@@ -12,6 +12,14 @@ For when you step away, or leave a `/goal` running while you sleep: run `/keepal
 - After it runs, nothing is kept warm until your next turn: the new prefix is not cached yet.
 - `/keepalive status` shows `compact before expiry: armed, at HH:MM`.
 
+## The engine's own idle compaction (2.1.299+)
+
+Claude Code 2.1.299 added its own idle compaction: a conversation at about 200k context tokens or more, left idle for about 54 minutes, is compacted before its 1h cache TTL runs out — unrelated to `compactBeforeExpiry` or `/keepalive compact`, and on by default.
+
+This is not a turn, so `turn.complete` never fires to tell keepalive about it. Keepalive hooks `session.compact` with `trigger: 'auto'` (which covers both this and the pre-existing over-threshold auto-compact) to catch it: it cancels the pending ping and expiry timers before the compaction runs (it takes about a minute at 140k tokens, long enough to overlap a timer due during it), then resets `phase` to `active` and `contextTokens` to the compacted size once it resolves. Without this, a ping timer firing after the engine already compacted would read the miss as a cache/TTL mismatch and turn keepalive off for the rest of the session. A vetoed auto-compaction (a classic `PreCompact` hook blocking it) changes nothing, and keepalive's own schedule is restored as if the event had not fired.
+
+For a 200k+ session, this means the engine pre-empts keepalive's own pings and `compactBeforeExpiry` by default (54 min idle comes before the 55-minute first ping at the default `leadMinutes`). That is one way to get the same outcome `compactBeforeExpiry` gives, for free, but it summarizes the conversation instead of keeping the full context cached — if you would rather keep pinging to preserve the full context on a big session, set `"idleCompaction": false` in settings.json, or raise `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` past your usual context size. Below 200k tokens this does not apply, and keepalive's own pings and compact behave exactly as described above.
+
 ## Flow chart
 
 ```mermaid

@@ -71,6 +71,8 @@ Run `/keepalive compact` before you leave, or before a `/goal` you will not watc
 
 Flow chart, timeline and the edge cases: [docs/compact.md](docs/compact.md).
 
+**Claude Code 2.1.299+ also compacts idle sessions on its own**, at about 200k context tokens and 54 minutes idle, ahead of the same 1h cache TTL. Keepalive detects this (it is not a turn, so `turn.complete` never fires) and resets its own state instead of pinging a prefix that no longer exists. Below 200k tokens, or before 54 minutes idle, only keepalive's own pings and `compactBeforeExpiry` apply. If you want pings to preserve the full context instead of letting the engine summarize it out from under you, turn the built-in behaviour off with `"idleCompaction": false` in settings.json, or raise its threshold with `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`.
+
 ## Cost
 
 A ping re-reads the cached prefix at the cache-read price, a small fraction of one rewrite. The default two pings cost about 5% of a rewrite on Opus 5.5 (2.5% on Fable 5.1, 10% on Sonnet 5.5), so keeping warm pays off if you are even slightly likely to come back. Past the break-even (20 pings, about 18 h, on most models; 40 and 37 h on Opus 5.5; 80 and 73 h on Fable 5.1) the pings cost more than the one rewrite they avoid. Sessions under 50k tokens are not kept warm, and a 5-minute TTL turns keepalive off. Prices and the arithmetic: [docs/cost.md](docs/cost.md).
