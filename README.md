@@ -1,5 +1,7 @@
 # Agent Plugins
 
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/shdennlin) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/shdennlin)
+
 A collection of plugins for AI coding agents including [Claude Code](https://code.claude.com/docs/en/), [Codex](https://github.com/openai/codex), and other agentic development tools.
 
 ## Plugin Catalog
