@@ -5,8 +5,8 @@ allowed-tools:
   - AskUserQuestion
   - Skill
   - Bash
-description: Review implementation against a spec using git diffs to catch mismatches, missing work, and bugs; optionally add the built-in /code-review as a second, spec-blind engine
-argument-hint: "[path...] [--base/-b <branch>] [--angles <list>] [--with-code-review/-c <level>] [--fix [all]] [-n N] [--help/-h]"
+description: Review implementation against a spec using git diffs to catch mismatches, missing work, and bugs; optionally add a second engine (the built-in /code-review or any review skill) and merge its findings
+argument-hint: "[path...] [--base/-b <branch>] [--angles <list>] [-c <level|skill-name>] [--fix [all]] [-n N] [--help/-h]"
 ---
 
 # Result Review Command
@@ -20,7 +20,10 @@ Parse the following from `$ARGUMENTS`:
 - `[path...]` — One or more spec file or folder paths (positional args)
 - `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`
 - `--angles <list>` — Narrow the review to these angles (comma-separated). Default: all three built-in angles (coverage, robustness, correctness), one reviewer each in parallel, merged into one report. One angle gives a single-reviewer run.
-- `--with-code-review <level>` or `-c <level>` — After the spec review, also run the built-in `/code-review` skill on the same `<base>...HEAD` diff as a second engine and merge its findings. `<level>` is REQUIRED and must be one of `low`, `medium`, `high`, `xhigh`, `max` (`medium` recommended; `low` has a one-tool-call budget and cannot read a large diff). Not available with `--fix` in this version.
+- `-c <engine>` or `--with-code-review <engine>` — After the spec review, also run a second, spec-blind engine on the same diff and merge its findings. `<engine>` is REQUIRED and is either:
+  - a level `low | medium | high | xhigh | max` → the built-in `/code-review` at that level (`medium` recommended; `low` has a one-tool-call budget and cannot read a large diff), or
+  - a skill name (e.g. `spectra-review`) → that review skill, invoked through the Skill tool.
+  How each engine is invoked and how its labels map to severities comes from `templates/review-engines.yaml`; the merge step never looks at the engine's name. Not available with `--fix` in this version.
 - `--fix [all]` — Iterative review → fix loop. Plain `--fix` auto-fixes medium/low and asks before critical/high; `--fix all` auto-fixes every severity.
 - `-n <N>` or `--max-iterations <N>` — Maximum iteration rounds, default 3 (requires `--fix`)
 
@@ -39,11 +42,14 @@ From `$ARGUMENTS`, extract:
 5. **fix_all**: true if the token right after `--fix` is exactly `all` (consume it); any other token after `--fix` is not consumed
 6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided
 7. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
-8. **code_review_level**: the token after `--with-code-review` or `-c`. If the flag is present, the token MUST be exactly one of `low`, `medium`, `high`, `xhigh`, `max`. If it is missing or anything else (including another flag), print the line below and stop — do NOT guess a level and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command's behaviour depend on the user's previous manual run.
+8. **engine**: the token after `-c` or `--with-code-review`.
+   - If it is one of `low`, `medium`, `high`, `xhigh`, `max`: `engine = code-review`, `level = <token>`.
+   - Else if it is a bare skill name (matches `^[a-z0-9][a-z0-9:_-]*$`, not a flag): `engine = <token>`, `level = none`.
+   - If it is missing or anything else (including another flag), print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
    ```
-   --with-code-review needs a level: low | medium | high | xhigh | max  (medium recommended)
+   -c needs an engine: a /code-review level (low | medium | high | xhigh | max; medium recommended) or a review skill name (e.g. spectra-review)
    ```
-   If both `--with-code-review`/`-c` and `--fix` are present, print `--with-code-review is not supported together with --fix yet; run them separately` and stop.
+   If both `-c` and `--fix` are present, print `-c is not supported together with --fix yet; run them separately` and stop.
 9. **removed flags** — print the line and stop:
    - `--parallel` → `--parallel was removed in 1.12.0: every run is multi-angle now; use --angles <list> to narrow`
    - `--fix-all` → `--fix-all was removed in 1.12.0: use --fix all`
@@ -66,18 +72,20 @@ Options:
   --angles <list>               Narrow to these angles (comma-separated). Default: all of
                                 coverage, robustness, correctness — one reviewer each, in
                                 parallel, merged. One angle = one reviewer.
-  -c, --with-code-review <lvl>  Also run the built-in /code-review on the same diff as a
-                                second, spec-blind engine and merge its findings.
-                                lvl: low | medium | high | xhigh | max (required; medium
-                                recommended). Never passes --fix/--comment; not with --fix.
-                                Sets --max-findings all, which /code-review remembers
-                                until you pass --max-findings default.
+  -c, --with-code-review <eng>  Also run a second, spec-blind engine on the same diff and
+                                merge its findings (required value; not with --fix):
+                                  low|medium|high|xhigh|max  built-in /code-review at that
+                                                             level (medium recommended)
+                                  <skill-name>               any review skill, e.g.
+                                                             spectra-review in Spectra repos
+                                Engines are defined in templates/review-engines.yaml.
+                                Never passes --fix/--comment to the engine.
   -h, --help                    Show this help message
 
 Diff strategy:
   With --base:                  git diff <base>...HEAD
   Without --base:               Auto-detect base branch, or use git diff + git diff --cached
-                                (--with-code-review always needs a branch base; see below)
+                                (-c always needs a branch base; see below)
   Large diffs are read in full, in batches — no file is skipped as "unrelated".
 
 Fix mode options:
@@ -94,6 +102,9 @@ Examples:
 
   # Spec review + built-in /code-review as a second engine, merged into one report
   /reviewer:result openspec/changes/my-change/ --base develop -c medium
+
+  # Same, with Spectra's own code review as the engine (coverage left to /spectra-verify)
+  /reviewer:result openspec/changes/my-change/ --angles robustness,correctness -c spectra-review
 
   # Iterative review + auto-fix (default: 3 rounds, all angles)
   /reviewer:result docs/plan/ --fix
@@ -151,39 +162,43 @@ Task tool:
 
 Wait for the orchestrator's own final report (merged report, Handoff, log line). Its per-angle sub-agents may surface their individual reports first; do NOT merge those yourself or report before the orchestrator returns — the orchestrator is the one that deduplicates and logs.
 
-When `--with-code-review` is set, OMIT the `log_script_path` line from the prompt (the orchestrator then prints "findings not logged") — Step 3d logs the merged set once, so the spec review must not log its half separately. Keep the orchestrator's full report; Step 3c merges into it.
+When `-c` is set, OMIT the `log_script_path` line from the prompt (the orchestrator then prints "findings not logged") — Step 3d logs the merged set once, so the spec review must not log its half separately. Keep the orchestrator's full report; Step 3c merges into it.
 
-**If `--with-code-review` is set, continue with Steps 3b–3d after the orchestrator returns.**
+**If `-c` is set, continue with Steps 3b–3d after the orchestrator returns.**
 
-#### Step 3b: Run the second engine (`/code-review`)
+#### Step 3b: Run the second engine
 
-The built-in `/code-review` skill is a spec-blind bug hunt with a recipe this plugin does not control. It is invoked ONLY to review; it never fixes or posts.
+The second engine is a spec-blind review whose recipe this plugin does not control. It is invoked ONLY to review; it never fixes or posts. Everything engine-specific is data:
 
-1. Resolve the review base. `/code-review` must be given the base branch as its target: with no target it diffs against the upstream or the repo's default branch (often `main`, not the PR base) and on a large diff silently narrows to the last few commits — verified 2026-10-13 on Claude Code 2.1.296. Passing the base branch name makes it run `git diff <base>...HEAD`, the same diff the spec review used.
-   - If `--base` was given: `target = <base>`.
-   - Otherwise auto-detect exactly as the agent does: `git rev-parse --verify develop` → `develop`, else `main`. If HEAD is on that branch itself (no commits beyond it), stop with `--with-code-review needs a branch with commits beyond <base>; pass --base`.
-2. Invoke the skill through the Skill tool, passing the level EXPLICITLY every time:
+1. Read `${CLAUDE_PLUGIN_ROOT}/templates/review-engines.yaml` and pick the entry under `engines:` whose key equals `engine` (from Step 1). If there is no such key, use the `_default` entry with `skill = engine`. Keep the entry's `skill`, `args`, `never_pass`, `findings_from`, `severity_map` and `notes` for the steps below.
+2. Resolve the placeholders in `args`:
+   - `<level>`: the level from Step 1 (only `code-review` needs one).
+   - `<base>`: the review base. If `--base` was given, that branch; otherwise auto-detect exactly as the agent does (`git rev-parse --verify develop` → `develop`, else `main`). Only when `<base>` appears in the entry's `args`: if HEAD is on that branch itself (no commits beyond it), stop with `-c needs a branch with commits beyond <base>; pass --base`. An engine whose `args` has no `<base>` resolves its own scope and is not subject to this check. Passing the base matters for `/code-review`: with no target it diffs against the upstream or default branch and on a large diff silently narrows to the last few commits (verified 2026-10-13 on Claude Code 2.1.296).
+   - `<change-name>`: the basename of the first spec path of the form `openspec/changes/<name>/`, else the first spec path.
+   - `<spec-paths>`: all spec paths, space-separated.
+   The diff the engine reviews must be the same `<base>...HEAD` the spec review used; if the engine resolves its own scope (spectra-review does, through `spectra scope`), say so in the scope note rather than forcing a base on it.
+3. Invoke it through the Skill tool:
    ```
    Skill tool:
-   - skill: "code-review"
-   - args: "<level> <target> --max-findings all"
+   - skill: "<entry.skill>"
+   - args: "<entry.args with placeholders resolved>"
    ```
-   Never add `--fix` or `--comment`. `--fix` would edit the working tree outside this command's fix loop; `--comment` posts to GitHub.
-3. Capture its findings: the list it reports through `ReportFindings` (or its final findings list/JSON when that tool is absent). Each has `file`, `line`, `summary`, `failure_scenario`, and usually `verdict` (`CONFIRMED` or `PLAUSIBLE`). Note what the skill says about scope (e.g. "tests excluded", "single pass") — carry it into the report.
-4. **If the skill is unavailable, denied, or fails** (no `code-review` skill in this session — e.g. Codex — or the Skill call errors): print one line `code-review engine skipped: <reason>` and continue with Steps 3c–3d using the spec findings alone, all tagged `engine: claude-result`, so they are still reported and logged. The second verdict line then reads `/code-review: skipped (<reason>)`.
-5. Side effect to know about: `--max-findings all` is sticky in `/code-review` — it stays in force for the user's own later `/code-review` runs until they pass `--max-findings default`. Mention this in one line at the end of the report.
+   Never append any flag listed in `never_pass`, and never add `--fix`, `--comment` or anything that edits files or posts externally, whatever the engine. `--fix` would edit the working tree outside this command's fix loop; `--comment` posts to GitHub.
+4. Capture its findings where `findings_from` says they are. Each should have a file (or artifact) reference, a one-sentence summary, a failure scenario when the engine gives one, and the engine's own label (verdict, severity or confidence). Note what the engine says about its scope (tests excluded, single pass, truncated at N, approximated scope) — carry that into the report as the scope note.
+5. **If the skill is unavailable, denied, or fails** (not installed in this session — e.g. `/code-review` under Codex, `spectra-review` outside a Spectra repo — or the Skill call errors): print one line `<engine> engine skipped: <reason>` and continue with Steps 3c–3d using the spec findings alone, all tagged `engine: claude-result`, so they are still reported and logged. The second verdict line then reads `<engine>: skipped (<reason>)`.
+6. At the end of the report print each line from the entry's `notes` (side effects the user must know about, e.g. `/code-review` remembering `--max-findings all`).
 
 #### Step 3c: Merge the two engines' findings
 
-This is LLM judgment; do it here, not in a script.
+This is LLM judgment; do it here, not in a script. Nothing below depends on which engine ran — only on the entry's `severity_map` and the tag `engine`.
 
-1. **Severity for code-review findings** (it reports none): `CONFIRMED` → `medium`, `PLAUSIBLE` → `low`. Raise to `high` or `critical` only when the `failure_scenario` names data loss, a security bypass, or a startup crash on a documented configuration. Never lower.
-2. **Engine tag.** Mark each finding `engine: claude-result` (spec review) or `engine: code-review`. Two findings are the SAME issue only when they point at the same file and the same root cause (line numbers may differ); merge those into one entry tagged `engine: both`, keep the worse severity, and keep both descriptions. Expect the intersection to be near zero — the two engines ask different questions, and a finding only one engine saw is still signal.
-3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and `/code-review` flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry tagged `engine: both`, `category: spec-conflict`, severity = code-review's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
+1. **Severity for engine findings.** Map the engine's own label through `severity_map` (case-insensitive); an unlabeled finding or an unlisted label becomes `low`. Raise to `high` or `critical` only when the failure scenario names data loss, a security bypass, or a startup crash on a documented configuration. Never lower.
+2. **Engine tag.** Mark each finding `engine: claude-result` (spec review) or `engine: <engine key>` (e.g. `code-review`, `spectra-review`). Two findings are the SAME issue only when they point at the same file and the same root cause (line numbers may differ); merge those into one entry tagged `engine: both`, keep the worse severity, and keep both descriptions. Expect the intersection to be near zero — the two engines ask different questions, and a finding only one engine saw is still signal.
+3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry tagged `engine: both`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
 4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its engine tag. Replace the Verdict with two lines:
    ```
    Spec review: PASS | FAIL (N critical, N high)
-   /code-review <level>: N findings (N critical, N high, N medium, N low) — <scope note from Step 3b.3>
+   <engine>[ <level>]: N findings (N critical, N high, N medium, N low) — <scope note from Step 3b.4>
    ```
    Keep the spec verdict's PASS/FAIL rule unchanged (critical/high only) so existing readers are not surprised, but a reader must see both lines together. Rebuild the Handoff directives from the merged list.
 
@@ -249,4 +264,7 @@ Report the agent's findings back to the user.
 
 # Spec review + /code-review (medium) as a second engine, one merged report and one log entry
 /reviewer:result openspec/changes/my-change/ --base develop -c medium
+
+# Spec review + Spectra's own code review as the engine (Spectra repos; coverage left to /spectra-verify)
+/reviewer:result openspec/changes/my-change/ --angles robustness,correctness -c spectra-review
 ```

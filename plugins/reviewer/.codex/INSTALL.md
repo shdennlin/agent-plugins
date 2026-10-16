@@ -39,9 +39,9 @@ cmd /c mklink /J "$env:USERPROFILE\.agents\skills\reviewer" "$env:USERPROFILE\.c
 
 ## Codex differences
 
-`/reviewer:result --with-code-review <level>` relies on Claude Code's built-in `/code-review`
-skill, which Codex does not have. Under Codex the flag is ignored and the spec review runs
-alone; the report says so in one line.
+`/reviewer:result -c <engine>` invokes a second review skill through Claude Code's Skill
+tool. Under Codex there is no Skill tool and no built-in `/code-review`, so the flag is
+ignored whatever its value and the spec review runs alone; the report says so in one line.
 
 ## Verify
 

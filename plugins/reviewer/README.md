@@ -8,7 +8,7 @@ Structured spec and implementation review with iterative fix loops and parallel 
 |---------|---------|
 | `/reviewer:spec [path...] [--fix]` | Review specs before implementation |
 | `/reviewer:spec-dual [path...] [-n N] [--no-explore]` | Dual-engine (Claude + Codex) spec review, looped to MEDIUM-clean |
-| `/reviewer:result [path...] [--base branch] [--angles list] [-c level] [--fix [all]]` | Review implementation against specs, multi-angle by default; add the built-in `/code-review` as a second engine with `-c` |
+| `/reviewer:result [path...] [--base branch] [--angles list] [-c level\|skill] [--fix [all]]` | Review implementation against specs, multi-angle by default; add a second engine (built-in `/code-review` or any review skill) with `-c` |
 | `/reviewer:init [--dry-run/-n]` | Inject reviewer rules into openspec/config.yaml |
 
 ## Usage
@@ -90,6 +90,9 @@ stubs the Workflow runtime and asserts each of these behaviours against the scri
 
 # Add the built-in /code-review as a second, spec-blind engine (Claude Code only)
 /reviewer:result openspec/changes/my-change/ --base develop -c medium
+
+# Or any review skill as the engine — here Spectra's own, with coverage left to /spectra-verify
+/reviewer:result openspec/changes/my-change/ --angles robustness,correctness -c spectra-review
 ```
 
 #### Why a second engine on result review
@@ -104,24 +107,40 @@ overlapped with none of `/code-review`'s 9; all five judged a spec-mandated allo
 "correct" that `/code-review` flagged as a bypass. Reading more does not close that gap; a
 second question does.
 
-With `--with-code-review <level>` (short `-c <level>`):
-- the level is required (`/code-review` otherwise reuses whatever level you typed last);
-  `medium` is the recommended default, `high` took over ten minutes per PR on ~180 files;
+With `-c <engine>` (long `--with-code-review`):
+- the value is required: a `/code-review` level (`low|medium|high|xhigh|max`) selects the
+  built-in `/code-review` at that level (it otherwise reuses whatever level you typed last;
+  `medium` is the recommended default, `high` took over ten minutes per PR on ~180 files);
+  any other token is a review skill name, e.g. `spectra-review` in a Spectra repo;
+- engines are data, not code: `templates/review-engines.yaml` holds each engine's Skill
+  invocation, where its findings are, and its label → severity table (`code-review`:
+  `CONFIRMED` → medium, `PLAUSIBLE` → low; `spectra-review`: Critical → high, Warning → medium,
+  Suggestion → low; unknown skills get a generic `_default` table). Adding an engine is adding
+  an entry; the merge, report and log steps never read the engine's name;
 - the base branch is passed to `/code-review` as its target so both engines review the same
   `<base>...HEAD` diff (with no target it diffs against the default branch and may narrow a
-  large diff to the last few commits);
-- `/code-review` findings get a severity (`CONFIRMED` → medium, `PLAUSIBLE` → low, raised only
-  for data loss / security bypass / startup crash), an `engine` tag, and are merged with the
-  spec findings — same file and same root cause collapse to one `engine: both` entry;
-- a behaviour the spec sanctions and `/code-review` flags is reported as a `spec-conflict`
+  large diff to the last few commits); an engine that resolves its own scope (`spectra-review`
+  via `spectra scope`) says so in the scope note;
+- engine findings get a mapped severity (raised only for data loss / security bypass / startup
+  crash), an `engine` tag, and are merged with the spec findings — same file and same root
+  cause collapse to one `engine: both` entry;
+- a behaviour the spec sanctions and the engine flags is reported as a `spec-conflict`
   entry for a human decision, never dropped;
 - the report shows both verdict lines; the merged list is logged once to `history.jsonl` with
   `engine` per finding;
-- `--fix` and `--comment` are never passed to `/code-review`; the flag is not available with
-  `--fix` in this version; if `/code-review` is unavailable or fails (e.g. under Codex) the
-  report says so in one line and the spec findings are still reported and logged;
-- it passes `--max-findings all`, which `/code-review` remembers for your own later runs until
-  you pass `--max-findings default`.
+- `--fix`, `--comment` and anything else that edits or posts are never passed to the engine;
+  the flag is not available with `--fix` in this version; if the engine skill is unavailable or
+  fails (`/code-review` under Codex, `spectra-review` outside a Spectra repo) the report says so
+  in one line and the spec findings are still reported and logged;
+- `/code-review` is given `--max-findings all`, which it remembers for your own later runs
+  until you pass `--max-findings default`; each engine's such side effects are listed under
+  `notes` in the template and printed at the end of the report.
+
+Why a skill name and not only `/code-review`: `spectra-review` (generated by the Spectra CLI)
+asks the same spec-blind question with a stricter recipe — every finding is re-checked against
+nearby tests and helpers before it is reported — and `/spectra-verify` already covers the
+coverage angle with execution evidence. In a Spectra repo the cheapest complete run is
+therefore `--angles robustness,correctness -c spectra-review` after `/spectra-verify`.
 
 ### Init (Pre-Review Setup)
 
@@ -185,7 +204,7 @@ Composition (cross-cutting) angle auto-runs when the orchestrator judges multipl
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--angles <list>` | all | Narrow to these angles (comma-separated); one angle = single reviewer |
-| `-c, --with-code-review <level>` | off | Run the built-in `/code-review` at `level` (`low\|medium\|high\|xhigh\|max`, required) on the same diff and merge its findings; not with `--fix` |
+| `-c, --with-code-review <engine>` | off | Second engine on the same diff, merged: a level (`low\|medium\|high\|xhigh\|max`) runs the built-in `/code-review`, any other token is a review skill name (e.g. `spectra-review`); engines defined in `templates/review-engines.yaml`; not with `--fix` |
 | `--fix [all]` | off | Iterative review → fix loop; `all` also auto-fixes critical/high instead of asking |
 | `-n, --max-iterations <N>` | 3 | Maximum iteration rounds (with `--fix`) |
 
@@ -259,7 +278,7 @@ Multi-model review's value scales with **error propagation cost** and inversely 
 
 Result review is usually fine with one engine + TDD + verification. Use Codex on result review only for **specific high-risk implementations** (auth/crypto, concurrency, performance hotpaths) — invoke `/codex:review` manually rather than baking it into a loop.
 
-The exception is a different *question*, not a different model: `/reviewer:result --with-code-review` adds the built-in spec-blind bug hunt for large refactors where "matches the spec" and "will not break" diverge (see [Why a second engine on result review](#why-a-second-engine-on-result-review)).
+The exception is a different *question*, not a different model: `/reviewer:result -c` adds a spec-blind bug hunt (the built-in `/code-review` or a review skill such as `spectra-review`) for large refactors where "matches the spec" and "will not break" diverge (see [Why a second engine on result review](#why-a-second-engine-on-result-review)).
 
 ## Checkpoint reviews for long implementations
 

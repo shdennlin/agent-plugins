@@ -1,0 +1,82 @@
+# Second-engine definitions for `/reviewer:result -c <engine>`.
+#
+# The command's merge step (Step 3c in commands/result.md) never looks at an engine's name.
+# Everything engine-specific lives here: how to invoke the skill, where its findings come
+# from, and how its own labels map onto this plugin's severities (critical/high/medium/low).
+# Adding an engine = adding an entry; the merge, report and log logic stay untouched.
+#
+# Selection:
+#   -c <level>        low|medium|high|xhigh|max  → the `code-review` entry with that level
+#   -c <skill-name>   any other token             → the entry with that key, or `_default`
+#                                                   when no entry exists (the skill is still
+#                                                   invoked; only the mapping is generic)
+#
+# Field meanings:
+#   skill          name passed to the Skill tool
+#   args           Skill args; placeholders: <level> <base> <change-name> <spec-paths>
+#                  (<change-name> = basename of an openspec/changes/<name>/ spec path, else
+#                  the first spec path)
+#   never_pass     flags the command must never add (they edit files or post externally)
+#   findings_from  where the findings list is in the skill's output
+#   severity_map   engine label → plugin severity. Labels are matched case-insensitively.
+#                  A finding with no label, or a label not listed, becomes `low`.
+#   notes          one-liners the command prints at the end of the report (side effects,
+#                  scope caveats)
+
+engines:
+  code-review:
+    skill: code-review
+    availability: Claude Code built-in (absent under Codex)
+    level_required: true
+    args: "<level> <base> --max-findings all"
+    never_pass: ["--fix", "--comment"]
+    findings_from: >
+      The list it reports through ReportFindings (or its final findings list when that tool
+      is absent): file, line, summary, failure_scenario, verdict (CONFIRMED | PLAUSIBLE).
+    severity_map:
+      CONFIRMED: medium
+      PLAUSIBLE: low
+    notes:
+      - "--max-findings all is sticky: it stays in force for your own later /code-review runs until you pass --max-findings default"
+      - "/code-review excludes tests/ at low effort and reviews in a single pass; carry its own scope remark into the report"
+
+  spectra-review:
+    skill: spectra-review
+    availability: generated into .claude/skills/ by the Spectra CLI (Spectra repos only)
+    level_required: false
+    args: "<change-name>"   # append " --base <base>" only when the user passed --base
+    never_pass: []
+    findings_from: >
+      The "Findings" section of its Review Report: numbered entries of the form
+      **<Severity>** `<file>:<line>` — summary, with Basis, Failure scenario and
+      Recommendation lines. Its scope header (scope source, revisions, limitations) is the
+      scope note. It has already re-checked each finding adversarially, so do not re-verify.
+    severity_map:
+      Critical: high
+      Warning: medium
+      Suggestion: low
+    notes:
+      - "spectra-review resolves its own diff through `spectra scope` (committed base-to-HEAD plus staged, unstaged and untracked work); this command forwards --base to it only when you passed one, otherwise the change's recorded base is used"
+      - "it caps output at 20 findings and says when it truncated"
+
+  _default:
+    skill: "<skill-name>"
+    availability: whatever the user installed; the command does not check beforehand
+    level_required: false
+    args: "<base>"
+    never_pass: ["--fix", "--comment", "--apply", "--write"]
+    findings_from: >
+      Any list of findings with a file (or artifact) reference, a one-sentence summary and,
+      if present, a severity or confidence label.
+    severity_map:
+      critical: critical
+      high: high
+      medium: medium
+      low: low
+      CONFIRMED: medium
+      PLAUSIBLE: low
+      Critical: high
+      Warning: medium
+      Suggestion: low
+    notes:
+      - "unknown engine: severities mapped with the generic table in review-engines.yaml; add an entry there for a precise mapping"

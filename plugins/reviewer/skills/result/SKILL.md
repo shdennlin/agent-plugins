@@ -34,13 +34,14 @@ $result docs/plan/ --fix all --base main -n 5
 $result docs/plan/ --fix --angles security,coverage
 ```
 
-With the built-in `/code-review` as a second engine (Claude Code only; the flag is ignored under Codex, which has no such skill):
+With a second, spec-blind engine merged into the same report:
 
 ```
-$result openspec/changes/my-change/ --base develop -c medium
+$result openspec/changes/my-change/ --base develop -c medium            # built-in /code-review
+$result openspec/changes/my-change/ --angles robustness,correctness -c spectra-review   # any review skill
 ```
 
-`--with-code-review <level>` (short: `-c <level>`) requires an explicit level (`low|medium|high|xhigh|max`; `medium` recommended) and cannot be combined with `--fix`. The spec review runs first, then `/code-review <level> <base> --max-findings all` is invoked on the same `<base>...HEAD` diff (the base branch MUST be passed as the target — without it `/code-review` diffs against the default branch). The two findings lists are merged (code-review `CONFIRMED` → medium, `PLAUSIBLE` → low; same file + same root cause → one entry tagged `engine: both`; a spec-sanctioned behaviour that code-review flags becomes a `spec-conflict` entry for a human), reported with both verdict lines, and logged once with `engine` per finding. Never pass `--fix` or `--comment` to `/code-review`.
+`-c <engine>` (long: `--with-code-review`) requires a value and cannot be combined with `--fix`. A `/code-review` level (`low|medium|high|xhigh|max`; `medium` recommended) selects the built-in `/code-review`; any other token is a review skill name invoked through the Skill tool. Each engine's invocation, findings location and label → severity mapping live in `templates/review-engines.yaml` (`code-review`: CONFIRMED → medium, PLAUSIBLE → low; `spectra-review`: Critical → high, Warning → medium, Suggestion → low; unknown skills use the `_default` table). The merge step never reads the engine's name: same file + same root cause → one entry tagged `engine: both`; a spec-sanctioned behaviour the engine flags becomes a `spec-conflict` entry for a human; the report shows both verdict lines and the merged list is logged once with `engine` per finding. The engine is never given `--fix`, `--comment` or any flag that edits or posts. If the skill is absent (`/code-review` under Codex, `spectra-review` outside a Spectra repo) the report says so in one line and the spec findings stand alone.
 
 If no paths are given, ask which spec files to review against.
 
@@ -48,12 +49,12 @@ If no paths are given, ask which spec files to review against.
 
 1. Read the spec files provided
 2. Dispatch result-fix-orchestrator with `fix: false` (default, review only) or `fix: true` (`--fix`); it spawns one result-reviewer per angle and merges
-3. With `--with-code-review`: invoke the `code-review` skill on the same diff if it is available, merge, log once; if it is unavailable or fails, say so in one line and report/log the spec findings alone
+3. With `-c`: invoke the selected engine skill on the same diff if it is available, map its labels through `templates/review-engines.yaml`, merge, log once; if it is unavailable or fails, say so in one line and report/log the spec findings alone
 4. Report findings back
 
 ## Agent Dispatch
 
-Without `--fix`: dispatch `reviewer:result-fix-orchestrator` with `fix: false`, `max_iterations: 1`, angles, the review-angles template content and log_script_path (resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path; omit it when `--with-code-review` is set, the command logs the merged set); it runs one multi-angle round, merges, hands off, logs, and never fixes.
+Without `--fix`: dispatch `reviewer:result-fix-orchestrator` with `fix: false`, `max_iterations: 1`, angles, the review-angles template content and log_script_path (resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path; omit it when `-c` is set, the command logs the merged set); it runs one multi-angle round, merges, hands off, logs, and never fixes.
 With `--fix`: the same orchestrator with `fix: true`, max_iterations and fix_all.
 The companion `result-reviewer.md` in this directory is the single-reviewer methodology each angle sub-agent follows; on a harness without sub-agent orchestration (Codex), use it directly as the review prompt.
 
