@@ -124,6 +124,7 @@ export const register: Register = (on, options) => {
     tgToken = await resolveTelegramToken($)
     await bindSession($)
     await rearm($)
+    await armFromResume($)
     // After a reload, keep listening for the answer to a question still open.
     if ((await read($, session)).tgAskMessageId !== null && isTelegramOn()) startPolling($)
     await sweepStaleFiles($)
@@ -294,24 +295,49 @@ async function onMainTurnComplete($: Engine, reason: string) {
   const usage = await $.session.usage().catch(() => undefined)
   const contextTokens = usage?.context?.tokens ?? s.contextTokens
   const ttlSec = (await readTtl($, s.transcriptPath)) ?? s.ttlSec
-  const base = { ...s, lastActivityAt: now, contextTokens, ttlSec }
+  await applyArmedState($, { lastActivityAt: now, contextTokens, ttlSec })
+}
 
-  if (ttlSec === TTL_5M) {
+// Shared by a just-completed turn (lastActivityAt = now) and a resumed
+// session arming straight from the transcript (lastActivityAt = the real
+// write time of its last cache-creating row, so an already-expired cache
+// does not get a fresh window just because the process restarted).
+async function applyArmedState($: Engine, input: { lastActivityAt: number; contextTokens: number; ttlSec: number | null }): Promise<void> {
+  const s = await read($, session)
+  const base = { ...s, ...input }
+
+  if (input.ttlSec === TTL_5M) {
     // 13 pings an hour at 0.1x cost more than one 1.25x rewrite.
     await save($, () => ({ ...base, phase: 'off', offReason: '5m-ttl' }))
     return
   }
-  if (contextTokens < config.minContextTokens) {
+  if (input.contextTokens < config.minContextTokens) {
     await save($, () => ({ ...base, phase: 'small' }))
     return
   }
-  if (ttlSec === null) {
+  if (input.ttlSec === null) {
     // Not read yet: no schedule. The next turn tries again.
     await save($, () => ({ ...base, phase: 'active' }))
     return
   }
   await save($, () => ({ ...base, phase: base.maxPings > 0 ? 'armed' : 'capped' }))
   await rearm($)
+}
+
+// On session.start (a reload or a resume), $.state may already be the
+// INITIAL default: a process restart does not carry it over. Arm straight
+// from the transcript when it has a cache-creating row with a real
+// timestamp, instead of waiting for a turn that may never come if you only
+// read the status. A row with no timestamp (nothing resumed yet, e.g. a
+// genuinely new session) leaves the state untouched for the next turn.
+async function armFromResume($: Engine): Promise<void> {
+  const s = await read($, session)
+  if (s.phase === 'off' || !config.enabled) return
+  const tail = await readTranscriptTail($, s.transcriptPath)
+  if (!tail || tail.timestampMs === null) return
+  const usage = await $.session.usage().catch(() => undefined)
+  const contextTokens = usage?.context?.tokens ?? s.contextTokens
+  await applyArmedState($, { lastActivityAt: tail.timestampMs, contextTokens, ttlSec: tail.ttlSec })
 }
 
 // Schedules the next ping (armed) and the expiry (armed or capped) from state.
@@ -809,19 +835,28 @@ function engineStatusText(s: KeepaliveSession): string | undefined {
   }
 }
 
+type TtlLine = { ttlSec: number; timestampMs: number | null }
+
 // The TTL is not in the turn's usage; the transcript's assistant rows carry
-// the 1h/5m split. The latest row that wrote to the cache decides, so a row
-// not yet flushed when turn.complete fires costs nothing.
-async function readTtl($: Engine, transcriptPath: string | null): Promise<number | null> {
+// the 1h/5m split (and, when present, a real `timestamp` for when that row
+// was written — used to arm a resumed session with the cache's real age
+// instead of assuming it just started). The latest row that wrote to the
+// cache decides, so a row not yet flushed when turn.complete fires costs
+// nothing.
+async function readTranscriptTail($: Engine, transcriptPath: string | null): Promise<TtlLine | null> {
   if (!transcriptPath) return null
   const r = await $.process.run(['tail', '-c', String(TAIL_BYTES), transcriptPath]).catch(() => undefined)
   if (!r || r.exitCode !== 0) return null
   const lines = r.stdout.split('\n')
   for (let i = lines.length - 1; i >= 0; i--) {
-    const ttl = ttlOfLine(lines[i] ?? '')
-    if (ttl !== null) return ttl
+    const info = ttlLineInfo(lines[i] ?? '')
+    if (info) return info
   }
   return null
+}
+
+async function readTtl($: Engine, transcriptPath: string | null): Promise<number | null> {
+  return (await readTranscriptTail($, transcriptPath))?.ttlSec ?? null
 }
 
 async function sweepStaleFiles($: Engine) {
@@ -865,16 +900,17 @@ function brbCompletion(text: string, cursor: number): string {
   return preset ? preset.slice(typed.length) : ''
 }
 
-function ttlOfLine(line: string): number | null {
+function ttlLineInfo(line: string): TtlLine | null {
   if (!line.includes('ephemeral_')) return null
   try {
     const entry = JSON.parse(line)
     if (entry.type !== 'assistant' || entry.isSidechain === true) return null
     const split = entry.message?.usage?.cache_creation
     if (!split) return null
-    if ((split.ephemeral_5m_input_tokens ?? 0) > 0) return TTL_5M
-    if ((split.ephemeral_1h_input_tokens ?? 0) > 0) return TTL_1H
-    return null
+    const ttlSec = (split.ephemeral_5m_input_tokens ?? 0) > 0 ? TTL_5M : (split.ephemeral_1h_input_tokens ?? 0) > 0 ? TTL_1H : null
+    if (ttlSec === null) return null
+    const parsedTs = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN
+    return { ttlSec, timestampMs: Number.isFinite(parsedTs) ? parsedTs : null }
   } catch {
     return null // the tail's first line is usually cut mid-row
   }

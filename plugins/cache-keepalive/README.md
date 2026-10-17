@@ -95,6 +95,7 @@ The countdown, `kp used/cap` and `✂` (an armed compact, with the time it is du
 ## Limits
 
 - No pings while the Mac sleeps: the process is asleep too. A timer that fires after the cache already expired skips the ping.
+- A resumed session (`claude -r`/`--continue`) arms itself right at `session.start` from the transcript'''s last cache-creating row, using that row'''s real write time rather than the moment you resumed — so a cache that actually expired while you were away shows `expired`, not a fresh 2-ping window.
 - A turn that ends in an `error` or `refusal` reads no usage and runs no pings, but an armed compact is still scheduled from the last good response, so a `/goal` that dies on an API error does not lose it.
 - A turn waiting on a permission prompt has not finished, so no ping is scheduled during it.
 - After a prefix change (`/model`, a plugin reload that changes the system prompt or tools) the next ping misses once, and keepalive turns off for the session.

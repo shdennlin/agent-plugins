@@ -12,6 +12,13 @@ const TTL_5M_ROW = JSON.stringify({
   type: 'assistant',
   message: { usage: { cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 9000 } } },
 })
+// A 1h-TTL row carrying its real write time, as a resumed session'''s transcript would.
+const ttl1hRowAt = (atMs: number) =>
+  JSON.stringify({
+    type: 'assistant',
+    timestamp: new Date(atMs).toISOString(),
+    message: { usage: { cache_creation: { ephemeral_1h_input_tokens: 9000, ephemeral_5m_input_tokens: 0 } } },
+  })
 
 type World = {
   forks: number
@@ -211,6 +218,42 @@ describe('scheduling', () => {
     const r = (await $.command.run({ command: 'keepalive', args: 'ping' } as never)) as { text: string }
     expect(r.text).toContain('phase is small')
     expect(w.forks).toBe(0)
+  })
+})
+
+describe('resume', () => {
+  test('session.start arms immediately from an existing transcript, using its real write time', async ($, on) => {
+    const realLastActivity = T0 - 50 * MIN // the cache was really created 50 min ago (before this process started)
+    const w = world(on, { ttlRow: ttl1hRowAt(realLastActivity) })
+    await start($)
+    // no turn in this process yet: everything below must come from the transcript alone
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', ttlSec: 3600, pings: 0 })
+
+    // expiresAt = realLastActivity + 60 min = T0 + 10 min; next ping = expiresAt - 5 min lead = T0 + 5 min
+    await w.clock.advance(4 * MIN)
+    expect(w.forks).toBe(0)
+    await w.clock.advance(1 * MIN)
+    expect(w.forks).toBe(1)
+  })
+
+  test('a transcript whose real TTL already ran out expires instead of arming with a fresh window', async ($, on) => {
+    const longAgo = T0 - 90 * MIN // TTL is 60 min, so this cache is long gone
+    const w = world(on, { ttlRow: ttl1hRowAt(longAgo) })
+    await start($)
+    await w.clock.advance(1) // let the already-due timers (scheduled at delay 0) run
+    expect(w.forks).toBe(0)
+    expect(stateOf(w)).toMatchObject({ phase: 'expired' })
+  })
+
+  test('without a timestamp in the transcript row, session.start writes nothing and leaves it to the next turn', async ($, on) => {
+    const w = world(on) // default TTL_1H_ROW carries no timestamp
+    await start($)
+    expect(stateOf(w)).toEqual({}) // no save happened: nothing to go on yet
+    expect(w.forks).toBe(0)
+
+    // a real turn still arms normally afterwards
+    await turn($)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', ttlSec: 3600, pings: 0 })
   })
 })
 
