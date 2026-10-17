@@ -185,6 +185,33 @@ describe('scheduling', () => {
     await w.clock.advance(35 * MIN)
     expect(w.forks).toBeGreaterThanOrEqual(1)
   })
+
+  test('/keepalive ping fires immediately and reschedules instead of doubling up', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await turn($)
+    expect(w.forks).toBe(0)
+    const r = (await $.command.run({ command: 'keepalive', args: 'ping' } as never)) as { text: string }
+    expect(w.forks).toBe(1)
+    expect(r.text).toBe('Pinged manually: 1 ping sent, phase armed.')
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 1 })
+
+    // the original +55 timer must have been cancelled by the manual ping's
+    // own rearm, or this would fire twice instead of once.
+    await w.clock.advance(55 * MIN)
+    expect(w.forks).toBe(2)
+    expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 2 })
+  })
+
+  test('/keepalive ping does nothing when not armed', async ($, on) => {
+    const w = world(on, { context: 20_000 })
+    await start($)
+    await turn($)
+    expect(stateOf(w)).toMatchObject({ phase: 'small' })
+    const r = (await $.command.run({ command: 'keepalive', args: 'ping' } as never)) as { text: string }
+    expect(r.text).toContain('phase is small')
+    expect(w.forks).toBe(0)
+  })
 })
 
 describe('verification', () => {

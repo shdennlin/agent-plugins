@@ -113,8 +113,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'keepalive',
-      description: 'Prompt-cache keepalive: done, brb <minutes|hours|reset>, compact [off], status',
-      argumentHint: 'done | brb <minutes|hours|reset> | compact [off] | status',
+      description: 'Prompt-cache keepalive: done, brb <minutes|hours|reset>, compact [off], ping, status',
+      argumentHint: 'done | brb <minutes|hours|reset> | compact [off] | ping | status',
     })
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
     stateDir = `${configDir}/keepalive`
@@ -524,6 +524,16 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return `Armed: compact at about ${clockTime(compactAt(s))}${s.phase === 'armed' ? ' (after the remaining pings)' : s.phase === 'stopped' ? ' (no pings, you ran /keepalive done)' : ''}.${tail}`
   }
 
+  if (verb === 'ping') {
+    if (s.phase !== 'armed') return paint(`Nothing to ping: phase is ${s.phase}.`, 'yellow')
+    await ping($)
+    const after = await read($, session)
+    if (after.pingsSent > s.pingsSent) return `Pinged manually: ${pingCount(after.pingsSent)} sent, phase ${after.phase}.`
+    if (after.phase === 'off') return paint(`Ping failed: keepalive is off (${after.offReason}).`, 'red')
+    if (after.phase === 'expired') return paint('Ping skipped: the cache already expired.', 'yellow')
+    return paint('Ping ran but did not count; check /keepalive status.', 'yellow')
+  }
+
   if (verb === 'status') {
     const stats = ((await $.store.get('stats')) as Stats | undefined) ?? { pings: 0, hits: 0 }
     const lines = [
@@ -549,7 +559,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return lines.join('\n')
   }
 
-  return paint('Usage: /keepalive done | brb <minutes|hours|reset> | compact [off] | status', 'red')
+  return paint('Usage: /keepalive done | brb <minutes|hours|reset> | compact [off] | ping | status', 'red')
 }
 
 type Stats = { pings: number; hits: number }
