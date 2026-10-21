@@ -6,10 +6,14 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: log-findings.sh --change <name> --source <spec|result|spec-dual> [--round <N>] <<'JSON'
-  [ { "severity": "...", "title": "...", "location": "...", "category": "...", "engine": "..." } ]
+  [ { "severity": "...", "title": "...", "location": "...", "category": "...", "engine": "...",
+      "locations": ["path/a.py:fn", "path/b.py:fn"] } ]
 JSON
 
-Each array element may contain: severity, title, location, category, engine (strings).
+Each array element may contain: severity, title, location, category, engine (strings),
+and locations (array of strings: every place in the diff the same pattern occurs,
+filled by the orchestrator's pattern sweep; a bare string is wrapped into a one-element
+array; absent → []).
 Target file: <git-root>/openspec/reviews/history.jsonl if openspec/ exists,
 otherwise <git-root>/.claude/reviewer/history.jsonl.
 EOF
@@ -52,7 +56,8 @@ jq -c --arg ts "$TS" --arg change "$CHANGE" --arg source "$SOURCE" --arg round "
     ts: $ts, change: $change, source: $source, round: $round,
     severity: (.severity // ""), title: (.title // ""),
     location: (.location // ""), category: (.category // ""),
-    engine: (.engine // "")
+    engine: (.engine // ""),
+    locations: ((.locations // []) | if type=="array" then map(tostring) else [tostring] end)
   }' <<<"$INPUT" >>"$OUT"
 
 echo "logged $COUNT finding(s) to ${OUT#"$ROOT"/}"

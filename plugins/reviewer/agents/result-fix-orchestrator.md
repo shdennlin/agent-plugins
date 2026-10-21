@@ -121,6 +121,8 @@ Agent tool:
     Review the diff ONLY through your assigned angle.
     For each issue found:
     - **Title** | Location: file:function | Severity: critical/high/medium/low
+    - **Locations:** every other changed file where the SAME construct appears
+      (grep the diff for it before you write the issue), or "none in diff"
     - **Expected:** what the spec says
     - **Actual:** what the implementation does
     - **Impact:** what could go wrong
@@ -130,7 +132,13 @@ Agent tool:
     Output EXACTLY this structure:
 
     ## Modified Files
-    (list files with changed functions)
+    One line per path from `git diff {diff_strategy} --name-only` — every path,
+    none omitted — ending with the per-file verdict for YOUR angle:
+    - `path/to/file.ts` (functionA, functionB) — clean
+    - `path/to/other.ts` (classC) [NEW] — 2 issue(s)
+    - `pnpm-lock.yaml` [GENERATED] — skimmed
+    A path missing from this list means you did not review it; do not emit the list
+    until every path has a verdict.
 
     ## Spec Coverage
     (checklist: [x] implemented, [ ] missing — ONLY if your angle is coverage)
@@ -161,8 +169,10 @@ After all review agents complete, merge their outputs:
 
 1. **Collect** all issues from all angle reports
 2. **Deduplicate** — if two issues reference the same file:function, keep one with the higher severity and merge recommendations
-3. **Merge coverage checklists** — combine [x]/[ ] items from all angles
-4. **Compile** the unified report:
+3. **Pattern sweep** — for each remaining issue, grep the diff (`git diff {diff_strategy}`) for the same construct in the OTHER changed files (same call, same guard shape, same missing check). Union what you find with the sub-agents' **Locations** lines into one `locations` list per issue, primary location first. If an occurrence was approved or ignored by every angle, it is still an occurrence: add it, and say so in the issue ("also at `b.py:parse`, not flagged by any angle"). If nothing else matches, write `locations: [<primary>]`. When the sweep for one issue lands on another issue's primary location and the construct matches, fold the second issue into the first (keep the worse severity, union the locations) — this is what catches the same pattern flagged by one angle in `a.py` and by another in `b.py`. Never emit two separate issues for the same construct in different files — one issue, N locations.
+4. **Merge per-file coverage** — union the Modified Files lists: a path is `clean` only if every angle marked it clean; otherwise show the summed issue count. Any path present in `--name-only` but missing from an angle's list is reported as `— NOT REVIEWED by <angle>`; that is a merge finding, not something to silently fill in.
+5. **Merge coverage checklists** — combine [x]/[ ] items from all angles
+6. **Compile** the unified report:
 
 ```
 ## Merged Review Report — Round {N}
@@ -171,13 +181,13 @@ After all review agents complete, merge their outputs:
 (from spec summary)
 
 ### B) Modified Files
-(merged from all angles)
+(merged per-file coverage: every path, each with `— clean` / `— N issue(s)` / `— NOT REVIEWED by <angle>`)
 
 ### C) Spec Coverage
 (merged checklist)
 
 ### D) Issues & Risks
-(merged, deduplicated issues with severities)
+(merged, deduplicated issues with severities; each issue carries its `locations` list from the pattern sweep)
 
 ### E) Verdict
 PASS or FAIL (N critical, N high remaining)
@@ -286,7 +296,7 @@ INCOMPLETE if it ends without either running this command or printing a
 "findings not logged: <reason>" line. If `log_script_path` was provided, persist the
 FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
 per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
-name), `category` — then run:
+name), `category`, `locations` (the pattern-sweep list, primary first) — then run:
 
 ```bash
 "<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round <final round number> <<'FINDINGS_JSON'

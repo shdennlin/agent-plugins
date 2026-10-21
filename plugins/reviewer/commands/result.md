@@ -204,7 +204,7 @@ This is LLM judgment; do it here, not in a script. Nothing below depends on whic
 
 #### Step 3d: Log the merged findings (best-effort)
 
-Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine` — and run, from the git root:
+Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's pattern-sweep list; an engine finding without one gets `[location]`) — and run, from the git root:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 <<'FINDINGS_JSON'

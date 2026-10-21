@@ -92,12 +92,18 @@ Identify:
 - Which functions/classes were changed
 - What behavior was added or altered
 
+Keep a per-file ledger as you go: every path from `--name-only` gets a verdict (`clean`, `N issue(s)`, or `skimmed` for generated files) before you move on to Step 5. A path without a verdict is a path you have not reviewed.
+
 ### Step 5: Cross-Reference Spec vs Implementation
 
 For each requirement from the spec:
 - Check if it appears in the diff
 - Note whether the implementation matches the spec's intent
 - Flag any divergence
+
+### Step 5b: Pattern Sweep
+
+For each issue you intend to report, grep the diff for the same construct (same call, same guard shape, same missing check) in the OTHER changed files before writing it up. Record every occurrence under the issue's **Locations** line, primary first. One issue with N locations, never N issues for one construct — and never flag it in one file while passing it silently in another.
 
 ### Step 6: Produce Report
 
@@ -110,10 +116,11 @@ Output the following sections exactly:
 
 ## B) Modified Files (from git diff)
 
-List each file with the functions/symbols that changed:
-- `path/to/file.ts` (functionA, functionB)
-- `path/to/new-file.ts` (classC) [NEW]
-- `path/to/deleted.ts` [DELETED]
+One line per path from `--name-only` — every path, none omitted — with the functions/symbols that changed and the per-file verdict from the Step 4 ledger:
+- `path/to/file.ts` (functionA, functionB) — clean
+- `path/to/new-file.ts` (classC) [NEW] — 2 issue(s)
+- `path/to/deleted.ts` [DELETED] — clean
+- `pnpm-lock.yaml` [GENERATED] — skimmed
 
 ## C) Spec Coverage
 
@@ -126,6 +133,7 @@ Checklist of spec requirements vs implementation:
 
 For each issue:
 - **Title** | Location: `file:function` | Severity: `critical` / `high` / `medium` / `low`
+- **Locations:** every occurrence from Step 5b, primary first (or just the primary if the construct appears nowhere else in the diff)
 - **Expected:** what the spec says
 - **Actual:** what the implementation does (or doesn't do)
 - **Impact:** what could go wrong
@@ -190,7 +198,7 @@ INCOMPLETE if it ends without either running this command or printing a
 "findings not logged: <reason>" line in the report. Run the command BEFORE composing
 your final report message. If `log_script_path` was provided, persist this review's
 final Issues & Risks. Convert them to a JSON array — one object per issue with keys
-`severity` (upper-case), `title`, `location` (file or artifact name), `category` — then run:
+`severity` (upper-case), `title`, `location` (file or artifact name), `category`, `locations` (the Step 5b list) — then run:
 
 ```bash
 "<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'

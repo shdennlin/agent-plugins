@@ -51,9 +51,23 @@ jq -e 'select(.source=="result" and .change=="openspec/changes/demo" and .round=
 JSON
 [[ "$(tail -1 "$OUT" | jq -r '.engine')" == "" ]] || fail "missing engine should persist as empty string"
 
-# 3. Unknown --source is rejected (engine is free text; source is the enum).
+# 3. `locations` (pattern-sweep occurrences) persists as an array; absent → []; bare string → [string].
+"$SCRIPT" --change "openspec/changes/demo" --source result --round 3 <<'JSON' >/dev/null
+[
+  {"severity":"MEDIUM","title":"unchecked cast","location":"a.py:parse","category":"correctness","locations":["a.py:parse","b.py:parse","c.py:load"]},
+  {"severity":"LOW","title":"no locations field","location":"x.py","category":"coverage"},
+  {"severity":"LOW","title":"bare string locations","location":"y.py","category":"coverage","locations":"y.py:run"}
+]
+JSON
+[[ "$(tail -3 "$OUT" | head -1 | jq -c '.locations')" == '["a.py:parse","b.py:parse","c.py:load"]' ]] || fail "locations array not persisted verbatim"
+[[ "$(tail -2 "$OUT" | head -1 | jq -c '.locations')" == '[]' ]] || fail "missing locations should persist as []"
+[[ "$(tail -1 "$OUT" | jq -c '.locations')" == '["y.py:run"]' ]] || fail "bare-string locations should be wrapped into an array"
+# Rows written before this change (test 1/2 above) also carry locations=[] so readers can rely on the key.
+[[ "$(jq -c 'select(.round=="1") | .locations' "$OUT" | sort -u)" == '[]' ]] || fail "older-shaped input should still get locations=[]"
+
+# 4. Unknown --source is rejected (engine is free text; source is the enum).
 if "$SCRIPT" --change c --source code-review <<<'[]' >/dev/null 2>&1; then
   fail "--source code-review should be rejected; engine, not source, carries the engine name"
 fi
 
-echo "ok: log-findings persists engine/category per finding (3 rows), empty engine, source enum enforced"
+echo "ok: log-findings persists engine/category per finding (3 rows), empty engine, locations array, source enum enforced"
