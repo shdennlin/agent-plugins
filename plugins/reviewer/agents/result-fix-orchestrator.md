@@ -161,10 +161,11 @@ The orchestrator never parses the sub-agents' summaries; the reports live in `{r
 After all review agents complete, run the merge script:
 
 ```bash
-node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round {N}
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round {N} --expect {angle keys}
 ```
 
 - `<change id>`: the change directory if reviewing one, else the primary spec path, RELATIVE to the git root (never an absolute path) — keep it consistent across runs and review sources for the same change.
+- `{angle keys}`: the comma-separated angle keys you spawned in Step 2 (e.g. `coverage,robustness,correctness`). An expected angle with no report file shows up in `invalid_reports` (`no report written`) and in every file's `not_reviewed_by`, so a missing angle is never silently PASS.
 - Append `--no-log` when `log_script_path` is absent or `none`; otherwise append `--log-script "{log_script_path}"`.
 - Exit 2 (missing manifest) → report its stderr line and stop.
 
