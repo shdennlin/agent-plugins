@@ -101,7 +101,24 @@ function checkShape(value, schema, path, out) {
 }
 
 const RUNS_SEGMENT = /\/(reviews|reviewer)\/runs\//
-const issueAt = (location, p) => typeof location === 'string' && (location === p || location.startsWith(p + ':'))
+
+// Canonical spelling of a diff path: `./a` -> `a`, `d/` -> `d`, `a => b` and `{a => b}` -> the new name.
+function normalizePath(p) {
+  if (typeof p !== 'string') return p
+  return p
+    .replace(/^\.\//, '')
+    .replace(/\/$/, '')
+    .replace(/\{[^{}]* => ([^{}]*)\}/g, (_, to) => to.trim()) // before `a => b`, which would swallow a brace form
+    .replace(/^.* => /, '')
+    .replace(/\/{2,}/g, '/')
+}
+
+// An issue location is `<path>` or `<path>:<detail>`; only the path part is normalized.
+const issueAt = (location, p) => {
+  if (typeof location !== 'string') return false
+  const i = location.indexOf(':')
+  return normalizePath(i === -1 ? location : location.slice(0, i)) === p
+}
 
 function validateReport(report, manifestFiles) {
   const out = []
@@ -114,14 +131,14 @@ function validateReport(report, manifestFiles) {
   }
   if (!shapeOk) return out
 
-  const manifest = new Set(manifestFiles)
-  const reported = new Set(report.files.map((f) => f.path))
+  const manifest = new Set(manifestFiles.map(normalizePath))
+  const reported = new Set(report.files.map((f) => normalizePath(f.path)))
   for (const p of manifestFiles) {
-    if (!reported.has(p)) out.push(`files: ${p} missing (every manifest path must be reported)`)
+    if (!reported.has(normalizePath(p))) out.push(`files: ${p} missing (every manifest path must be reported)`)
   }
   report.files.forEach((f, i) => {
     const at = `files[${i}]`
-    if (!manifest.has(f.path)) out.push(`${at}: ${f.path} not in manifest`)
+    if (!manifest.has(normalizePath(f.path))) out.push(`${at}: ${f.path} not in manifest`)
     if (f.verdict !== 'issues' && f.issue_count > 0) {
       out.push(`${at}: ${f.path} is ${f.verdict} but issue_count ${f.issue_count}`)
       return
@@ -130,7 +147,7 @@ function validateReport(report, manifestFiles) {
       out.push(`${at}: ${f.path} verdict issues but issue_count ${f.issue_count}`)
       return
     }
-    const n = report.issues.filter((x) => issueAt(x.location, f.path)).length
+    const n = report.issues.filter((x) => issueAt(x.location, normalizePath(f.path))).length
     if (f.issue_count !== n) {
       out.push(`${at}: ${f.path} issue_count ${f.issue_count} but ${n} issue(s) point at it`)
     }
@@ -138,4 +155,4 @@ function validateReport(report, manifestFiles) {
   return out
 }
 
-module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport }
+module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath }

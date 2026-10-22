@@ -1,7 +1,7 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { REPORT_SCHEMA, validateReport } = require('../mcp/schema.cjs')
+const { REPORT_SCHEMA, validateReport, normalizePath } = require('../mcp/schema.cjs')
 
 const FILES = ['src/a.py', 'src/b.py']
 const good = () => ({
@@ -24,3 +24,14 @@ test('skimmed file with zero issues is valid', () => { const r = good(); r.files
 test('issues verdict with issue_count 0 is rejected', () => { const r = good(); r.files[0].issue_count = 0; r.issues = []; assert.match(validateReport(r, FILES).join('\n'), /src\/a\.py.*issues/) })
 test('via and reported_at are accepted', () => { const r = good(); r.via = 'mcp'; r.reported_at = '2026-10-22T00:00:00Z'; assert.deepEqual(validateReport(r, FILES), []) })
 test('non-object report returns violations without throwing', () => { for (const v of [null, 'x', [], 3]) assert.ok(validateReport(v, FILES).length > 0) })
+test('normalizePath strips ./ and trailing slash, keeps rename target', () => {
+  assert.equal(normalizePath('./src/a.py'), 'src/a.py')
+  assert.equal(normalizePath('src/dir/'), 'src/dir')
+  assert.equal(normalizePath('old/name.py => new/name.py'), 'new/name.py')
+  assert.equal(normalizePath('src/{old => new}/f.py'), 'src/new/f.py')
+  assert.equal(normalizePath('src/{ => new}/f.py'), 'src/new/f.py')
+})
+test('validateReport matches ./-prefixed report paths to manifest paths', () => {
+  const r = good(); r.files[0].path = './src/a.py'; r.issues[0].location = './src/a.py:parse'
+  assert.deepEqual(validateReport(r, FILES), [])
+})
