@@ -3,7 +3,7 @@
 // dependency-free validator (no ajv; marketplace installs do not run npm install).
 
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
-const FILE_VERDICTS = ['clean', 'issues']
+const FILE_VERDICTS = ['clean', 'skimmed', 'issues']
 const COVERAGE_STATUSES = ['implemented', 'missing', 'partial']
 
 const str = { type: 'string' }
@@ -55,6 +55,8 @@ const REPORT_SCHEMA = {
     files: { type: 'array', items: FILE_SCHEMA },
     issues: { type: 'array', items: ISSUE_SCHEMA },
     coverage: { type: 'array', items: COVERAGE_SCHEMA },
+    via: str,
+    reported_at: str,
     verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
   },
   required: ['run_dir', 'angle', 'files', 'issues', 'verdict'],
@@ -103,6 +105,7 @@ const issueAt = (location, p) => typeof location === 'string' && (location === p
 
 function validateReport(report, manifestFiles) {
   const out = []
+  if (!typeOk('object', report)) return [': report must be an object']
   checkShape(report, REPORT_SCHEMA, '', out)
   const shapeOk = out.length === 0 // manifest rules assume a well-formed shape
 
@@ -119,8 +122,12 @@ function validateReport(report, manifestFiles) {
   report.files.forEach((f, i) => {
     const at = `files[${i}]`
     if (!manifest.has(f.path)) out.push(`${at}: ${f.path} not in manifest`)
-    if (f.verdict === 'clean' && f.issue_count > 0) {
-      out.push(`${at}: ${f.path} is clean but issue_count ${f.issue_count}`)
+    if (f.verdict !== 'issues' && f.issue_count > 0) {
+      out.push(`${at}: ${f.path} is ${f.verdict} but issue_count ${f.issue_count}`)
+      return
+    }
+    if (f.verdict === 'issues' && f.issue_count < 1) {
+      out.push(`${at}: ${f.path} verdict issues but issue_count ${f.issue_count}`)
       return
     }
     const n = report.issues.filter((x) => issueAt(x.location, f.path)).length
