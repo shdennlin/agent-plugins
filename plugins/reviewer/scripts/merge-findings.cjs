@@ -5,6 +5,10 @@
 //                           [--expect <angle1,angle2,...>]
 // --expect names the angles that must have reported; one with no <angle>.json is recorded as an
 // invalid report ("no report written") and marks every file not_reviewed.
+// Issues dedup on normalized location + lowercased trimmed title; after the pattern sweep, issues with
+// the same title and the same non-empty pattern fold into one (the same construct in several files).
+// merged.json `complete` is false when any report is invalid or any file is not_reviewed; `verdict`
+// stays the severity verdict, so a caller must check `complete` before treating PASS as a pass.
 // Writes <run_dir>/merged.json, prints it, then (unless --no-log) appends the merged issues to the
 // review history through log-findings.sh. Logging is best-effort: a failure is reported, exit stays 0.
 
@@ -29,10 +33,59 @@ const pathPart = (location) => {
   const i = s.indexOf(':')
   return normalizePath(i === -1 ? s : s.slice(0, i))
 }
-const dedupKey = (location) => {
+const normTitle = (t) => String(t ?? '').trim().toLowerCase()
+const dedupKey = (location, title) => {
   const s = String(location ?? '')
   const i = s.indexOf(':')
-  return i === -1 ? normalizePath(s) : normalizePath(s.slice(0, i)) + s.slice(i)
+  const loc = i === -1 ? normalizePath(s) : normalizePath(s.slice(0, i)) + s.slice(i)
+  return JSON.stringify([loc, normTitle(title)])
+}
+const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+const byWorst = (a, b) => sevRank(a.severity) - sevRank(b.severity) || cmpStr(String(a.location), String(b.location))
+
+// Ordered union of locations deduplicated by path part: a `file:function` entry replaces a bare
+// swept path for the same file in place; the first entry seen for a path keeps its position.
+function unionLocations(lists) {
+  const out = []
+  const at = new Map() // pathPart -> index in out
+  for (const loc of lists.flat()) {
+    const p = pathPart(loc)
+    if (!at.has(p)) {
+      at.set(p, out.length)
+      out.push(loc)
+    } else if (!String(out[at.get(p)]).includes(':') && String(loc).includes(':')) {
+      out[at.get(p)] = loc
+    }
+  }
+  return out
+}
+
+// One issue per (title, pattern) group; issues without a pattern never fold.
+function foldSameConstruct(issues) {
+  const groups = new Map()
+  const out = []
+  for (const i of issues) {
+    if (!hasPattern(i.pattern)) {
+      out.push(i)
+      continue
+    }
+    const k = JSON.stringify([normTitle(i.title), i.pattern])
+    if (!groups.has(k)) {
+      groups.set(k, [])
+      out.push(groups.get(k))
+    }
+    groups.get(k).push(i)
+  }
+  return out.map((g) => {
+    if (!Array.isArray(g)) return g
+    if (g.length === 1) return g[0]
+    const sorted = [...g].sort(byWorst)
+    return {
+      ...sorted[0],
+      locations: unionLocations(sorted.map((i) => i.locations)),
+      angles: [...new Set(sorted.flatMap((i) => i.angles))].sort(),
+    }
+  })
 }
 const hasPattern = (p) => typeof p === 'string' && p.trim() !== ''
 
@@ -129,7 +182,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     }
     for (const issue of arr(r.issues)) {
       if (!issue || typeof issue !== 'object') continue
-      const key = dedupKey(issue.location)
+      const key = dedupKey(issue.location, issue.title)
       const prev = byKey.get(key)
       if (!prev) {
         byKey.set(key, { worst: issue, recs: [issue.recommendation], patterns: [issue.pattern], angles: new Set([angle]) })
@@ -180,7 +233,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     }
     return issue
   })
-  issues.sort((a, b) => sevRank(a.severity) - sevRank(b.severity) || (a.location < b.location ? -1 : a.location > b.location ? 1 : 0))
+  const folded = foldSameConstruct(issues).sort(byWorst)
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)
@@ -196,7 +249,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
   })
 
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]))
-  for (const i of issues) if (i.severity in counts) counts[i.severity]++
+  for (const i of folded) if (i.severity in counts) counts[i.severity]++
 
   return {
     run_id: manifest && manifest.run_id,
@@ -204,9 +257,10 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     via,
     invalid_reports: invalid,
     files,
-    issues,
+    issues: folded,
     coverage: [...coverage.values()],
     verdict: counts.CRITICAL + counts.HIGH > 0 ? 'FAIL' : 'PASS',
+    complete: invalid.length === 0 && files.every((f) => f.verdict !== 'not_reviewed'),
     counts,
   }
 }

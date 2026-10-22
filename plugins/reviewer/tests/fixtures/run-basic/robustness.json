@@ -10,7 +10,7 @@
   "issues": [
     {
       "severity": "CRITICAL",
-      "title": "Unhandled ValueError in parse",
+      "title": "Unchecked int() conversion",
       "location": "src/a.py:parse",
       "category": "robustness",
       "expected": "parse survives malformed input",

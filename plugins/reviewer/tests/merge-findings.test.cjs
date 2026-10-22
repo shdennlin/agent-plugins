@@ -37,6 +37,22 @@ test('same location merges to worst severity with both recommendations', () => {
   assert.match(hit[0].recommendation, /\n/)
 })
 
+test('same location with a different title stays two issues', () => {
+  const reports = clone(run.reports)
+  reports[1].issues[0].title = 'Request handler returns 500' // robustness, src/a.py:parse
+  const m = merge(run.manifest, reports, run.diff)
+  const hit = m.issues.filter((i) => i.location === 'src/a.py:parse')
+  assert.equal(hit.length, 2)
+  assert.deepEqual(hit.map((i) => i.severity), ['CRITICAL', 'HIGH'])
+})
+
+test('same location dedup ignores title case and surrounding whitespace', () => {
+  const reports = clone(run.reports)
+  reports[1].issues[0].title = '  UNCHECKED INT() CONVERSION '
+  const m = merge(run.manifest, reports, run.diff)
+  assert.equal(m.issues.filter((i) => i.location === 'src/a.py:parse').length, 1)
+})
+
 test('pattern sweep adds files whose added lines contain the literal pattern', () => {
   const m = merge(run.manifest, run.reports, run.diff)
   assert.deepEqual(m.issues[0].locations, ['src/a.py:parse', 'src/b.py'])
@@ -99,6 +115,82 @@ test('expect: an expected angle with no report is invalid and not_reviewed every
     assert.equal(f.verdict, 'not_reviewed')
     assert.ok(f.not_reviewed_by.includes('security'), f.path)
   }
+})
+
+// run-basic with robustness covering src/c.py too: every angle reported every file, validly.
+const completeReports = () => {
+  const reports = clone(run.reports)
+  reports[1].files.push({ path: 'src/c.py', verdict: 'clean', issue_count: 0 })
+  return reports
+}
+
+test('complete: true when every report is valid and every file was reviewed', () => {
+  const m = merge(run.manifest, completeReports(), run.diff)
+  assert.deepEqual(m.invalid_reports, [])
+  assert.equal(m.complete, true)
+})
+
+test('complete: false when an expected angle is missing, verdict stays the severity verdict', () => {
+  const m = merge(run.manifest, completeReports(), run.diff, { expect: ['coverage', 'robustness', 'correctness', 'ghost'] })
+  assert.equal(m.complete, false)
+  assert.equal(m.verdict, 'FAIL') // still from counts: CRITICAL present
+  const clean = completeReports().map((r) => ({ ...r, issues: [] }))
+  for (const r of clean) for (const f of r.files) if (f.verdict === 'issues') Object.assign(f, { verdict: 'clean', issue_count: 0 })
+  const m2 = merge(run.manifest, clean, run.diff, { expect: ['coverage', 'robustness', 'correctness', 'ghost'] })
+  assert.equal(m2.verdict, 'PASS')
+  assert.equal(m2.complete, false)
+})
+
+test('complete: false on run-basic as shipped (robustness omits src/c.py)', () => {
+  assert.equal(merge(run.manifest, run.reports, run.diff).complete, false)
+})
+
+// Same defect (title + pattern) at two files, reported by two angles; each sweeps to the other file.
+const twoFile = (sevA, sevB) => {
+  const A = { ...clone(run.reports[2].issues[0]), severity: sevA } // correctness, src/a.py:parse, pattern int(
+  const B = { ...clone(A), severity: sevB, location: 'src/b.py:load', recommendation: 'Validate before int()' }
+  const ra = { ...clone(run.reports[2]), issues: [A] }
+  const rb = { ...clone(completeReports()[1]), issues: [B] }
+  return merge(run.manifest, [ra, rb], run.diff)
+}
+
+test('same title + pattern in two files folds into one issue', () => {
+  const m = twoFile('HIGH', 'MEDIUM')
+  const hit = m.issues.filter((i) => i.title === 'Unchecked int() conversion')
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0].severity, 'HIGH')
+  assert.equal(hit[0].location, 'src/a.py:parse')
+  assert.deepEqual(hit[0].locations, ['src/a.py:parse', 'src/b.py:load'])
+  assert.deepEqual(hit[0].angles, ['correctness', 'robustness'])
+  assert.equal(m.counts.HIGH, 1)
+  assert.equal(m.counts.MEDIUM, 0)
+  // per-file issue_count is the angles' own count, untouched by the fold
+  assert.equal(m.files.find((f) => f.path === 'src/a.py').issue_count, 2)
+})
+
+test('fold: equal severity picks the lowest location as primary', () => {
+  const hit = twoFile('HIGH', 'HIGH').issues
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0].location, 'src/a.py:parse')
+})
+
+test('fold: locations dedup by path, file:function wins over a swept bare path', () => {
+  // B is worse, so B is primary: B = [b.py:load, a.py(swept)], A = [a.py:parse, b.py(swept)]
+  const hit = twoFile('MEDIUM', 'CRITICAL').issues
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0].location, 'src/b.py:load')
+  assert.deepEqual(hit[0].locations, ['src/b.py:load', 'src/a.py:parse'])
+})
+
+test('fold needs a non-empty equal pattern', () => {
+  const ra = clone(run.reports[2])
+  delete ra.issues[0].pattern
+  const B = { ...clone(ra.issues[0]), location: 'src/b.py:load' }
+  ra.issues.push(B)
+  assert.equal(merge(run.manifest, [ra], run.diff).issues.length, 2)
+  const rc = clone(run.reports[2])
+  rc.issues.push({ ...clone(rc.issues[0]), location: 'src/b.py:load', pattern: 'int(x' })
+  assert.equal(merge(run.manifest, [rc], run.diff).issues.length, 2)
 })
 
 test('verdict FAIL on CRITICAL/HIGH, counts filled', () => {

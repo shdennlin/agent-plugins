@@ -199,10 +199,10 @@ This is LLM judgment; do it here, not in a script. Nothing below depends on whic
 3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry tagged `engine: both`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
 4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its engine tag. Replace the Verdict with two lines:
    ```
-   Spec review: PASS | FAIL (N critical, N high)
+   Spec review: PASS | FAIL (N critical, N high) | FAIL (review incomplete: <angles>)
    <engine>[ <level>]: N findings (N critical, N high, N medium, N low) — <scope note from Step 3b.4>
    ```
-   Keep the spec verdict's PASS/FAIL rule unchanged (critical/high only) so existing readers are not surprised, but a reader must see both lines together. Rebuild the Handoff directives from the merged list.
+   Keep the spec verdict's PASS/FAIL rule unchanged (critical/high only) so existing readers are not surprised, but a reader must see both lines together. When the orchestrator's verdict is `FAIL (review incomplete: <angles>)` (`complete: false` in `merged.json`), carry it over verbatim; it is never PASS. Rebuild the Handoff directives from the merged list.
 
 #### Step 3d: Log the merged findings (best-effort)
 

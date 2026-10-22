@@ -119,7 +119,7 @@ node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>"
 - Append `--no-log` when `log_script_path` is `none`; append `--log-script "{log_script_path}"` when it is a path; append neither when it is absent.
 - Any non-zero exit (e.g. 2: missing manifest, bad arguments) → print the script's stderr line and stop.
 
-It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), followed by a `logged N finding(s) to ...` or `findings not logged: <reason>` line. This merge is the run's only logging step. Read `merged.json` and `{run_dir}/manifest.json`, then produce the report from them.
+It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `complete`, `counts`), followed by a `logged N finding(s) to ...` or `findings not logged: <reason>` line. This merge is the run's only logging step. Read `merged.json` and `{run_dir}/manifest.json`, then produce the report from them.
 
 ### Step 6: Produce Report
 
@@ -155,7 +155,7 @@ From `issues`, worst first. For each issue:
 - **Impact:** what could go wrong
 - **Recommendation:** specific fix
 
-If `invalid_reports` is non-empty, add one issue per entry: severity MEDIUM, category `review-process`, title `single report failed validation`, listing its violations. If `via.single` is `file`, add one line: "angle single reported via fallback file, schema enforcement did not apply".
+If `invalid_reports` is non-empty, add one issue per entry: severity MEDIUM, category `review-process`, title `single report failed validation`, listing its violations; these review-process issues are report-only and never become Handoff directives. If `via.single` is `file`, add one line: "angle single reported via fallback file, schema enforcement did not apply".
 
 If no issues found, state "No issues found."
 
@@ -173,7 +173,9 @@ If there are no staging issues, omit this section entirely.
 
 State: `PASS` or `FAIL (N critical, N high remaining)` — from `verdict` and `counts`.
 
-PASS = implementation matches spec, no critical/high issues. FAIL = issues must be fixed.
+If `complete` is false (an invalid report, or any file `not_reviewed`), state `FAIL (review incomplete: <angles>)` instead, whatever `verdict` says — never PASS — where `<angles>` are the `invalid_reports` angles and every `not_reviewed_by` angle, deduplicated (here: `single`).
+
+PASS = implementation matches spec, no critical/high issues, and the review was complete. FAIL = issues must be fixed, or the review did not cover every file.
 
 ## G) Handoff
 
@@ -184,7 +186,7 @@ Output a markdown-formatted handoff section. This is the copy-paste artifact for
 ### Handoff
 
 **Spec:** <path(s) reviewed>
-**Verdict:** PASS | FAIL
+**Verdict:** PASS | FAIL | FAIL (review incomplete: <angles>)
 **Date:** <today's date>
 
 #### Modified Files

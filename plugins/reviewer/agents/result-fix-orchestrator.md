@@ -169,9 +169,9 @@ node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>"
 - Always pass `--no-log` here, every round; findings are logged once, after the loop (see Log Findings).
 - Any non-zero exit (e.g. 2: missing manifest, bad arguments) → print the script's stderr line and stop.
 
-It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), Read `merged.json`; the only steps left to you are:
+It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `complete`, `counts`), Read `merged.json`; the only steps left to you are:
 
-1. **Semantic fold** — two merged issues with different locations that describe the same defect become one issue: keep the worse severity, union `locations` (primary first), and note the fold in the issue. Folds are report-only; the log already reflects the script's merge.
+1. **Semantic fold** — two merged issues with different locations that describe the same defect become one issue: keep the worse severity, union `locations` (primary first), and note the fold in the issue. Folds are report-only; the log already reflects the script's merge. The script dedups only issues at the same location with an equal title (case- and whitespace-insensitive), and folds issues with an equal title and equal `pattern` across files; differently worded duplicates of one defect are this fold's job.
 2. **Process findings** — for each entry in `invalid_reports`, add one issue: severity MEDIUM, category `review-process`, title `<angle> report failed validation`, listing its violations. For each angle whose `via` is `file`, add one line to section D: "angle <angle> reported via fallback file, schema enforcement did not apply".
 3. **Compile** the unified report from `merged.json`:
 
@@ -192,14 +192,18 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ### E) Verdict
 PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
+— when `complete` is false: FAIL (review incomplete: <angles>), never PASS
 ```
+
+`complete` is false when any report is invalid or any file is `not_reviewed`. Then the verdict line is `FAIL (review incomplete: <angles>)`, whatever `verdict` says, where `<angles>` are the `invalid_reports` angles and every `not_reviewed_by` angle, deduplicated; the counts follow on the same line. The review-process issues from step 2 stay report-only: they are never fixer directives.
 
 Output the merged report. Fixer directives (Step 6) come from these issues: `location` → file | function, `expected` → context, `actual` → missing, `recommendation` → action.
 
 ### Step 4: Check Verdict
 
-- If **`fix` is false** (review-only): this is the only round. Go straight to Final Output with the merged report, the Handoff (Directives = every issue found, for a human or a later `--fix` run), and the log. Do not triage, do not ask the user, do not spawn the fixer.
-- If **PASS**: output the final report and the Handoff section (with empty Directives), then **stop the loop**.
+- If **`fix` is false** (review-only): this is the only round. Go straight to Final Output with the merged report, the Handoff (Directives = every issue found except review-process entries, for a human or a later `--fix` run), and the log. Do not triage, do not ask the user, do not spawn the fixer.
+- If **`complete` is false** (review incomplete): output "review incomplete, stopping" and **stop the loop**: do not triage, do not spawn the fixer (review-process entries have nothing to fix, and the other issues were found on a partial review). The round's verdict is `FAIL (review incomplete: <angles>)`, never PASS; Final Output and Log Findings still run on this round.
+- If **PASS** (and `complete` is true): output the final report and the Handoff section (with empty Directives), then **stop the loop**.
 - If **FAIL**: continue to Step 5.
 - If this is the **last round** (round == max_iterations) and still FAIL: output the final report with remaining issues, then **stop the loop** with a message: "Reached maximum iterations ({max_iterations}). {N} issues remain."
 
@@ -261,7 +265,7 @@ Continue to the next round (go back to Step 1).
 
 ## Final Output
 
-After the loop ends (either PASS or max iterations), FIRST complete the "Log Findings"
+After the loop ends (PASS, review incomplete, or max iterations), FIRST complete the "Log Findings"
 step below — run its merge command BEFORE printing the Final Summary. Then output:
 
 ```
@@ -269,7 +273,7 @@ step below — run its merge command BEFORE printing the Final Summary. Then out
 ## Final Summary
 
 **Rounds completed:** {N}
-**Final verdict:** PASS | FAIL
+**Final verdict:** PASS | FAIL | FAIL (review incomplete: <angles>)
 **Issues fixed:** {count}
 **Issues remaining:** {count}
 **Findings log:** {the `logged N finding(s) ...` or `findings not logged: <reason>` line from Log Findings}
@@ -277,7 +281,7 @@ step below — run its merge command BEFORE printing the Final Summary. Then out
 ### Handoff
 
 **Spec:** {spec_paths}
-**Verdict:** PASS | FAIL
+**Verdict:** PASS | FAIL | FAIL (review incomplete: <angles>)
 **Date:** {today's date}
 
 #### Modified Files
@@ -309,5 +313,5 @@ your verdict or output format.
 - Do NOT exceed max_iterations
 - Read the spec ONCE in Step 0 and pass the summary to sub-agents — do not re-read each round
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
-- The round verdict is `verdict` from `merged.json` (FAIL when any CRITICAL or HIGH issue remains)
+- The round verdict is `verdict` from `merged.json` (FAIL when any CRITICAL or HIGH issue remains), except that `complete: false` always makes it `FAIL (review incomplete: <angles>)` and stops the loop — never report PASS on an incomplete review
 - Logging is best-effort — run the logging merge exactly once (after the loop, final round only), never retry it, never let it affect the verdict

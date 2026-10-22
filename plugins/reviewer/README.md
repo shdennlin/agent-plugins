@@ -108,7 +108,7 @@ Each angle reports through the `report_review` tool of the plugin's stdio MCP se
 (`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
 verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges
 the angle reports into `merged.json` (per-file verdicts, issues worst-first with `locations`
-found from each issue's `pattern`, coverage, `invalid_reports`, verdict, counts) and logs the
+found from each issue's `pattern`, coverage, `invalid_reports`, verdict, `complete`, counts) and logs the
 merged issues once. `via` records per angle whether the report came through `report_review` or
 the fallback of writing `<angle>.json` directly (Codex has no plugin MCP server); a fallback
 report is flagged in the review because schema enforcement did not apply there.
