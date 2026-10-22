@@ -24,7 +24,7 @@ $result docs/plan/ --angles robustness,correctness
 $result docs/plan/ --angles coverage          # single reviewer, cheapest
 ```
 
-Large diffs are read in full, in batches of 10–15 files — no file is skipped as "unrelated to the spec". Removed flags: `--parallel` (1.12.0, now the default), `--fix-all` (1.12.0, now `--fix all`), `--no-parallel` (1.11.0, use `--angles coverage`).
+Each angle reports through the `report_review` MCP tool; every file in the diff must carry a verdict or the report is rejected; merge and logging are deterministic (`scripts/merge-findings.cjs`). Removed flags: `--parallel` (1.12.0, now the default), `--fix-all` (1.12.0, now `--fix all`), `--no-parallel` (1.11.0, use `--angles coverage`).
 
 With iterative auto-fix (`--fix all` also auto-fixes critical/high instead of asking):
 
@@ -54,9 +54,9 @@ If no paths are given, ask which spec files to review against.
 
 ## Agent Dispatch
 
-Without `--fix`: dispatch `reviewer:result-fix-orchestrator` with `fix: false`, `max_iterations: 1`, angles, the review-angles template content and log_script_path (resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path; omit it when `-c` is set, the command logs the merged set); it runs one multi-angle round, merges, hands off, logs, and never fixes.
+Without `--fix`: dispatch `reviewer:result-fix-orchestrator` with `fix: false`, `max_iterations: 1`, angles, the review-angles template content, plugin_root (the absolute path of `${CLAUDE_PLUGIN_ROOT}`, which holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`) and log_script_path (resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path; pass it as `none` when `-c` is set, the orchestrator then merges with `--no-log` and the command logs the two-engine merge once); it runs one multi-angle round, merges, hands off, logs, and never fixes.
 With `--fix`: the same orchestrator with `fix: true`, max_iterations and fix_all.
-The companion `result-reviewer.md` in this directory is the single-reviewer methodology each angle sub-agent follows; on a harness without sub-agent orchestration (Codex), use it directly as the review prompt.
+The companion `result-reviewer.md` in this directory is the single-reviewer methodology each angle sub-agent follows; on a harness without sub-agent orchestration (Codex), use it directly as the review prompt — it resolves the plugin's scripts from its own physical path and writes `<run_dir>/single.json` itself (see `.codex/INSTALL.md`).
 
 The agent will cd to the git root automatically. Provide it with:
 - The list of spec files/folders to review against

@@ -6,6 +6,7 @@ Install the reviewer plugin for use with Codex via native skill discovery.
 
 - [Codex](https://github.com/openai/codex) installed and configured
 - Git
+- `node` and `jq` (for the result-review scripts)
 
 ## Install
 
@@ -42,6 +43,14 @@ cmd /c mklink /J "$env:USERPROFILE\.agents\skills\reviewer" "$env:USERPROFILE\.c
 `/reviewer:result -c <engine>` invokes a second review skill through Claude Code's Skill
 tool. Under Codex there is no Skill tool and no built-in `/code-review`, so the flag is
 ignored whatever its value and the spec review runs alone; the report says so in one line.
+
+Codex has no plugin MCP server, so the `report_review` tool does not exist: reviewers write
+`<run_dir>/<angle>.json` (for the single-reviewer methodology, `<run_dir>/single.json`)
+directly with a heredoc, and the report notes that schema enforcement did not apply. No
+`plugin_root` is passed either: the methodology resolves its own PHYSICAL directory first
+(`readlink -f` on the file reached through `~/.agents/skills/reviewer`, which points into
+`plugins/reviewer/skills/`) and runs the scripts from `<physical>/../../scripts/`. `node` is
+required for `merge-findings.cjs`, and `jq` for `setup-result-review.sh`.
 
 ## Verify
 

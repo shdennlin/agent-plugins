@@ -5,11 +5,12 @@ You are a senior engineer / reviewer. Your task is to review the implementation 
 ## Input Parameters
 
 Along with the spec files/folders, base branch, and working directory, the prompt may also provide:
-- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+- **plugin_root**: absolute path of the reviewer plugin (holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`); absent under Codex — see Step 0
+- **log_script_path**: absolute path to the findings-logging script (optional). The literal `none` → the merge runs with `--no-log`; a path → it is passed to the merge as `--log-script <path>`; absent → the merge logs through the `log-findings.sh` next to it
 
 ## Instructions
 
-### Step 0: Set Working Directory
+### Step 0: Set Working Directory and Plugin Root
 
 If not already at the git repository root, change to it:
 
@@ -18,6 +19,15 @@ cd "$(git rev-parse --show-toplevel)"
 ```
 
 All subsequent commands run from this directory.
+
+If `plugin_root` was not provided (Codex, where this file is reached through the symlinked skills directory), resolve this file's PHYSICAL directory first — the symlink points into `plugins/reviewer/skills/` — and take the scripts from two levels above it:
+
+```bash
+SKILL_DIR="$(dirname "$(readlink -f <path of this result-reviewer.md>)")"   # .../plugins/reviewer/skills/result
+PLUGIN_ROOT="$(cd "$SKILL_DIR/../.." && pwd)"                              # scripts at $SKILL_DIR/../../scripts/
+```
+
+Use that directory as `{plugin_root}` below. `node` and `jq` are required for the scripts.
 
 ### Step 1: Read the Spec
 
@@ -38,61 +48,33 @@ git rev-parse --is-inside-work-tree 2>&1
 
 If this fails, report "Not a git repository" and stop.
 
-### Step 3: Determine Diff Strategy
+### Step 3: Set Up the Run
 
-Based on the prompt parameters:
+Run the setup script (`--base <branch>` when a base branch was given, `--auto-detect` when base branch is "auto-detect"):
 
-**If base branch is provided:**
 ```bash
-git diff <base>...HEAD --stat
+"{plugin_root}/scripts/setup-result-review.sh" --working-dir "$(pwd)" --base <base>
+"{plugin_root}/scripts/setup-result-review.sh" --working-dir "$(pwd)" --auto-detect
 ```
 
-**If base branch is "auto-detect":**
-```bash
-git rev-parse --abbrev-ref HEAD
-git rev-parse --verify develop 2>/dev/null && echo "develop exists" || echo "no develop"
-git rev-parse --verify main 2>/dev/null && echo "main exists" || echo "no main"
-```
-
-- If on a feature branch: compare against `develop` (if exists) or `main`
-- If on `main` or `develop`: use working tree diffs (`git diff` + `git diff --cached`)
-- If on detached HEAD: report the situation and ask the user to specify `--base`
+It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` (the full diff, including staged and unstaged changes when `diff_strategy` is `WORKTREE`). Auto-detect compares a feature branch against `develop` (if it exists) or `main`, and uses the working tree on `main` / `develop`. Exit 2 (not a git repository, detached HEAD, empty diff) → report its stderr line and stop; on detached HEAD, ask the user to specify `--base`.
 
 ### Step 4: Analyze the Diff
 
-**Start with the summary to assess diff size:**
-```bash
-git diff <strategy> --stat
-```
+The full diff is `{run_dir}/diff.patch` — the single source of the diff; do not run `git diff` yourself.
 
-**For small diffs (< 20 files, < 500 lines changed):**
-```bash
-git diff <strategy>
-```
+**`small` size class:** read the whole file in one call.
 
-**For large diffs (>= 20 files or >= 500 lines changed):**
-- Take the file list from `git diff <strategy> --name-only`
-- Read the FULL diff in batches, 10–15 paths per call, until every file has been opened:
-```bash
-git diff <strategy> -- <path-1> <path-2> ... <path-15>
-```
+**`large` size class:** read it in slices of 10–15 files, locating each file's section by its `diff --git` header (e.g. `grep -n '^diff --git' {run_dir}/diff.patch`, then `sed -n '<start>,<end>p'`), until every file has been opened.
 - Do NOT skip files as "unrelated to the spec": defects that violate no spec sentence (a value silently overriding a caller, two roots for one config tree, I/O in a constructor) live in exactly those files
 - Test files are in scope — read them, do not triage them by grep
 - Generated files (lockfiles, protos, snapshots) may be skimmed, but open them
 - When a hunk changes behaviour, open enough surrounding context (`git show HEAD:<path>`) to judge it, including callers in other files
 
-**When using working tree diffs (no --base), also check staged:**
-```bash
-git diff --cached --stat
-git diff --cached
-```
-
 Identify:
 - Which files were modified, added, or deleted
 - Which functions/classes were changed
 - What behavior was added or altered
-
-Keep a per-file ledger as you go: every path from `--name-only` gets a verdict (`clean`, `N issue(s)`, or `skimmed` for generated files) before you move on to Step 5. A path without a verdict is a path you have not reviewed.
 
 ### Step 5: Cross-Reference Spec vs Implementation
 
@@ -101,13 +83,47 @@ For each requirement from the spec:
 - Note whether the implementation matches the spec's intent
 - Flag any divergence
 
-### Step 5b: Pattern Sweep
+For each issue found, record:
+- **severity**: CRITICAL | HIGH | MEDIUM | LOW
+- **title**
+- **location**: `file:function`, where `file` is the path exactly as it appears in the manifest's `files`
+- **category**
+- **expected**: what the spec says
+- **actual**: what the implementation does
+- **impact**: what could go wrong
+- **recommendation**: specific fix
 
-For each issue you intend to report, grep the diff for the same construct (same call, same guard shape, same missing check) in the OTHER changed files before writing it up. Record every occurrence under the issue's **Locations** line, primary first. One issue with N locations, never N issues for one construct — and never flag it in one file while passing it silently in another.
+### Step 5b: Pattern
+
+For each issue, add **pattern** (optional): a literal substring copied from the offending added line, enough to find the same construct elsewhere, or omit it. Do not search for other occurrences yourself; the merge step does that from `pattern` and records every occurrence under the issue's `locations`.
+
+### Step 5c: Report
+
+Make ONE call to `mcp__plugin_reviewer_review__report_review` with:
+- `run_dir`: {run_dir}
+- `angle`: `single`
+- `files`: one entry for EVERY path in the manifest's `files`, none omitted — `{path, verdict, issue_count}`, where `verdict` is `clean` (no issues), `skimmed` (generated file, no issues) or `issues`, and `issue_count` equals the number of your issues whose location is in that file
+- `issues`: the issues from Steps 5–5b, or `[]`
+- `coverage`: one entry per spec requirement `{requirement, status: implemented|missing|partial, location?}`
+- `verdict`: PASS, or FAIL if any CRITICAL or HIGH issue remains
+
+Your run is INCOMPLETE until the tool returns a line starting with `wrote`. If it returns an error, fix exactly the violations it lists and call again (max 3 attempts). If the tool is not available (Codex has no plugin MCP server), write the identical JSON to `{run_dir}/single.json` with a Bash heredoc and say `report_review unavailable, wrote file directly`.
+
+### Step 5d: Merge and Log
+
+```bash
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round 1 --expect single
+```
+
+- `<change id>`: the change directory if reviewing one, else the primary spec path, RELATIVE to the git root (never an absolute path) — keep it consistent across runs and review sources for the same change.
+- Append `--no-log` when `log_script_path` is `none`; append `--log-script "{log_script_path}"` when it is a path; append neither when it is absent.
+- Exit 2 (missing manifest) → report its stderr line and stop.
+
+It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), followed by a `logged N finding(s) to ...` or `findings not logged: <reason>` line. This merge is the run's only logging step. Read `merged.json` and `{run_dir}/manifest.json`, then produce the report from them.
 
 ### Step 6: Produce Report
 
-Output the following sections exactly:
+Output the following sections exactly, rendered from `merged.json`:
 
 ## A) Intent Summary
 
@@ -116,7 +132,7 @@ Output the following sections exactly:
 
 ## B) Modified Files (from git diff)
 
-One line per path from `--name-only` — every path, none omitted — with the functions/symbols that changed and the per-file verdict from the Step 4 ledger:
+One line per entry in `merged.json` `files` — every path, none omitted — with the functions/symbols that changed and its verdict (`— clean` / `— N issue(s)` / `— skimmed` / `— NOT REVIEWED by <angles>`):
 - `path/to/file.ts` (functionA, functionB) — clean
 - `path/to/new-file.ts` (classC) [NEW] — 2 issue(s)
 - `path/to/deleted.ts` [DELETED] — clean
@@ -124,36 +140,38 @@ One line per path from `--name-only` — every path, none omitted — with the f
 
 ## C) Spec Coverage
 
-Checklist of spec requirements vs implementation:
+Checklist from `coverage` ([x] implemented, [~] partial, [ ] missing):
 - [x] Requirement A — implemented in `src/auth.ts:validateToken`
-- [x] Requirement B — implemented in `src/middleware.ts:rateLimiter`
+- [~] Requirement B — partial in `src/middleware.ts:rateLimiter`
 - [ ] Requirement C — NOT FOUND in diff
 
 ## D) Issues & Risks
 
-For each issue:
+From `issues`, worst first. For each issue:
 - **Title** | Location: `file:function` | Severity: `critical` / `high` / `medium` / `low`
-- **Locations:** every occurrence from Step 5b, primary first (or just the primary if the construct appears nowhere else in the diff)
+- **Locations:** the issue's `locations`, primary first
 - **Expected:** what the spec says
 - **Actual:** what the implementation does (or doesn't do)
 - **Impact:** what could go wrong
 - **Recommendation:** specific fix
 
+If `invalid_reports` is non-empty, add one issue per entry: severity MEDIUM, category `review-process`, title `single report failed validation`, listing its violations. If `via.single` is `file`, add one line: "angle single reported via fallback file, schema enforcement did not apply".
+
 If no issues found, state "No issues found."
 
 ## E) Staging Check
 
-Only include this section when using working tree diffs (no `--base`).
+Only include this section when the manifest's `diff_strategy` is `WORKTREE`; otherwise omit it entirely.
 
-- Issues found only in `git diff --cached` (staged)
-- Issues found only in `git diff` (unstaged)
+- Issues in files listed in the manifest's `staged_only` (staged, not unstaged)
+- Issues in files listed in the manifest's `unstaged_only` (unstaged, not staged)
 - Risks caused by partial staging (e.g., function changed but tests not staged)
 
-If not applicable or no staging issues, omit this section entirely.
+If there are no staging issues, omit this section entirely.
 
 ## F) Verdict
 
-State: `PASS` or `FAIL (N critical, N high remaining)`
+State: `PASS` or `FAIL (N critical, N high remaining)` — from `verdict` and `counts`.
 
 PASS = implementation matches spec, no critical/high issues. FAIL = issues must be fixed.
 
@@ -191,26 +209,15 @@ Output a markdown-formatted handoff section. This is the copy-paste artifact for
 
 If verdict is PASS with no issues, output the Handoff with empty Directives section.
 
-## Log Findings (REQUIRED — run before your final report)
+## Log Findings (REQUIRED — report it before your final report)
 
-This is a mandatory step of every run, not an optional postscript: your run is
-INCOMPLETE if it ends without either running this command or printing a
-"findings not logged: <reason>" line in the report. Run the command BEFORE composing
-your final report message. If `log_script_path` was provided, persist this review's
-final Issues & Risks. Convert them to a JSON array — one object per issue with keys
-`severity` (upper-case), `title`, `location` (file or artifact name), `category`, `locations` (the Step 5b list) — then run:
+Logging happens inside the merge script (Step 5d), once per run. If the merge script printed a `logged N finding(s)` line, repeat it in your report; if it printed `findings not logged`, repeat that. Never log again yourself.
 
-```bash
-"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'
-<the JSON array>
-FINDINGS_JSON
-```
-
-If the command fails or `log_script_path` is missing, add one line to your output
+If the merge script itself failed, add one line to your output
 ("findings not logged: <reason>") and continue — logging failure MUST NOT change
 your verdict or output format.
 
-Logging is best-effort — never retry it more than once, never let it affect the verdict.
+Logging is best-effort — never re-run the merge to log, never let it affect the verdict.
 
 ## Constraints
 

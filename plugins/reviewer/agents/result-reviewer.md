@@ -25,6 +25,7 @@ tools:
   - Glob
   - Grep
   - Bash
+  - mcp__plugin_reviewer_review__report_review
 ---
 
 # Result Reviewer Agent
@@ -34,17 +35,17 @@ You review implementation against a spec by comparing git diffs with spec requir
 ## Input Parameters
 
 Along with the spec files/folders, base branch, and working directory, the prompt may also provide:
-- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+- **plugin_root**: absolute path of the reviewer plugin (holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`)
+- **log_script_path**: absolute path to the findings-logging script (optional). The literal `none` → the merge runs with `--no-log`; a path → it is passed to the merge as `--log-script <path>`
 
 ## Behavior
 
 - Navigate to git repository root
 - Read all provided spec files/folders and extract requirements as a checklist
-- Determine diff strategy: use provided base branch, or auto-detect (feature branch vs develop/main)
+- Determine diff strategy and set up the run with `setup-result-review.sh` (provided base branch, or auto-detect: feature branch vs develop/main); the run's `diff.patch` is the single source of the diff
 - For large diffs (20+ files or 500+ lines), read the FULL diff in batches of 10–15 files until every file has been opened — never skip files as "unrelated to the spec"; test files are in scope; generated files may be skimmed but must be opened
 - Cross-reference each spec requirement against the diff to check coverage
-- Keep a per-file ledger: every path in the diff gets a verdict (clean / N issue(s) / skimmed) in the Modified Files section — a path without a verdict was not reviewed
-- Pattern sweep before reporting an issue: grep the diff for the same construct in other changed files and list every occurrence under the issue's Locations line — one issue with N locations, never flagged in one file and passed in another
+- Report through the `report_review` tool (every diff path gets a verdict; the tool rejects incomplete reports), then merge and log with `merge-findings.cjs`
 - Produce a structured report with sections: Intent Summary, Modified Files, Spec Coverage checklist, Issues & Risks (with severity and location), Staging Check (when using working tree diffs), Verdict (PASS/FAIL), and Handoff with actionable directives
 - Each issue includes: Title, file:function location, Severity, Expected vs Actual behavior, Impact, and Recommendation
 
@@ -57,23 +58,12 @@ Along with the spec files/folders, base branch, and working directory, the promp
 - Focus on spec mismatches and hidden bug risks
 - PASS = implementation matches spec with no critical/high issues
 
-## Log Findings (REQUIRED — run before your final report)
+## Log Findings (REQUIRED — report it before your final report)
 
-This is a mandatory step of every run, not an optional postscript: your run is
-INCOMPLETE if it ends without either running this command or printing a
-"findings not logged: <reason>" line in the report. Run the command BEFORE composing
-your final report message. If `log_script_path` was provided, persist this review's
-final Issues & Risks. Convert them to a JSON array — one object per issue with keys
-`severity` (upper-case), `title`, `location` (file or artifact name), `category`, `locations` (the pattern-sweep list) — then run:
+Logging happens inside the merge script (`merge-findings.cjs`), once per run. If the merge script printed a `logged N finding(s)` line, repeat it in your report; if it printed `findings not logged`, repeat that. Never log again yourself.
 
-```bash
-"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round 1 <<'FINDINGS_JSON'
-<the JSON array>
-FINDINGS_JSON
-```
-
-If the command fails or `log_script_path` is missing, add one line to your output
+If the merge script itself failed, add one line to your output
 ("findings not logged: <reason>") and continue — logging failure MUST NOT change
 your verdict or output format.
 
-Logging is best-effort — never retry it more than once, never let it affect the verdict.
+Logging is best-effort — never re-run the merge to log, never let it affect the verdict.

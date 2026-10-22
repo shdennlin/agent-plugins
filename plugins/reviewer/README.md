@@ -95,6 +95,25 @@ stubs the Workflow runtime and asserts each of these behaviours against the scri
 /reviewer:result openspec/changes/my-change/ --angles robustness,correctness -c spectra-review
 ```
 
+#### Structured review pipeline
+
+Result reviewers no longer hand back prose for the orchestrator to parse. `scripts/setup-result-review.sh`
+computes the diff once and creates a run directory — `openspec/reviews/runs/<run_id>/` when
+`openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
+`manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
+Each angle reports through the `report_review` tool of the plugin's stdio MCP server
+(`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
+verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges
+the angle reports into `merged.json` (per-file verdicts, issues worst-first with `locations`
+found from each issue's `pattern`, coverage, `invalid_reports`, verdict, counts) and logs the
+merged issues once. `via` records per angle whether the report came through `report_review` or
+the fallback of writing `<angle>.json` directly (Codex has no plugin MCP server); a fallback
+report is flagged in the review because schema enforcement did not apply there.
+
+Regression tests (no Claude, no network):
+`node --test plugins/reviewer/tests/schema.test.cjs plugins/reviewer/tests/server.test.cjs plugins/reviewer/tests/merge-findings.test.cjs`
+and `bash plugins/reviewer/tests/setup-result-review.test.sh`.
+
 #### Why a second engine on result review
 
 The spec review asks "does the diff do what the spec says". It takes the spec as truth, so a
@@ -127,7 +146,7 @@ With `-c <engine>` (long `--with-code-review`):
 - a behaviour the spec sanctions and the engine flags is reported as a `spec-conflict`
   entry for a human decision, never dropped;
 - the report shows both verdict lines; the merged list is logged once to `history.jsonl` with
-  `engine` per finding;
+  `engine` and `locations` per finding;
 - `--fix`, `--comment` and anything else that edits or posts are never passed to the engine;
   the flag is not available with `--fix` in this version; if the engine skill is unavailable or
   fails (`/code-review` under Codex, `spectra-review` outside a Spectra repo) the report says so
