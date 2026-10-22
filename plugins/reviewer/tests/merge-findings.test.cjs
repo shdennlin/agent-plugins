@@ -64,8 +64,40 @@ test('per-file verdict is clean only when every angle is clean or skimmed', () =
 })
 
 test('coverage unions with worst status winning', () => {
+  // correctness says R1 partial (no location), coverage says R1 implemented at src/a.py
   const m = merge(run.manifest, run.reports, run.diff)
-  assert.deepEqual(m.coverage.map((c) => c.status), ['implemented', 'missing'])
+  assert.deepEqual(m.coverage.map((c) => [c.requirement, c.status]), [['R1', 'partial'], ['R2', 'missing']])
+  assert.equal(m.coverage[0].location, 'src/a.py')
+})
+
+// One-issue correctness report whose pattern sweep runs over `diff`.
+const sweep = (diff) => {
+  const r = clone(run.reports[2])
+  return merge(run.manifest, [r], diff).issues[0].locations
+}
+const section = (header, plus, line) =>
+  `${header}\nindex 1..2 100644\n--- a/x\n${plus}\n@@ -1 +1,2 @@\n ctx\n+${line}\n`
+
+test('sweep reads quoted (non-ASCII) paths and never leaks them into the previous file', () => {
+  const diff =
+    section('diff --git a/src/b.py b/src/b.py', '+++ b/src/b.py', 'pass') +
+    section('diff --git "a/src/caf\\303\\251.py" "b/src/caf\\303\\251.py"', '+++ "b/src/caf\\303\\251.py"', 'v = int(s)')
+  assert.deepEqual(sweep(diff), ['src/a.py:parse', 'src/café.py'])
+})
+
+test('sweep takes the path from +++ even when it contains " b/"', () => {
+  const diff = section('diff --git a/d b/c.py b/d b/c.py', '+++ b/d b/c.py\t', 'v = int(s)')
+  assert.deepEqual(sweep(diff), ['src/a.py:parse', 'd b/c.py'])
+})
+
+test('expect: an expected angle with no report is invalid and not_reviewed everywhere', () => {
+  const m = merge(run.manifest, run.reports, run.diff, { expect: ['coverage', 'robustness', 'correctness', 'security'] })
+  assert.deepEqual(m.invalid_reports.find((r) => r.angle === 'security'), { angle: 'security', violations: ['no report written'] })
+  assert.ok(m.angles.includes('security'))
+  for (const f of m.files) {
+    assert.equal(f.verdict, 'not_reviewed')
+    assert.ok(f.not_reviewed_by.includes('security'), f.path)
+  }
 })
 
 test('verdict FAIL on CRITICAL/HIGH, counts filled', () => {

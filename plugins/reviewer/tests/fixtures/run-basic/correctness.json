@@ -5,10 +5,26 @@
   "reported_at": "2026-10-21T00:01:00Z",
   "verdict": "FAIL",
   "files": [
-    {"path": "src/a.py", "verdict": "issues", "issue_count": 1},
-    {"path": "src/b.py", "verdict": "clean", "issue_count": 0},
-    {"path": "src/c.py", "verdict": "clean", "issue_count": 0},
-    {"path": "lock.json", "verdict": "skimmed", "issue_count": 0}
+    {
+      "path": "src/a.py",
+      "verdict": "issues",
+      "issue_count": 1
+    },
+    {
+      "path": "src/b.py",
+      "verdict": "clean",
+      "issue_count": 0
+    },
+    {
+      "path": "src/c.py",
+      "verdict": "clean",
+      "issue_count": 0
+    },
+    {
+      "path": "lock.json",
+      "verdict": "skimmed",
+      "issue_count": 0
+    }
   ],
   "issues": [
     {
@@ -21,6 +37,12 @@
       "actual": "int(x) raises ValueError on non-numeric input",
       "impact": "Caller crashes on bad input",
       "recommendation": "Validate x before converting"
+    }
+  ],
+  "coverage": [
+    {
+      "requirement": "R1",
+      "status": "partial"
     }
   ]
 }

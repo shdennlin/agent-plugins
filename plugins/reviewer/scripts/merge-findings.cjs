@@ -2,6 +2,9 @@
 'use strict'
 // Deterministic merge of per-angle review reports in a result-review run directory.
 //   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>]
+//                           [--expect <angle1,angle2,...>]
+// --expect names the angles that must have reported; one with no <angle>.json is recorded as an
+// invalid report ("no report written") and marks every file not_reviewed.
 // Writes <run_dir>/merged.json, prints it, then (unless --no-log) appends the merged issues to the
 // review history through log-findings.sh. Logging is best-effort: a failure is reported, exit stays 0.
 
@@ -12,7 +15,7 @@ const { SEVERITIES, validateReport, normalizePath } = require('../mcp/schema.cjs
 
 // Loader-stamped metadata, kept off the report's own keys so validateReport is unaffected.
 const ANGLE = Symbol('angle') // file basename; wins over report.angle
-const PARSE_ERROR = Symbol('parseError') // "<angle>.json: invalid JSON: <message>"
+const PARSE_ERROR = Symbol('parseError') // sole violation of an unusable report, e.g. "<angle>.json: invalid JSON: <message>"
 
 const COVERAGE_RANK = { implemented: 0, partial: 1, missing: 2 }
 const sevRank = (s) => {
@@ -32,26 +35,72 @@ const dedupKey = (location) => {
 }
 const hasPattern = (p) => typeof p === 'string' && p.trim() !== ''
 
-// { normalizedPath -> addedLines[] } from `diff --git a/<x> b/<y>` sections; a file may repeat.
+// Undo git's C-style path quoting ("b/caf\303\251.py"): escapes and octal bytes, decoded as UTF-8.
+const C_ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 }
+function unquoteGitPath(s) {
+  if (!(s.length >= 2 && s.startsWith('"') && s.endsWith('"'))) return s
+  const bytes = []
+  const body = s.slice(1, -1)
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]
+    if (c !== '\\') {
+      bytes.push(...Buffer.from(c, 'utf8'))
+      continue
+    }
+    const oct = /^[0-7]{3}/.exec(body.slice(i + 1))
+    if (oct) {
+      bytes.push(parseInt(oct[0], 8))
+      i += 3
+    } else {
+      const n = body[++i]
+      bytes.push(n in C_ESCAPES ? C_ESCAPES[n] : n.charCodeAt(0))
+    }
+  }
+  return Buffer.from(bytes).toString('utf8')
+}
+
+// Post-image path from a `+++ ` header; null for `/dev/null` (deleted file) or an unknown shape.
+// git appends a tab after a name containing a space; it is not part of the path.
+function plusPath(line) {
+  const raw = unquoteGitPath(line.slice(4).replace(/\t$/, ''))
+  return raw.startsWith('b/') ? normalizePath(raw.slice(2)) : null
+}
+
+// { normalizedPath -> addedLines[] }. Each `diff --git ` line starts a section with no file; the file
+// comes from its `+++ b/<path>` header (the `diff --git a/x b/y` header is ambiguous when a path holds
+// ` b/`). Lines are collected only inside hunks, so a hunk's `+++content` line is an added line.
+// A file may appear in several sections (WORKTREE: unstaged then staged diffs).
 function addedLinesByFile(diffPatch) {
   const out = new Map()
   let cur = null
+  let inHunk = false
   for (const line of String(diffPatch || '').split('\n')) {
-    const h = /^diff --git a\/.* b\/(.*)$/.exec(line)
-    if (h) {
-      cur = normalizePath(h[1])
-      if (!out.has(cur)) out.set(cur, [])
-    } else if (cur && line.startsWith('+') && !line.startsWith('+++')) {
+    if (line.startsWith('diff --git ')) {
+      cur = null
+      inHunk = false
+    } else if (!inHunk && line.startsWith('+++ ')) {
+      cur = plusPath(line)
+      if (cur && !out.has(cur)) out.set(cur, [])
+    } else if (line.startsWith('@@')) {
+      inHunk = true
+    } else if (inHunk && cur && line.startsWith('+')) {
       out.get(cur).push(line.slice(1))
     }
   }
   return out
 }
 
-function merge(manifest, reports, diffPatch) {
+// opts.expect: angle names that must have reported; each one without a report becomes an
+// invalid_reports entry ("no report written") and is not_reviewed_by on every manifest file.
+function merge(manifest, reports, diffPatch, opts = {}) {
   const manifestFiles = arr(manifest && manifest.files)
-  const entries = arr(reports)
-    .map((r) => ({ r, angle: String((r && r[ANGLE]) ?? (r && r.angle) ?? '') }))
+  const given = arr(reports).map((r) => ({ r, angle: String((r && r[ANGLE]) ?? (r && r.angle) ?? '') }))
+  const present = new Set(given.map((e) => e.angle))
+  const missing = [...new Set(arr(opts.expect))]
+    .filter((a) => typeof a === 'string' && a !== '' && !present.has(a))
+    .map((angle) => ({ r: { [PARSE_ERROR]: 'no report written' }, angle }))
+  const entries = given
+    .concat(missing)
     .sort((a, b) => (a.angle < b.angle ? -1 : a.angle > b.angle ? 1 : 0))
 
   const angles = []
@@ -184,13 +233,14 @@ function loadReports(runDir) {
 }
 
 function parseArgs(argv) {
-  const o = { runDir: null, change: null, round: '1', log: true, logScript: path.join(__dirname, 'log-findings.sh') }
+  const o = { runDir: null, change: null, round: '1', expect: [], log: true, logScript: path.join(__dirname, 'log-findings.sh') }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--change') o.change = argv[++i]
     else if (a === '--round') o.round = argv[++i]
     else if (a === '--log-script') o.logScript = argv[++i]
     else if (a === '--no-log') o.log = false
+    else if (a === '--expect') o.expect = String(argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     else if (a.startsWith('--')) throw new Error(`unknown argument: ${a}`)
     else if (o.runDir === null) o.runDir = a
     else throw new Error(`unexpected argument: ${a}`)
@@ -226,7 +276,7 @@ function main(argv) {
     // no diff.patch: the pattern sweep simply finds nothing
   }
 
-  const merged = merge(manifest, reports, diff)
+  const merged = merge(manifest, reports, diff, { expect: o.expect })
   const json = JSON.stringify(merged, null, 2)
   fs.writeFileSync(path.join(runDir, 'merged.json'), json + '\n')
   process.stdout.write(json + '\n')
