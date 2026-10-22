@@ -32,7 +32,7 @@ The prompt provides these parameters:
 - **fix_all**: true/false — if true, auto-fix all severities without asking (ignored when `fix` is false)
 - **review_angles**: the full content of review-angles.yaml (result section)
 - **plugin_root**: absolute path of the reviewer plugin (holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`)
-- **log_script_path**: absolute path to the findings-logging script (optional). Absent or the literal `none` → the merge runs with `--no-log`; otherwise it is passed to the merge as `--log-script <path>`
+- **log_script_path**: absolute path to the findings-logging script (optional). Absent or the literal `none` → nothing is logged; otherwise it is passed as `--log-script <path>` to the one logging merge after the loop (see Log Findings)
 
 ## Preparation
 
@@ -140,7 +140,7 @@ Agent tool:
       requirement `{requirement, status: implemented|missing|partial, location?}`
     - `verdict`: PASS, or FAIL if any CRITICAL or HIGH issue remains
 
-    Your run is INCOMPLETE until the tool returns a line starting with `wrote`. If it returns an error, fix exactly the violations it lists and call again (max 3 attempts). If the tool is not available, write the identical JSON to `{run_dir}/{angle}.json` with a Bash heredoc and say `report_review unavailable, wrote file directly`.
+    Your run is INCOMPLETE until the tool returns a line starting with `wrote`. If it returns an error, fix exactly the violations it lists and call again (max 3 attempts). If the tool is not available, write the identical JSON to `{run_dir}/{angle key}.json` with a Bash heredoc and say `report_review unavailable, wrote file directly`.
 
     After the tool call, print only three lines:
     angle: {angle key}
@@ -161,15 +161,15 @@ The orchestrator never parses the sub-agents' summaries; the reports live in `{r
 After all review agents complete, run the merge script:
 
 ```bash
-node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round {N} --expect {angle keys}
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round {N} --expect {angle keys} --no-log
 ```
 
 - `<change id>`: the change directory if reviewing one, else the primary spec path, RELATIVE to the git root (never an absolute path) — keep it consistent across runs and review sources for the same change.
 - `{angle keys}`: the comma-separated angle keys you spawned in Step 2 (e.g. `coverage,robustness,correctness`). An expected angle with no report file shows up in `invalid_reports` (`no report written`) and in every file's `not_reviewed_by`, so a missing angle is never silently PASS.
-- Append `--no-log` when `log_script_path` is absent or `none`; otherwise append `--log-script "{log_script_path}"`.
+- Always pass `--no-log` here, every round; findings are logged once, after the loop (see Log Findings).
 - Exit 2 (missing manifest) → report its stderr line and stop.
 
-It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), followed by a `logged N finding(s) to ...` or `findings not logged: <reason>` line. Read `merged.json`; the only steps left to you are:
+It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), Read `merged.json`; the only steps left to you are:
 
 1. **Semantic fold** — two merged issues with different locations that describe the same defect become one issue: keep the worse severity, union `locations` (primary first), and note the fold in the issue. Folds are report-only; the log already reflects the script's merge.
 2. **Process findings** — for each entry in `invalid_reports`, add one issue: severity MEDIUM, category `review-process`, title `<angle> report failed validation`, listing its violations. For each angle whose `via` is `file`, add one line to section D: "angle <angle> reported via fallback file, schema enforcement did not apply".
@@ -262,7 +262,7 @@ Continue to the next round (go back to Step 1).
 ## Final Output
 
 After the loop ends (either PASS or max iterations), FIRST complete the "Log Findings"
-step below — repeat the merge script's log line BEFORE printing the Final Summary. Then output:
+step below — run its merge command BEFORE printing the Final Summary. Then output:
 
 ```
 ---
@@ -272,6 +272,7 @@ step below — repeat the merge script's log line BEFORE printing the Final Summ
 **Final verdict:** PASS | FAIL
 **Issues fixed:** {count}
 **Issues remaining:** {count}
+**Findings log:** {the `logged N finding(s) ...` or `findings not logged: <reason>` line from Log Findings}
 
 ### Handoff
 
@@ -292,10 +293,11 @@ step below — repeat the merge script's log line BEFORE printing the Final Summ
 
 ## Log Findings (REQUIRED — run before the Final Summary)
 
-Logging now happens inside the merge script (Step 3), once per round. If the merge script printed a `logged N finding(s)` line, repeat it in the Final Summary; if it printed `findings not logged`, repeat that. Never log again yourself. Repeat the line from the last round's merge.
+Only the FINAL round is logged. After the loop ends, re-run the Step 3 merge once on the last round's `run_dir`, with the same `--change` and `--expect`, `--round {final N}`, and without `--no-log` (append `--log-script "{log_script_path}"`). Re-running is safe: `merged.json` comes out the same. If `log_script_path` is absent or `none`, do not re-run; the log line is `findings not logged: logging disabled`.
 
-If the merge script itself failed, add one line to your output
-("findings not logged: <reason>") and continue — logging failure MUST NOT change
+If the merge script printed a `logged N finding(s)` line, put it in the Final Summary; if it printed `findings not logged: <reason>`, put that there instead. Never log yourself any other way.
+
+If the merge script itself failed, use "findings not logged: <reason>" as the log line and continue — logging failure MUST NOT change
 your verdict or output format.
 
 ## Constraints
@@ -308,4 +310,4 @@ your verdict or output format.
 - Read the spec ONCE in Step 0 and pass the summary to sub-agents — do not re-read each round
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
 - The round verdict is `verdict` from `merged.json` (FAIL when any CRITICAL or HIGH issue remains)
-- Logging is best-effort — never re-run the merge to log, never let it affect the verdict
+- Logging is best-effort — run the logging merge exactly once (after the loop, final round only), never retry it, never let it affect the verdict
