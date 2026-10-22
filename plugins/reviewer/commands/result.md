@@ -154,6 +154,7 @@ Task tool:
     - max_iterations: 1
     - angles: <value from --angles, or "default">
     - fix_all: false
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
     - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 
     ## Review Angle Templates (result section)
@@ -162,7 +163,7 @@ Task tool:
 
 Wait for the orchestrator's own final report (merged report, Handoff, log line). Its per-angle sub-agents may surface their individual reports first; do NOT merge those yourself or report before the orchestrator returns — the orchestrator is the one that deduplicates and logs.
 
-When `-c` is set, OMIT the `log_script_path` line from the prompt (the orchestrator then prints "findings not logged") — Step 3d logs the merged set once, so the spec review must not log its half separately. Keep the orchestrator's full report; Step 3c merges into it.
+When `-c` is set, pass `log_script_path` as `none`; the orchestrator then runs the merge with `--no-log` and Step 3d logs the two-engine merge once. Keep the orchestrator's full report; Step 3c merges into it.
 
 **If `-c` is set, continue with Steps 3b–3d after the orchestrator returns.**
 
@@ -204,7 +205,7 @@ This is LLM judgment; do it here, not in a script. Nothing below depends on whic
 
 #### Step 3d: Log the merged findings (best-effort)
 
-Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's pattern-sweep list; an engine finding without one gets `[location]`) — and run, from the git root:
+Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`) — and run, from the git root:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 <<'FINDINGS_JSON'
@@ -233,6 +234,7 @@ Task tool:
     - max_iterations: <N, default 3>
     - angles: <value from --angles, or "default">
     - fix_all: <true if "--fix all", false otherwise>
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
     - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 
     ## Review Angle Templates (result section)

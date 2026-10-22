@@ -31,7 +31,8 @@ The prompt provides these parameters:
 - **angles**: comma-separated list of angle names, or "default" for built-in angles (one angle name is valid and gives a single-reviewer run)
 - **fix_all**: true/false — if true, auto-fix all severities without asking (ignored when `fix` is false)
 - **review_angles**: the full content of review-angles.yaml (result section)
-- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+- **plugin_root**: absolute path of the reviewer plugin (holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`)
+- **log_script_path**: absolute path to the findings-logging script (optional). Absent or the literal `none` → the merge runs with `--no-log`; otherwise it is passed to the merge as `--log-script <path>`
 
 ## Preparation
 
@@ -44,28 +45,18 @@ Read all spec files/folders provided. If a folder is given, use Glob to find .md
 
 Store this summary — you will pass it to each review sub-agent so they don't need to re-read the spec.
 
-### Step 0b: Determine Diff Strategy
+### Step 0b: Set Up the Run
 
-Run from the working directory:
+Run the setup script (`--base {base_branch}` when a branch was given, `--auto-detect` when base_branch is "auto-detect"):
 
 ```bash
-cd <working_directory> && git rev-parse --is-inside-work-tree 2>&1
+"{plugin_root}/scripts/setup-result-review.sh" --working-dir {working_directory} --base {base_branch}
+"{plugin_root}/scripts/setup-result-review.sh" --working-dir {working_directory} --auto-detect
 ```
 
-If not a git repository, report and stop.
+It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` (the full diff, including the working tree when `diff_strategy` is `WORKTREE`). Exit 2 (not a git repository, detached HEAD, empty diff) → report its stderr line and stop.
 
-**If base_branch is provided:**
-Use `git diff <base_branch>...HEAD`
-
-**If base_branch is "auto-detect":**
-```bash
-cd <working_directory> && git rev-parse --abbrev-ref HEAD
-cd <working_directory> && git rev-parse --verify develop 2>/dev/null && echo "develop" || echo "no develop"
-cd <working_directory> && git rev-parse --verify main 2>/dev/null && echo "main" || echo "no main"
-```
-- Feature branch: compare against develop (if exists) or main
-- On main/develop: use working tree diffs
-- Detached HEAD: report and stop
+Run this step again at the start of every later round: the fixer changed the diff, so each round gets a fresh `run_id` and `run_dir`.
 
 ## Main Loop
 
@@ -73,7 +64,7 @@ Execute the following loop from round 1 to max_iterations:
 
 ### Step 1: Announce Round
 
-Output:
+From round 2 on, re-run Step 0b first. Then output:
 ```
 ---
 ## Round {N}/{max_iterations}
@@ -86,7 +77,7 @@ Determine which angles to use:
 - If angles is "default": use all angles from the review_angles result section (coverage, robustness, correctness)
 - If angles is a custom list: use only those angle names
 
-For each angle name, look up the matching key under the `result:` section of `review_angles` and extract its `label:` and `focus:` fields. Use these to construct the sub-agent prompt.
+For each angle name, look up the matching key under the `result:` section of `review_angles` and extract its `label:` and `focus:` fields. Use these to construct the sub-agent prompt. The angle key (lowercase, e.g. `coverage`) is what the sub-agent reports as `angle`; the label is only for display.
 
 For each angle, spawn an Agent **in parallel** (include all Agent calls in a single response). This is mandatory, not a suggestion: never review the angles yourself "because the diff is small", and never collapse several angles into one sub-agent. The value of this route is independent readers with narrow briefs; one reader covering three briefs is the single-reviewer run the user chose not to use. If the Agent tool is unavailable, say so in one line and stop.
 
@@ -105,74 +96,83 @@ Agent tool:
     ## Instructions
 
     ### Analyze the Diff
-    Run from working directory: cd {working_directory} && git diff {diff_strategy} --stat
+    The full diff is `{run_dir}/diff.patch` — the single source of the diff; do
+    not run `git diff` yourself. Size class: {size_class}.
 
-    Small diffs (< 20 files, < 500 lines): read the full diff in one call.
-    Large diffs: read the FULL diff in batches — take the file list from
-    `git diff {diff_strategy} --name-only` and run
-    `git diff {diff_strategy} -- <10–15 paths>` until every file has been opened.
+    `small`: read the whole file in one call.
+    `large`: read it in slices of 10–15 files, locating each file's section by
+    its `diff --git` header (e.g. `grep -n '^diff --git' {run_dir}/diff.patch`,
+    then `sed -n '<start>,<end>p'`), until every file has been opened.
     Do NOT skip files as "unrelated to the spec": defects that violate no spec
     sentence live in exactly those files. Test files are in scope. Generated
     files (lockfiles, protos, snapshots) may be skimmed but must be opened.
     When a hunk changes behaviour, open enough surrounding context
-    (`git show HEAD:<path>`) to judge it, including callers in other files.
+    (`cd {working_directory} && git show HEAD:<path>`) to judge it, including
+    callers in other files.
 
     ### Cross-Reference
     Review the diff ONLY through your assigned angle.
-    For each issue found:
-    - **Title** | Location: file:function | Severity: critical/high/medium/low
-    - **Locations:** every other changed file where the SAME construct appears
-      (grep the diff for it before you write the issue), or "none in diff"
-    - **Expected:** what the spec says
-    - **Actual:** what the implementation does
-    - **Impact:** what could go wrong
-    - **Recommendation:** specific fix
+    For each issue found, record:
+    - **severity**: CRITICAL | HIGH | MEDIUM | LOW
+    - **title**
+    - **location**: `file:function`, where `file` is the path exactly as it
+      appears in the file list below
+    - **category**
+    - **pattern** (optional): a literal substring copied from the offending
+      added line, enough to find the same construct elsewhere, or omit it
+    - **expected**: what the spec says
+    - **actual**: what the implementation does
+    - **impact**: what could go wrong
+    - **recommendation**: specific fix
+    Do not search for other occurrences yourself; the merge step does that
+    from `pattern`.
 
-    ### Output Format
-    Output EXACTLY this structure:
+    ### Report
+    Your last action is ONE call to `mcp__plugin_reviewer_review__report_review` with:
+    - `run_dir`: {run_dir}
+    - `angle`: {angle key}
+    - `files`: one entry for EVERY path in the file list below, none omitted —
+      `{path, verdict, issue_count}`, where `verdict` is `clean` (no issues),
+      `skimmed` (generated file, no issues) or `issues`, and `issue_count` equals
+      the number of your issues whose location is in that file
+    - `issues`: the issues above, or `[]`
+    - `coverage`: ONLY if your angle is coverage — one entry per spec
+      requirement `{requirement, status: implemented|missing|partial, location?}`
+    - `verdict`: PASS, or FAIL if any CRITICAL or HIGH issue remains
 
-    ## Modified Files
-    One line per path from `git diff {diff_strategy} --name-only` — every path,
-    none omitted — ending with the per-file verdict for YOUR angle:
-    - `path/to/file.ts` (functionA, functionB) — clean
-    - `path/to/other.ts` (classC) [NEW] — 2 issue(s)
-    - `pnpm-lock.yaml` [GENERATED] — skimmed
-    A path missing from this list means you did not review it; do not emit the list
-    until every path has a verdict.
+    Your run is INCOMPLETE until the tool returns a line starting with `wrote`. If it returns an error, fix exactly the violations it lists and call again (max 3 attempts). If the tool is not available, write the identical JSON to `{run_dir}/{angle}.json` with a Bash heredoc and say `report_review unavailable, wrote file directly`.
 
-    ## Spec Coverage
-    (checklist: [x] implemented, [ ] missing — ONLY if your angle is coverage)
+    After the tool call, print only three lines:
+    angle: {angle key}
+    verdict: PASS | FAIL
+    issues: N
 
-    ## Issues
-    (list issues or "No issues found.")
-
-    ## Verdict
-    PASS or FAIL (N critical, N high remaining)
-
-    ## Directives
-    (for each issue:)
-    1. **[SEVERITY]** `file` | `function`
-       - **Context:** <spec requirement detail>
-       - **Missing:** <what's missing>
-       - **Action:** <specific fix>
+    ## File List (from the run manifest)
+    {files, one path per line}
 
     ## Working Directory
     {working_directory}
-
-    ## Diff Strategy
-    {diff_strategy}
 ```
+
+The orchestrator never parses the sub-agents' summaries; the reports live in `{run_dir}`.
 
 ### Step 3: Merge Reports
 
-After all review agents complete, merge their outputs:
+After all review agents complete, run the merge script:
 
-1. **Collect** all issues from all angle reports
-2. **Deduplicate** — if two issues reference the same file:function, keep one with the higher severity and merge recommendations
-3. **Pattern sweep** — for each remaining issue, grep the diff (`git diff {diff_strategy}`) for the same construct in the OTHER changed files (same call, same guard shape, same missing check). Union what you find with the sub-agents' **Locations** lines into one `locations` list per issue, primary location first. If an occurrence was approved or ignored by every angle, it is still an occurrence: add it, and say so in the issue ("also at `b.py:parse`, not flagged by any angle"). If nothing else matches, write `locations: [<primary>]`. When the sweep for one issue lands on another issue's primary location and the construct matches, fold the second issue into the first (keep the worse severity, union the locations) — this is what catches the same pattern flagged by one angle in `a.py` and by another in `b.py`. Never emit two separate issues for the same construct in different files — one issue, N locations.
-4. **Merge per-file coverage** — union the Modified Files lists: a path is `clean` only if every angle marked it clean; otherwise show the summed issue count. Any path present in `--name-only` but missing from an angle's list is reported as `— NOT REVIEWED by <angle>`; that is a merge finding, not something to silently fill in.
-5. **Merge coverage checklists** — combine [x]/[ ] items from all angles
-6. **Compile** the unified report:
+```bash
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round {N}
+```
+
+- `<change id>`: the change directory if reviewing one, else the primary spec path, RELATIVE to the git root (never an absolute path) — keep it consistent across runs and review sources for the same change.
+- Append `--no-log` when `log_script_path` is absent or `none`; otherwise append `--log-script "{log_script_path}"`.
+- Exit 2 (missing manifest) → report its stderr line and stop.
+
+It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), followed by a `logged N finding(s) to ...` or `findings not logged: <reason>` line. Read `merged.json`; the only steps left to you are:
+
+1. **Semantic fold** — two merged issues with different locations that describe the same defect become one issue: keep the worse severity, union `locations` (primary first), and note the fold in the issue. Folds are report-only; the log already reflects the script's merge.
+2. **Process findings** — for each entry in `invalid_reports`, add one issue: severity MEDIUM, category `review-process`, title `<angle> report failed validation`, listing its violations. For each angle whose `via` is `file`, add one line to section D: "angle <angle> reported via fallback file, schema enforcement did not apply".
+3. **Compile** the unified report from `merged.json`:
 
 ```
 ## Merged Review Report — Round {N}
@@ -181,19 +181,19 @@ After all review agents complete, merge their outputs:
 (from spec summary)
 
 ### B) Modified Files
-(merged per-file coverage: every path, each with `— clean` / `— N issue(s)` / `— NOT REVIEWED by <angle>`)
+(one line per entry in `files`: `— clean` / `— N issue(s)` / `— NOT REVIEWED by <angles>` / `— skimmed`)
 
 ### C) Spec Coverage
-(merged checklist)
+(from `coverage`: [x] implemented, [~] partial, [ ] missing)
 
 ### D) Issues & Risks
-(merged, deduplicated issues with severities; each issue carries its `locations` list from the pattern sweep)
+(from `issues`, worst first, each with its severity, location, expected/actual/impact/recommendation and a `locations:` line)
 
 ### E) Verdict
-PASS or FAIL (N critical, N high remaining)
+PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
 ```
 
-Output the merged report.
+Output the merged report. Fixer directives (Step 6) come from these issues: `location` → file | function, `expected` → context, `actual` → missing, `recommendation` → action.
 
 ### Step 4: Check Verdict
 
@@ -261,7 +261,7 @@ Continue to the next round (go back to Step 1).
 ## Final Output
 
 After the loop ends (either PASS or max iterations), FIRST complete the "Log Findings"
-step below — run its Bash command BEFORE printing the Final Summary. Then output:
+step below — repeat the merge script's log line BEFORE printing the Final Summary. Then output:
 
 ```
 ---
@@ -291,20 +291,9 @@ step below — run its Bash command BEFORE printing the Final Summary. Then outp
 
 ## Log Findings (REQUIRED — run before the Final Summary)
 
-This is a mandatory step of every run, not an optional postscript: your run is
-INCOMPLETE if it ends without either running this command or printing a
-"findings not logged: <reason>" line. If `log_script_path` was provided, persist the
-FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
-per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
-name), `category`, `locations` (the pattern-sweep list, primary first) — then run:
+Logging now happens inside the merge script (Step 3), once per round. If the merge script printed a `logged N finding(s)` line, repeat it in the Final Summary; if it printed `findings not logged`, repeat that. Never log again yourself. Repeat the line from the last round's merge.
 
-```bash
-"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source result --round <final round number> <<'FINDINGS_JSON'
-<the JSON array>
-FINDINGS_JSON
-```
-
-If the command fails or `log_script_path` is missing, add one line to your output
+If the merge script itself failed, add one line to your output
 ("findings not logged: <reason>") and continue — logging failure MUST NOT change
 your verdict or output format.
 
@@ -317,5 +306,5 @@ your verdict or output format.
 - Do NOT exceed max_iterations
 - Read the spec ONCE in Step 0 and pass the summary to sub-agents — do not re-read each round
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
-- The round verdict is PASS only if all review sub-agents return PASS. If any sub-agent returns FAIL, the round is FAIL
-- Logging is best-effort — never retry it more than once, never let it affect the verdict
+- The round verdict is `verdict` from `merged.json` (FAIL when any CRITICAL or HIGH issue remains)
+- Logging is best-effort — never re-run the merge to log, never let it affect the verdict
