@@ -65,6 +65,32 @@ function groupsFor(angles) {
 }
 const categoryOf = key => (key === 'composition' ? 'cross-cutting' : key)
 
+// Harvested project rules (reviewer:init -> .claude/reviewer/rules.yaml), parsed to JSON by the skill
+// and passed as args.projectRules = { proposal?, specs?, design?, tasks? } (string[] each).
+// Angle -> artifact area, same table as agents/spec-orchestrator.md; other angles get no rules.
+const RULE_AREAS = ['proposal', 'specs', 'design', 'tasks']
+const RULE_AREA = { scope: 'proposal', completeness: 'specs', design: 'design', tasks: 'tasks' }
+function normalizeRules(v) {
+  const empty = Object.fromEntries(RULE_AREAS.map(a => [a, []]))
+  if (v === undefined || v === null) return empty
+  if (typeof v !== 'object' || Array.isArray(v)) {
+    log('two-engine-spec-review: args.projectRules ignored (expected an object of string arrays keyed by proposal/specs/design/tasks)')
+    return empty
+  }
+  for (const a of RULE_AREAS) empty[a] = Array.isArray(v[a]) ? v[a].filter(r => typeof r === 'string' && r.trim()).map(r => r.trim()) : []
+  return empty
+}
+const RULES = normalizeRules(A.projectRules)
+// Rules section for the given areas (in the order given); '' when none of them has a rule.
+function rulesBlock(areas) {
+  const present = areas.filter(a => RULES[a] && RULES[a].length)
+  if (!present.length) return ''
+  const body = present.length === 1
+    ? RULES[present[0]].map(r => `- ${r}`).join('\n')
+    : present.map(a => `### ${a}\n` + RULES[a].map(r => `- ${r}`).join('\n')).join('\n')
+  return `\n\n## Project Rules (additional criteria — treat violations as findings)\n${body}\n`
+}
+
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
 // Both engines return this shape → union / dedup / blocker-count are pure code
@@ -194,6 +220,7 @@ const reviewPrompt = engine =>
   `Cover these angles: ${ANGLES_SENTENCE}. Assign each finding a severity ` +
   `(CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick. ` +
   `Also assign each finding a category: scope, completeness, design, tasks, platform, consistency, or cross-cutting. ` +
+  rulesBlock(RULE_AREAS) +
   promptTail(engine)
 // Fan-out Claude path: one angle (round 1) or one group of angles (later rounds) per agent.
 const anglePrompt = (angles, engine) => {
@@ -202,9 +229,10 @@ const anglePrompt = (angles, engine) => {
     ? `\n\n## Your review angle: ${angles[0].label}\n${angles[0].focus}\nReview ONLY through this angle. Set category to "${cats[0]}".`
     : `\n\n## Your review angles\n` + angles.map(a => `### ${a.label}\n${a.focus}`).join('\n') +
       `\nReview ONLY through these angles. Set category to one of: ${cats.join(', ')}.`
+  const areas = [...new Set(angles.map(a => RULE_AREA[a.key]).filter(Boolean))]
   return promptHead() +
     `Assign each finding a severity (CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick.` +
-    section + promptTail(engine)
+    section + rulesBlock(areas) + promptTail(engine)
 }
 
 // One full dual-engine round. The barrier is real: both engines' findings must

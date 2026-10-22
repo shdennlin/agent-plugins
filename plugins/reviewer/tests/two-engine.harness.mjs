@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
 const scenario = process.argv[2]
-const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout', 'angledown', 'anglecollapse', 'noangles', 'badangles', 'composition']
+const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout', 'angledown', 'anglecollapse', 'noangles', 'badangles', 'composition', 'rules', 'badrules']
 if (!scenario) {
   let failed = 0
   for (const sc of ALL) {
@@ -167,6 +167,14 @@ const scenarios = {
     'claude:2': { verdict: 'PASS', findings: [F('C3','LOW','Task 7 lacks done criteria','tasks.md:40',{ category: 'tasks', priorId: 'R1-3' })] },
     'codex:2':  { verdict: 'PASS', findings: [] },
   },
+  // project rules reach the matching angle prompts, the groups, and the Codex prompt
+  rules: {
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','No non-goals','proposal.md:1',{ category: 'scope' })] },
+    'codex:1': { verdict: 'PASS', findings: [] }, 'fix:round1': { applied: [{ index: 1 }], rejected: [] },
+    'claude:2': { verdict: 'PASS', findings: [] }, 'codex:2': { verdict: 'PASS', findings: [] },
+  },
+  // projectRules arrives as a YAML string -> ignored with a log line, no rules section anywhere
+  badrules: { __rules: 'proposal:\n  - not parsed', 'claude:1': { verdict: 'PASS', findings: [] }, 'codex:1': { verdict: 'PASS', findings: [] } },
   // one angle dead in round 1: degraded, not cleared, live findings still fixed
   angledown: {
     'claude:scope:1': null,
@@ -223,8 +231,12 @@ const ANGLES_ARG = ('__angles' in S)
      : S.__angles === 'SPEC_ANGLES_PLUS' ? [...SPEC_ANGLES, { key: 'composition', label: 'Cross-Cutting Composition', focus: 'x' }, { key: 'mystery', label: 'Mystery', focus: 'y' }]
      : S.__angles)
   : SPEC_ANGLES
+// Project rules fixture: one rule per artifact area. `__rules` (reserved key) overrides: null -> none, else verbatim.
+const DEFAULT_RULES = { proposal: ['RULE-PROPOSAL'], specs: ['RULE-SPECS'], design: ['RULE-DESIGN'], tasks: ['RULE-TASKS'] }
+const RULES_ARG = ('__rules' in S) ? (S.__rules === null ? undefined : S.__rules) : DEFAULT_RULES
 globalThis.args = { change: 'openspec/changes/identity-x/', maxRounds: ['reraise','reraisecodex','fixerledger'].includes(scenario) ? 3 : 2,
-  ...(ANGLES_ARG === undefined ? {} : { angles: ANGLES_ARG }) }
+  ...(ANGLES_ARG === undefined ? {} : { angles: ANGLES_ARG }),
+  ...(RULES_ARG === undefined ? {} : { projectRules: RULES_ARG }) }
 globalThis.log = m => logs.push(m)
 globalThis.phase = () => {}
 globalThis.parallel = async thunks => Promise.all(thunks.map(t => t().catch(() => null)))
@@ -442,6 +454,8 @@ if (scenario === 'noangles') {
   const labels = calls.map(c => c.label)
   assert(JSON.stringify(labels) === JSON.stringify(['claude:1','codex:1']), 'legacy path uses the old labels (got ' + labels.join(' ') + ')')
   assert(JSON.stringify(result.history[0].claudeAgents) === JSON.stringify(['claude:1']), 'claudeAgents on the legacy path')
+  const c1 = calls.find(c => c.label === 'claude:1')
+  assert(c1 && ['RULE-PROPOSAL','RULE-SPECS','RULE-DESIGN','RULE-TASKS'].every(r => c1.prompt.includes(r)), 'legacy single agent carries every rule area')
 }
 if (scenario === 'badangles') {
   const labels = calls.map(c => c.label)
@@ -455,4 +469,21 @@ if (scenario === 'composition') {
   assert(labels.includes('claude:tasks+platform+mystery:2'), 'unknown key lands in G3')
   const fix1 = calls.find(c => c.label === 'fix:round1')
   assert(fix1 && /Unit A assumes Linux/.test(fix1.prompt), 'the cross-cutting finding reaches the fixer')
+}
+if (scenario === 'rules') {
+  const P = l => (calls.find(c => c.label === l) || {}).prompt || ''
+  assert(/## Project Rules/.test(P('claude:scope:1')) && P('claude:scope:1').includes('RULE-PROPOSAL') && !P('claude:scope:1').includes('RULE-SPECS'), 'scope angle gets proposal rules only')
+  assert(!/## Project Rules/.test(P('claude:platform:1')) && !/## Project Rules/.test(P('claude:consistency:1')), 'angles with no artifact area get no rules section')
+  const g1 = P('claude:scope+design:2')
+  assert(g1.includes('RULE-PROPOSAL') && g1.includes('RULE-DESIGN') && !g1.includes('RULE-TASKS'), 'scope+design group gets proposal and design rules')
+  const g2 = P('claude:completeness+consistency:2')
+  assert(g2.includes('RULE-SPECS') && !g2.includes('RULE-PROPOSAL') && !g2.includes('RULE-DESIGN') && !g2.includes('RULE-TASKS'), 'completeness+consistency group gets specs rules only')
+  const cx = P('codex:1')
+  assert(['proposal','specs','design','tasks'].every(a => cx.includes('### ' + a)) && ['RULE-PROPOSAL','RULE-SPECS','RULE-DESIGN','RULE-TASKS'].every(r => cx.includes(r)), 'codex prompt carries every area under its own heading')
+}
+if (scenario === 'badrules') {
+  const labels = calls.map(c => c.label)
+  assert(labels.includes('claude:scope:1') && labels.includes('codex:1'), 'labels unaffected by malformed rules')
+  assert(calls.every(c => !/## Project Rules/.test(c.prompt)), 'no rules section anywhere')
+  assert(logs.some(l => /projectRules ignored/.test(l)), 'malformed projectRules are logged')
 }
