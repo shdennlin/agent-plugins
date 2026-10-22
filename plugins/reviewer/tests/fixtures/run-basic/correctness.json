@@ -1,0 +1,26 @@
+{
+  "run_dir": "/tmp/repo/.claude/reviewer/runs/run-basic",
+  "angle": "correctness",
+  "via": "report_review",
+  "reported_at": "2026-10-21T00:01:00Z",
+  "verdict": "FAIL",
+  "files": [
+    {"path": "src/a.py", "verdict": "issues", "issue_count": 1},
+    {"path": "src/b.py", "verdict": "clean", "issue_count": 0},
+    {"path": "src/c.py", "verdict": "clean", "issue_count": 0},
+    {"path": "lock.json", "verdict": "skimmed", "issue_count": 0}
+  ],
+  "issues": [
+    {
+      "severity": "HIGH",
+      "title": "Unchecked int() conversion",
+      "location": "src/a.py:parse",
+      "category": "correctness",
+      "pattern": "int(",
+      "expected": "Invalid input is rejected with a clear error",
+      "actual": "int(x) raises ValueError on non-numeric input",
+      "impact": "Caller crashes on bad input",
+      "recommendation": "Validate x before converting"
+    }
+  ]
+}

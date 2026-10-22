@@ -1,0 +1,18 @@
+{
+  "run_dir": "/tmp/repo/.claude/reviewer/runs/run-basic",
+  "angle": "coverage",
+  "via": "report_review",
+  "reported_at": "2026-10-21T00:02:00Z",
+  "verdict": "PASS",
+  "files": [
+    {"path": "src/a.py", "verdict": "clean", "issue_count": 0},
+    {"path": "src/b.py", "verdict": "clean", "issue_count": 0},
+    {"path": "src/c.py", "verdict": "clean", "issue_count": 0},
+    {"path": "lock.json", "verdict": "skimmed", "issue_count": 0}
+  ],
+  "issues": [],
+  "coverage": [
+    {"requirement": "R1", "status": "implemented", "location": "src/a.py"},
+    {"requirement": "R2", "status": "missing"}
+  ]
+}
