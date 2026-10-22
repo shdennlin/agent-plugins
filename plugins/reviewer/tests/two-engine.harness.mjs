@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
 const scenario = process.argv[2]
-const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout', 'angledown', 'anglecollapse', 'noangles', 'badangles', 'composition', 'rules', 'badrules']
+const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout', 'angledown', 'anglecollapse', 'noangles', 'badangles', 'composition', 'rules', 'badrules', 'angledownclean']
 if (!scenario) {
   let failed = 0
   for (const sc of ALL) {
@@ -182,6 +182,12 @@ const scenarios = {
     'codex:1': { verdict: 'PASS', findings: [] },
     'fix:round1': { applied: [{ index: 1 }], rejected: [] },
     'claude:2': { verdict: 'PASS', findings: [] }, 'codex:2': { verdict: 'PASS', findings: [] },
+  },
+  // one angle dead, every other agent PASS with no findings: zero blockers must NOT clear
+  angledownclean: {
+    'claude:scope:1': null,
+    'claude:1': { verdict: 'PASS', findings: [] },
+    'codex:1': { verdict: 'PASS', findings: [] },
   },
   // same key from two angles: one finding, worse severity
   anglecollapse: {
@@ -486,4 +492,11 @@ if (scenario === 'badrules') {
   assert(labels.includes('claude:scope:1') && labels.includes('codex:1'), 'labels unaffected by malformed rules')
   assert(calls.every(c => !/## Project Rules/.test(c.prompt)), 'no rules section anywhere')
   assert(logs.some(l => /projectRules ignored/.test(l)), 'malformed projectRules are logged')
+}
+if (scenario === 'angledownclean') {
+  const labels = calls.map(c => c.label)
+  assert(result.ready === false, 'a dead angle with zero blockers is not ready (got ready=' + result.ready + ')')
+  assert(result.history[0].degraded === true && (result.history[0].enginesDown || []).includes('claude:scope'), 'round is degraded and names the dead angle')
+  assert(result.rounds === 1 && !labels.includes('fix:round1'), 'nothing to fix, loop stops after one round (rounds=' + result.rounds + ')')
+  assert(result.enginesClean === false, 'enginesClean is false when a Claude angle died')
 }
