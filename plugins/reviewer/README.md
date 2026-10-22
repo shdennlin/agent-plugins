@@ -33,7 +33,11 @@ Claude and Codex review the same change in parallel; a Workflow takes the **unio
 their findings and counts blockers in pure code. This is coverage-by-union, not
 corroboration — the engines agree on almost nothing, so **a blocker needs only one engine;
 clearing needs both**. Fixes loop until both engines are MEDIUM-clean, then any remaining
-LOW issues are cleared.
+LOW issues are cleared. The Claude engine runs one reviewer per angle in round 1 and three
+grouped reviewers in later rounds, with the angle list taken from `templates/review-angles.yaml`
+and the harvested rules from `.claude/reviewer/rules.yaml` injected per angle (and into the Codex
+prompt), so editing the template or harvesting rules changes `/reviewer:spec` and
+`/reviewer:spec-dual` together.
 
 ```bash
 # Dual-engine review of a change folder (default 3 fix rounds, each followed by a review)

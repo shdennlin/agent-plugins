@@ -54,7 +54,7 @@
       "name": "reviewer",
       "source": "./plugins/reviewer",
       "description": "Structured spec and implementation review. Spec command runs multi-angle parallel review by default; opt into iterative fix loop with --fix. Dual-engine (Claude + Codex) spec review via /reviewer:spec-dual; result review can add a second engine (built-in /code-review or any review skill, e.g. spectra-review) with -c.",
-      "version": "1.15.0",
+      "version": "1.16.0",
       "author": {
         "name": "shdennlin"
       },
