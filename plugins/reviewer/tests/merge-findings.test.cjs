@@ -94,6 +94,7 @@ test('expect: an expected angle with no report is invalid and not_reviewed every
   const m = merge(run.manifest, run.reports, run.diff, { expect: ['coverage', 'robustness', 'correctness', 'security'] })
   assert.deepEqual(m.invalid_reports.find((r) => r.angle === 'security'), { angle: 'security', violations: ['no report written'] })
   assert.ok(m.angles.includes('security'))
+  assert.equal(m.via.security, undefined) // no report arrived, so it arrived by no route
   for (const f of m.files) {
     assert.equal(f.verdict, 'not_reviewed')
     assert.ok(f.not_reviewed_by.includes('security'), f.path)

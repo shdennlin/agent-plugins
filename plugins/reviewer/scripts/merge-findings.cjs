@@ -15,6 +15,7 @@ const { SEVERITIES, validateReport, normalizePath } = require('../mcp/schema.cjs
 
 // Loader-stamped metadata, kept off the report's own keys so validateReport is unaffected.
 const ANGLE = Symbol('angle') // file basename; wins over report.angle
+const NO_REPORT = Symbol('noReport') // expected angle with no <angle>.json: it has no via
 const PARSE_ERROR = Symbol('parseError') // sole violation of an unusable report, e.g. "<angle>.json: invalid JSON: <message>"
 
 const COVERAGE_RANK = { implemented: 0, partial: 1, missing: 2 }
@@ -98,7 +99,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
   const present = new Set(given.map((e) => e.angle))
   const missing = [...new Set(arr(opts.expect))]
     .filter((a) => typeof a === 'string' && a !== '' && !present.has(a))
-    .map((angle) => ({ r: { [PARSE_ERROR]: 'no report written' }, angle }))
+    .map((angle) => ({ r: { [NO_REPORT]: true, [PARSE_ERROR]: 'no report written' }, angle }))
   const entries = given
     .concat(missing)
     .sort((a, b) => (a.angle < b.angle ? -1 : a.angle > b.angle ? 1 : 0))
@@ -112,7 +113,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
 
   for (const { r, angle } of entries) {
     angles.push(angle)
-    via[angle] = r && r.via === 'report_review' ? 'report_review' : 'file'
+    if (!(r && r[NO_REPORT])) via[angle] = r && r.via === 'report_review' ? 'report_review' : 'file'
     const perFile = new Map()
     fileReports.set(angle, perFile)
     if (r && r[PARSE_ERROR]) {
