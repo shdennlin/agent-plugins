@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
 const scenario = process.argv[2]
-const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout']
+const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout', 'angledown', 'anglecollapse', 'noangles', 'badangles', 'composition']
 if (!scenario) {
   let failed = 0
   for (const sc of ALL) {
@@ -163,8 +163,37 @@ const scenarios = {
     'codex:1':  { verdict: 'PASS', findings: [] },
     'fix:round1': { applied: [{ index: 1 }, { index: 2 }], rejected: [] },
     'fix-low': { applied: [{ index: 1 }], rejected: [] },
-    'claude:2': { verdict: 'PASS', findings: [] },
+    // round 2: blockers fixed; the LOW is re-reported (it was not fixed) so the clearing round carries it to fix-low
+    'claude:2': { verdict: 'PASS', findings: [F('C3','LOW','Task 7 lacks done criteria','tasks.md:40',{ category: 'tasks', priorId: 'R1-3' })] },
     'codex:2':  { verdict: 'PASS', findings: [] },
+  },
+  // one angle dead in round 1: degraded, not cleared, live findings still fixed
+  angledown: {
+    'claude:scope:1': null,
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','Missing error path','spec.md:9',{ category: 'completeness' })] },
+    'codex:1': { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [] },
+    'claude:2': { verdict: 'PASS', findings: [] }, 'codex:2': { verdict: 'PASS', findings: [] },
+  },
+  // same key from two angles: one finding, worse severity
+  anglecollapse: {
+    'claude:scope:1':  { verdict: 'FAIL', findings: [F('S1','LOW','Ambiguous owner','proposal.md:2',{ category: 'scope' })] },
+    'claude:design:1': { verdict: 'FAIL', findings: [F('D1','HIGH','Ambiguous owner','proposal.md:2',{ category: 'design' })] },
+    'claude:1': { verdict: 'PASS', findings: [] }, 'codex:1': { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [] },
+    'claude:2': { verdict: 'PASS', findings: [] }, 'codex:2': { verdict: 'PASS', findings: [] },
+  },
+  // legacy: no angles -> single agent, old labels
+  noangles: { __angles: null, 'claude:1': { verdict: 'PASS', findings: [] }, 'codex:1': { verdict: 'PASS', findings: [] } },
+  // angles arrives as a string -> treated as absent, one log line, no crash
+  badangles: { __angles: 'not-json', 'claude:1': { verdict: 'PASS', findings: [] }, 'codex:1': { verdict: 'PASS', findings: [] } },
+  // composition present + an unknown key
+  composition: {
+    __angles: 'SPEC_ANGLES_PLUS',
+    'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','Unit A assumes Linux','design.md:1',{ category: 'cross-cutting' })] },
+    'codex:1': { verdict: 'PASS', findings: [] },
+    'fix:round1': { applied: [{ index: 1 }], rejected: [] },
+    'claude:2': { verdict: 'PASS', findings: [] }, 'codex:2': { verdict: 'PASS', findings: [] },
   },
   finalreview: {
     'claude:1': { verdict: 'FAIL', findings: [F('C1','MEDIUM','A','spec.md:1')] },
@@ -189,7 +218,11 @@ const SPEC_ANGLES = [
   { key: 'design',       label: 'Design Soundness',             focus: 'Whether the design holds up architecturally.' },
   { key: 'consistency',  label: 'Internal Consistency',         focus: 'Whether the spec set contradicts itself.' },
 ]
-const ANGLES_ARG = ('__angles' in S) ? (S.__angles === null ? undefined : S.__angles) : SPEC_ANGLES
+const ANGLES_ARG = ('__angles' in S)
+  ? (S.__angles === null ? undefined
+     : S.__angles === 'SPEC_ANGLES_PLUS' ? [...SPEC_ANGLES, { key: 'composition', label: 'Cross-Cutting Composition', focus: 'x' }, { key: 'mystery', label: 'Mystery', focus: 'y' }]
+     : S.__angles)
+  : SPEC_ANGLES
 globalThis.args = { change: 'openspec/changes/identity-x/', maxRounds: ['reraise','reraisecodex','fixerledger'].includes(scenario) ? 3 : 2,
   ...(ANGLES_ARG === undefined ? {} : { angles: ANGLES_ARG }) }
 globalThis.log = m => logs.push(m)
@@ -391,4 +424,35 @@ if (scenario === 'fanout') {
   assert(labels.includes('fix-low'), 'the LOW is cleared by fix-low afterwards')
   const codex1 = calls.find(c => c.label === 'codex:1')
   assert(codex1 && /Cover these angles: Scope & Boundaries/.test(codex1.prompt), 'codex prompt lists the template labels')
+}
+if (scenario === 'angledown') {
+  assert(result.history[0].degraded === true, 'a dead angle degrades the round')
+  assert((result.history[0].enginesDown || []).includes('claude:scope'), 'enginesDown names the dead angle (got ' + JSON.stringify(result.history[0].enginesDown) + ')')
+  const fix1 = calls.find(c => c.label === 'fix:round1')
+  assert(fix1 && (fix1.prompt.match(/^\d+\. \[/gm) || []).length === 1, 'the live angle finding still reaches the fixer')
+  assert(result.history[0].blockers === 1 && result.ready === true, 'round 2 (all angles live, no blockers) clears (ready=' + result.ready + ')')
+}
+if (scenario === 'anglecollapse') {
+  assert(result.history[0].fresh === 1, 'two angles, same key -> one fresh finding (got ' + result.history[0].fresh + ')')
+  const fix1 = calls.find(c => c.label === 'fix:round1')
+  assert(fix1 && (fix1.prompt.match(/^\d+\. \[HIGH\] Ambiguous owner/gm) || []).length === 1 && !/\[LOW\] Ambiguous owner/.test(fix1.prompt), 'fixer item list shows the collapsed finding once, at HIGH (the ledger block above it also names it, which is fine)')
+  assert(logs.some(l => /reported by 2 angles — collapsed/.test(l)), 'collapse is logged')
+}
+if (scenario === 'noangles') {
+  const labels = calls.map(c => c.label)
+  assert(JSON.stringify(labels) === JSON.stringify(['claude:1','codex:1']), 'legacy path uses the old labels (got ' + labels.join(' ') + ')')
+  assert(JSON.stringify(result.history[0].claudeAgents) === JSON.stringify(['claude:1']), 'claudeAgents on the legacy path')
+}
+if (scenario === 'badangles') {
+  const labels = calls.map(c => c.label)
+  assert(JSON.stringify(labels) === JSON.stringify(['claude:1','codex:1']), 'malformed angles -> legacy labels (got ' + labels.join(' ') + ')')
+  assert(logs.some(l => /angles ignored/.test(l)), 'malformed angles are logged')
+}
+if (scenario === 'composition') {
+  const labels = calls.map(c => c.label)
+  assert(labels.filter(l => /^claude:.*:1$/.test(l)).length === 8, 'round 1 spawns 8 Claude agents (6 + composition + mystery)')
+  assert(labels.includes('claude:completeness+consistency+composition:2'), 'composition rides in G2 in round 2')
+  assert(labels.includes('claude:tasks+platform+mystery:2'), 'unknown key lands in G3')
+  const fix1 = calls.find(c => c.label === 'fix:round1')
+  assert(fix1 && /Unit A assumes Linux/.test(fix1.prompt), 'the cross-cutting finding reaches the fixer')
 }
