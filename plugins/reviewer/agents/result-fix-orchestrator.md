@@ -54,7 +54,7 @@ Run the setup script (`--base {base_branch}` when a branch was given, `--auto-de
 "{plugin_root}/scripts/setup-result-review.sh" --working-dir {working_directory} --auto-detect
 ```
 
-It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` (the full diff, including the working tree when `diff_strategy` is `WORKTREE`). Exit 2 (not a git repository, detached HEAD, empty diff) → report its stderr line and stop.
+It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` — the full diff, always including uncommitted work: for `WORKTREE` the staged and unstaged changes, for `<base>...HEAD` everything from the merge base (`diff_base` in the manifest) to the working tree, so a later round sees the fixer's uncommitted edits. Any non-zero exit (1: usage error or `jq` missing; 2: not a git repository, detached HEAD, empty diff) → print the script's stderr line and stop.
 
 Run this step again at the start of every later round: the fixer changed the diff, so each round gets a fresh `run_id` and `run_dir`.
 
@@ -167,7 +167,7 @@ node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>"
 - `<change id>`: the change directory if reviewing one, else the primary spec path, RELATIVE to the git root (never an absolute path) — keep it consistent across runs and review sources for the same change.
 - `{angle keys}`: the comma-separated angle keys you spawned in Step 2 (e.g. `coverage,robustness,correctness`). An expected angle with no report file shows up in `invalid_reports` (`no report written`) and in every file's `not_reviewed_by`, so a missing angle is never silently PASS.
 - Always pass `--no-log` here, every round; findings are logged once, after the loop (see Log Findings).
-- Exit 2 (missing manifest) → report its stderr line and stop.
+- Any non-zero exit (e.g. 2: missing manifest, bad arguments) → print the script's stderr line and stop.
 
 It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `counts`), Read `merged.json`; the only steps left to you are:
 

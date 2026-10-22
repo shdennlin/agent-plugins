@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Deterministic prep for a structured result review: compute the diff strategy, create the
 # run directory (manifest.json + diff.patch) and print one JSON object on stdout.
-# Exit codes: 0 ok, 1 usage error, 2 environment problem (not a git repo, detached HEAD
-# under --auto-detect, empty diff).
+# Exit codes: 0 ok, 1 usage error or jq missing, 2 environment problem (not a git repo,
+# detached HEAD under --auto-detect, empty diff).
+# A branch strategy (<base>...HEAD) diffs the merge base against the WORKING TREE, so a fix
+# loop's uncommitted edits are reviewed; the manifest records that merge base as diff_base.
 set -euo pipefail
 
 usage() {
@@ -11,6 +13,8 @@ Usage: setup-result-review.sh --working-dir <abs> (--base <branch> | --auto-dete
        setup-result-review.sh --normalize <path>
 
 Prints {run_id, run_dir, diff_strategy, files, file_count, line_count, size_class}.
+For <base>...HEAD the diff runs from merge-base(<base>, HEAD) to the working tree (staged and
+unstaged edits included); manifest.json adds diff_base, the merge-base sha.
 Writes <run_dir>/manifest.json and <run_dir>/diff.patch, where run_dir is
 <working-dir>/openspec/reviews/runs/<run_id> if openspec/ exists, otherwise
 <working-dir>/.claude/reviewer/runs/<run_id>. The runs root gets a .gitignore ("*").
@@ -53,20 +57,28 @@ fi
 command -v jq >/dev/null 2>&1 || { echo "setup-result-review: jq is required but not installed" >&2; exit 1; }
 
 [[ -d "$WD" ]] || die2 "working directory does not exist: $WD"
-g() { git -C "$WD" -c core.quotePath=false "$@"; }
+# User config must not change the patch shape: merge-findings.cjs reads `+++ b/<path>` headers.
+g() { git -C "$WD" -c core.quotePath=false -c diff.noprefix=false -c diff.mnemonicPrefix=false "$@"; }
+gd() { g diff --no-ext-diff --no-color "$@"; }
 g rev-parse --git-dir >/dev/null 2>&1 || die2 "not a git repository: $WD"
 TOP="$(g rev-parse --show-toplevel)"
 
-# Strategy: a literal range, or WORKTREE.
+# Strategy: WORKTREE, or <base>...HEAD (display string; the diff itself runs from the merge base).
+BASE_REF=""
 if [[ -n "$BASE" ]]; then
-  STRATEGY="$BASE...HEAD"
+  BASE_REF="$BASE"
 else
   BRANCH="$(g symbolic-ref --short -q HEAD || true)"
   [[ -n "$BRANCH" ]] || die2 "detached HEAD: cannot auto-detect a diff strategy (use --base)"
   case "$BRANCH" in
     main|develop) STRATEGY="WORKTREE" ;;
-    *) if g rev-parse --verify -q develop >/dev/null 2>&1; then STRATEGY="develop...HEAD"; else STRATEGY="main...HEAD"; fi ;;
+    *) if g rev-parse --verify -q develop >/dev/null 2>&1; then BASE_REF="develop"; else BASE_REF="main"; fi ;;
   esac
+fi
+DIFF_BASE=""
+if [[ -n "$BASE_REF" ]]; then
+  STRATEGY="$BASE_REF...HEAD"
+  DIFF_BASE="$(g merge-base "$BASE_REF" HEAD 2>/dev/null)" || die2 "no merge base between $BASE_REF and HEAD"
 fi
 
 sorted_lines() { LC_ALL=C sort -u; }
@@ -74,19 +86,21 @@ norm_lines() { local l; while IFS= read -r l; do [[ -n "$l" ]] && normalize_path
 
 STAGED_ONLY="" UNSTAGED_ONLY=""
 if [[ "$STRATEGY" == "WORKTREE" ]]; then
-  UNSTAGED="$(g diff --name-only | norm_lines | sorted_lines)"
-  STAGED="$(g diff --cached --name-only | norm_lines | sorted_lines)"
+  UNSTAGED="$(gd --name-only | norm_lines | sorted_lines)"
+  STAGED="$(gd --cached --name-only | norm_lines | sorted_lines)"
   FILES="$(printf '%s\n%s\n' "$UNSTAGED" "$STAGED" | grep -v '^$' | sorted_lines || true)"
   STAGED_ONLY="$(LC_ALL=C comm -23 <(printf '%s\n' "$STAGED") <(printf '%s\n' "$UNSTAGED") | grep -v '^$' || true)"
   UNSTAGED_ONLY="$(LC_ALL=C comm -13 <(printf '%s\n' "$STAGED") <(printf '%s\n' "$UNSTAGED") | grep -v '^$' || true)"
-  PATCH="$(g diff; g diff --cached)"
-  STAT="$(g diff --shortstat; g diff --cached --shortstat)"
+  PATCH="$(gd; gd --cached)"
+  STAT="$(gd --shortstat; gd --cached --shortstat)"
 else
-  FILES="$(g diff --name-only "$STRATEGY" | norm_lines | sorted_lines)"
-  PATCH="$(g diff "$STRATEGY")"
-  STAT="$(g diff --shortstat "$STRATEGY")"
+  # Two-dot from the merge base to the working tree: committed + staged + unstaged changes.
+  FILES="$(gd --name-only "$DIFF_BASE" | norm_lines | sorted_lines)"
+  PATCH="$(gd "$DIFF_BASE")"
+  STAT="$(gd --shortstat "$DIFF_BASE")"
 fi
 [[ -n "$FILES" ]] || die2 "empty diff for $STRATEGY: nothing to review"
+[[ -n "$PATCH" ]] || die2 "empty diff for $STRATEGY: git listed changed files but produced no patch"
 
 FILE_COUNT="$(grep -c '' <<<"$FILES")"
 INS="$({ grep -oE '[0-9]+ insertion' <<<"$STAT" || true; } | awk '{s+=$1} END{print s+0}')"
@@ -113,7 +127,9 @@ BASEOBJ="$(jq -n --arg run_id "$RUN_ID" --arg run_dir "$RUN_DIR" --arg s "$STRAT
 
 jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg wd "$TOP" \
    --argjson so "$(lines_json "$STAGED_ONLY")" --argjson uo "$(lines_json "$UNSTAGED_ONLY")" \
-   '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo}' \
+   --arg db "$DIFF_BASE" \
+   '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo}
+    + (if $db == "" then {} else {diff_base:$db} end)' \
    <<<"$BASEOBJ" >"$RUN_DIR/manifest.json"
 
 jq -c --arg size "$SIZE" '. + {size_class:$size}' <<<"$BASEOBJ"

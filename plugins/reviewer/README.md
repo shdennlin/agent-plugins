@@ -97,8 +97,11 @@ stubs the Workflow runtime and asserts each of these behaviours against the scri
 
 #### Structured review pipeline
 
+Requires `node` and `jq` on PATH.
+
 Result reviewers no longer hand back prose for the orchestrator to parse. `scripts/setup-result-review.sh`
-computes the diff once and creates a run directory — `openspec/reviews/runs/<run_id>/` when
+computes the diff once (for a branch strategy, from the merge base to the working tree, so
+uncommitted edits are included) and creates a run directory — `openspec/reviews/runs/<run_id>/` when
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
 Each angle reports through the `report_review` tool of the plugin's stdio MCP server

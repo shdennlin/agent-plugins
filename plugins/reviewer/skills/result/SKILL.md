@@ -43,6 +43,8 @@ $result openspec/changes/my-change/ --angles robustness,correctness -c spectra-r
 
 `-c <engine>` (long: `--with-code-review`) requires a value and cannot be combined with `--fix`. A `/code-review` level (`low|medium|high|xhigh|max`; `medium` recommended) selects the built-in `/code-review`; any other token is a review skill name invoked through the Skill tool. Each engine's invocation, findings location and label → severity mapping live in `templates/review-engines.yaml` (`code-review`: CONFIRMED → medium, PLAUSIBLE → low; `spectra-review`: Critical → high, Warning → medium, Suggestion → low; unknown skills use the `_default` table). The merge step never reads the engine's name: same file + same root cause → one entry tagged `engine: both`; a spec-sanctioned behaviour the engine flags becomes a `spec-conflict` entry for a human; the report shows both verdict lines and the merged list is logged once with `engine` per finding. The engine is never given `--fix`, `--comment` or any flag that edits or posts. If the skill is absent (`/code-review` under Codex, `spectra-review` outside a Spectra repo) the report says so in one line and the spec findings stand alone.
 
+Requires `node` and `jq` on PATH (the run setup and merge scripts).
+
 If no paths are given, ask which spec files to review against.
 
 ## Process

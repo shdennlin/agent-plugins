@@ -33,6 +33,11 @@ git -C "$TMP" add . && git -C "$TMP" commit -qm base
 git -C "$TMP" checkout -q -b feat
 echo "x = 2" >"$TMP/a.py"; echo "y = 1" >"$TMP/b.py"
 git -C "$TMP" add . && git -C "$TMP" commit -qm feat
+# Hostile user git config, left on for every case below: the script's own diff calls must
+# override it (no prefix stripping, no external diff driver, no color codes).
+git -C "$TMP" config diff.noprefix true
+git -C "$TMP" config diff.external /usr/bin/true
+git -C "$TMP" config color.ui always
 
 # 1. Base-branch strategy.
 out="$("$SCRIPT" --working-dir "$TMP" --base main)"
@@ -50,6 +55,10 @@ jq -e '.created|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")' "$run/manifest.
 jq -e 'has("size_class")|not' "$run/manifest.json" >/dev/null || fail "manifest must not carry size_class"
 jq -e '.staged_only==[] and .unstaged_only==[]' "$run/manifest.json" >/dev/null || fail "base strategy staged/unstaged must be empty arrays"
 [[ "$(cat "$TMP/.claude/reviewer/runs/.gitignore")" == "*" ]] || fail "runs root must be gitignored (.claude)"
+grep -q '^+++ b/a.py$' "$run/diff.patch" || fail "diff.patch must keep b/ prefixes under diff.noprefix: $(head -5 "$run/diff.patch")"
+grep -q '^+x = 2$' "$run/diff.patch" || fail "diff.patch must hold the hunk (no external diff, no color)"
+! grep -q $'\x1b' "$run/diff.patch" || fail "diff.patch must carry no color escapes"
+[[ "$(jq -r .diff_base "$run/manifest.json")" == "$(git -C "$TMP" merge-base main HEAD)" ]] || fail "manifest diff_base must be the merge-base sha"
 
 # 2. openspec root rule.
 mkdir "$TMP/openspec"; run2="$("$SCRIPT" --working-dir "$TMP" --base main | jq -r .run_dir)"
@@ -65,6 +74,17 @@ rs="$("$SCRIPT" --working-dir "$TMP/sub/dir" --base main)"
 
 # 3. auto-detect on feature branch picks main (no develop).
 [[ "$("$SCRIPT" --working-dir "$TMP" --auto-detect | jq -r .diff_strategy)" == "main...HEAD" ]] || fail "auto-detect"
+
+# 3b. base strategy sees the working tree (the fixer never commits): uncommitted edit + staged new file.
+echo "x = 3" >"$TMP/a.py"
+echo "d = 1" >"$TMP/d.py"; git -C "$TMP" add d.py
+wt="$("$SCRIPT" --working-dir "$TMP" --base main)"
+[[ "$(jq -r .diff_strategy <<<"$wt")" == "main...HEAD" ]] || fail "working-tree base: diff_strategy display"
+[[ "$(jq -r '.files|join(",")' <<<"$wt")" == "a.py,b.py,d.py" ]] || fail "working-tree base files: $(jq -c .files <<<"$wt")"
+wp="$(jq -r .run_dir <<<"$wt")/diff.patch"
+grep -q '^+x = 3$' "$wp" || fail "uncommitted edit missing from diff.patch"
+grep -q '^+++ b/d.py$' "$wp" || fail "staged new file missing from diff.patch"
+git -C "$TMP" reset -q --hard
 
 # 4. large size class by file count.
 git -C "$TMP" checkout -q -b big
@@ -117,4 +137,4 @@ NG="$(mktemp -d)"; rc=0; "$SCRIPT" --working-dir "$NG" --base main >/dev/null 2>
 rc=0; "$SCRIPT" --bogus >/dev/null 2>&1 || rc=$?
 [[ "$rc" == 1 ]] || fail "usage error exit code $rc"
 
-echo "ok: setup-result-review strategy, manifest, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, $n normalize cases"
+echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, $n normalize cases"

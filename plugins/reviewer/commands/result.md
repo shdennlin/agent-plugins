@@ -18,7 +18,7 @@ Review implementation against a spec by analyzing git diffs and cross-referencin
 Parse the following from `$ARGUMENTS`:
 
 - `[path...]` — One or more spec file or folder paths (positional args)
-- `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`
+- `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`, i.e. merge base to working tree (uncommitted edits included)
 - `--angles <list>` — Narrow the review to these angles (comma-separated). Default: all three built-in angles (coverage, robustness, correctness), one reviewer each in parallel, merged into one report. One angle gives a single-reviewer run.
 - `-c <engine>` or `--with-code-review <engine>` — After the spec review, also run a second, spec-blind engine on the same diff and merge its findings. `<engine>` is REQUIRED and is either:
   - a level `low | medium | high | xhigh | max` → the built-in `/code-review` at that level (`medium` recommended; `low` has a one-tool-call budget and cannot read a large diff), or
@@ -83,7 +83,8 @@ Options:
   -h, --help                    Show this help message
 
 Diff strategy:
-  With --base:                  git diff <base>...HEAD
+  With --base:                  git diff $(git merge-base <base> HEAD)  (shown as <base>...HEAD;
+                                committed + staged + unstaged changes)
   Without --base:               Auto-detect base branch, or use git diff + git diff --cached
                                 (-c always needs a branch base; see below)
   Large diffs are read in full, in batches — no file is skipped as "unrelated".
@@ -161,7 +162,7 @@ Task tool:
     <paste the result section content from review-angles.yaml>
 ```
 
-Wait for the orchestrator's own final report (merged report, Handoff, log line). Its per-angle sub-agents may surface their individual reports first; do NOT merge those yourself or report before the orchestrator returns — the orchestrator is the one that deduplicates and logs.
+Wait for the orchestrator's own final report (merged report, Handoff, log line). Its per-angle sub-agents may surface their individual reports first; do NOT merge those yourself or report before the orchestrator returns — its merge script (`merge-findings.cjs`) deduplicates the angle reports, and findings are logged once, after the orchestrator's loop ends (or, with `-c`, once by Step 3d).
 
 When `-c` is set, pass `log_script_path` as `none`; the orchestrator then runs the merge with `--no-log` and Step 3d logs the two-engine merge once. Keep the orchestrator's full report; Step 3c merges into it.
 
