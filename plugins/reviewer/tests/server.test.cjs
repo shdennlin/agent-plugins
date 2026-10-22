@@ -111,3 +111,18 @@ test('stdio round-trip: initialize then tools/call', async () => {
   assert.equal(lines[2].error.code, -32700)
   assert.equal(lines[2].id, null)
 })
+
+test('report_review refuses reserved/unsafe angles and symlinked targets', () => {
+  const run = mkRun()
+  for (const angle of ['manifest', '../x', '.hid', 'a/b']) {
+    const res = handleReportReview({ ...validReport(run), angle })
+    assert.equal(res.isError, true, angle)
+  }
+  assert.ok(fs.existsSync(path.join(run, 'manifest.json')))
+  const victim = path.join(path.dirname(run), 'victim.txt')
+  fs.writeFileSync(victim, 'keep')
+  fs.symlinkSync(victim, path.join(run, 'correctness.json'))
+  const res = handleReportReview(validReport(run))
+  assert.equal(res.isError, true)
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'keep')
+})
