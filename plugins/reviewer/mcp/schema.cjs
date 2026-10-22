@@ -102,15 +102,21 @@ function checkShape(value, schema, path, out) {
 
 const RUNS_SEGMENT = /\/(reviews|reviewer)\/runs\//
 
-// Canonical spelling of a diff path: `./a` -> `a`, `d/` -> `d`, `a => b` and `{a => b}` -> the new name.
+// Canonical spelling of a diff path. The rule order is a contract (the Task 4 setup script's
+// sed must match it; pinned by tests/fixtures/normalize-cases.json):
+//   1. collapse runs of `/`   2. `{a => b}` segment -> b (b may be empty)   3. whole-path `a => b` -> b
+//   4. strip leading `./` repeatedly   5. strip trailing `/`   6. strip one leading `/` left by an empty-target brace
+// Runs of `/` are collapsed again after step 2, since an empty target can leave `src//f.py`.
 function normalizePath(p) {
   if (typeof p !== 'string') return p
   return p
-    .replace(/^\.\//, '')
-    .replace(/\/$/, '')
-    .replace(/\{[^{}]* => ([^{}]*)\}/g, (_, to) => to.trim()) // before `a => b`, which would swallow a brace form
-    .replace(/^.* => /, '')
     .replace(/\/{2,}/g, '/')
+    .replace(/\{[^{}]* => ([^{}]*)\}/g, '$1')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^.* => /, '')
+    .replace(/^(\.\/)+/, '')
+    .replace(/\/$/, '')
+    .replace(/^\//, '')
 }
 
 // An issue location is `<path>` or `<path>:<detail>`; only the path part is normalized.

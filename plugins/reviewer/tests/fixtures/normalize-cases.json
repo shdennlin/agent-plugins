@@ -1,0 +1,14 @@
+[
+  ["./src/a.py", "src/a.py"],
+  ["src/dir/", "src/dir"],
+  ["old/name.py => new/name.py", "new/name.py"],
+  ["src/{old => new}/f.py", "src/new/f.py"],
+  ["src/{ => new}/f.py", "src/new/f.py"],
+  ["{old => }/f.py", "f.py"],
+  ["src/{old => }/f.py", "src/f.py"],
+  ["a/{b => c}/{d => e}/f", "a/c/e/f"],
+  ["././a", "a"],
+  ["dir//", "dir"],
+  [".//a", "a"],
+  ["src/a.py", "src/a.py"]
+]

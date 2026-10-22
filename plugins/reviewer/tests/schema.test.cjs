@@ -1,6 +1,7 @@
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const NORMALIZE_CASES = require('./fixtures/normalize-cases.json')
 const { REPORT_SCHEMA, validateReport, normalizePath } = require('../mcp/schema.cjs')
 
 const FILES = ['src/a.py', 'src/b.py']
@@ -34,4 +35,7 @@ test('normalizePath strips ./ and trailing slash, keeps rename target', () => {
 test('validateReport matches ./-prefixed report paths to manifest paths', () => {
   const r = good(); r.files[0].path = './src/a.py'; r.issues[0].location = './src/a.py:parse'
   assert.deepEqual(validateReport(r, FILES), [])
+})
+test('normalizePath matches the pinned table (shared with the setup script)', () => {
+  for (const [input, expected] of NORMALIZE_CASES) assert.equal(normalizePath(input), expected, input)
 })
