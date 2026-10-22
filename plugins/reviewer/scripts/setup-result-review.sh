@@ -55,6 +55,7 @@ command -v jq >/dev/null 2>&1 || { echo "setup-result-review: jq is required but
 [[ -d "$WD" ]] || die2 "working directory does not exist: $WD"
 g() { git -C "$WD" -c core.quotePath=false "$@"; }
 g rev-parse --git-dir >/dev/null 2>&1 || die2 "not a git repository: $WD"
+TOP="$(g rev-parse --show-toplevel)"
 
 # Strategy: a literal range, or WORKTREE.
 if [[ -n "$BASE" ]]; then
@@ -76,8 +77,8 @@ if [[ "$STRATEGY" == "WORKTREE" ]]; then
   UNSTAGED="$(g diff --name-only | norm_lines | sorted_lines)"
   STAGED="$(g diff --cached --name-only | norm_lines | sorted_lines)"
   FILES="$(printf '%s\n%s\n' "$UNSTAGED" "$STAGED" | grep -v '^$' | sorted_lines || true)"
-  STAGED_ONLY="$(comm -23 <(printf '%s\n' "$STAGED") <(printf '%s\n' "$UNSTAGED") | grep -v '^$' || true)"
-  UNSTAGED_ONLY="$(comm -13 <(printf '%s\n' "$STAGED") <(printf '%s\n' "$UNSTAGED") | grep -v '^$' || true)"
+  STAGED_ONLY="$(LC_ALL=C comm -23 <(printf '%s\n' "$STAGED") <(printf '%s\n' "$UNSTAGED") | grep -v '^$' || true)"
+  UNSTAGED_ONLY="$(LC_ALL=C comm -13 <(printf '%s\n' "$STAGED") <(printf '%s\n' "$UNSTAGED") | grep -v '^$' || true)"
   PATCH="$(g diff; g diff --cached)"
   STAT="$(g diff --shortstat; g diff --cached --shortstat)"
 else
@@ -94,7 +95,7 @@ LINE_COUNT=$((INS + DEL))
 SIZE="small"
 if (( FILE_COUNT >= 20 || LINE_COUNT >= 500 )); then SIZE="large"; fi
 
-if [[ -d "$WD/openspec" ]]; then ROOT="$WD/openspec/reviews/runs"; else ROOT="$WD/.claude/reviewer/runs"; fi
+if [[ -d "$TOP/openspec" ]]; then ROOT="$TOP/openspec/reviews/runs"; else ROOT="$TOP/.claude/reviewer/runs"; fi
 mkdir -p "$ROOT"
 [[ -f "$ROOT/.gitignore" ]] || printf '*\n' >"$ROOT/.gitignore"
 
@@ -110,7 +111,7 @@ BASEOBJ="$(jq -n --arg run_id "$RUN_ID" --arg run_dir "$RUN_DIR" --arg s "$STRAT
   --argjson files "$FILES_JSON" --argjson fc "$FILE_COUNT" --argjson lc "$LINE_COUNT" \
   '{run_id:$run_id, run_dir:$run_dir, diff_strategy:$s, files:$files, file_count:$fc, line_count:$lc}')"
 
-jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg wd "$WD" \
+jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg wd "$TOP" \
    --argjson so "$(lines_json "$STAGED_ONLY")" --argjson uo "$(lines_json "$UNSTAGED_ONLY")" \
    '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo}' \
    <<<"$BASEOBJ" >"$RUN_DIR/manifest.json"

@@ -26,6 +26,7 @@ done < <(jq -c '.[]' "$CASES")
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 git -C "$TMP" init -q -b main
+TMP="$(git -C "$TMP" rev-parse --show-toplevel)"
 git -C "$TMP" config user.email t@t; git -C "$TMP" config user.name t
 echo "x = 1" >"$TMP/a.py"
 git -C "$TMP" add . && git -C "$TMP" commit -qm base
@@ -55,6 +56,13 @@ mkdir "$TMP/openspec"; run2="$("$SCRIPT" --working-dir "$TMP" --base main | jq -
 [[ "$run2" == "$TMP/openspec/reviews/runs/"* ]] || fail "openspec root"
 [[ "$(cat "$TMP/openspec/reviews/runs/.gitignore")" == "*" ]] || fail "runs root must be gitignored"
 
+# 2b. subdirectory working-dir resolves to the git toplevel (openspec/ lives at the root).
+mkdir -p "$TMP/sub/dir"
+rs="$("$SCRIPT" --working-dir "$TMP/sub/dir" --base main)"
+[[ "$(jq -r .run_dir <<<"$rs")" == "$TMP/openspec/reviews/runs/"* ]] || fail "subdir run_dir should use toplevel openspec"
+[[ "$(jq -r .working_directory "$(jq -r .run_dir <<<"$rs")/manifest.json")" == "$TMP" ]] || fail "subdir working_directory"
+[[ ! -e "$TMP/sub/dir/.claude" ]] || fail "stray .claude under subdir"
+
 # 3. auto-detect on feature branch picks main (no develop).
 [[ "$("$SCRIPT" --working-dir "$TMP" --auto-detect | jq -r .diff_strategy)" == "main...HEAD" ]] || fail "auto-detect"
 
@@ -78,6 +86,22 @@ wm="$(jq -r .run_dir <<<"$w")/manifest.json"
 [[ "$(jq -c .staged_only "$wm")" == '["c.py"]' ]] || fail "staged_only: $(jq -c .staged_only "$wm")"
 [[ "$(jq -c .unstaged_only "$wm")" == '[]' ]] || fail "unstaged_only: $(jq -c .unstaged_only "$wm")"
 git -C "$TMP" reset -q --hard
+git -C "$TMP" clean -qfd -e openspec -e .claude
+# 5b. comm must be locale-independent: mixed-case / punctuated names under a UTF-8 locale.
+echo 1 >"$TMP/B.py"; echo 1 >"$TMP/a-b.py"; echo 1 >"$TMP/a.py"
+git -C "$TMP" add B.py a-b.py a.py && git -C "$TMP" commit -qm names
+for f in B.py a-b.py a.py; do echo 2 >>"$TMP/$f"; done
+git -C "$TMP" add B.py a-b.py
+echo 3 >>"$TMP/a.py"                      # a.py unstaged only
+echo 4 >>"$TMP/a-b.py"                    # a-b.py both
+(
+  unset LC_ALL; export LANG=en_US.UTF-8
+  l="$("$SCRIPT" --working-dir "$TMP" --auto-detect)"
+  lm="$(jq -r .run_dir <<<"$l")/manifest.json"
+  [[ "$(jq -c .staged_only "$lm")" == '["B.py"]' ]] || fail "locale staged_only: $(jq -c .staged_only "$lm")"
+  [[ "$(jq -c .unstaged_only "$lm")" == '["a.py"]' ]] || fail "locale unstaged_only: $(jq -c .unstaged_only "$lm")"
+)
+git -C "$TMP" reset -q --hard HEAD~1
 git -C "$TMP" clean -qfd -e openspec -e .claude
 # 6. empty diff exits 2.
 "$SCRIPT" --working-dir "$TMP" --auto-detect >/dev/null 2>&1 && fail "empty diff should exit 2"
