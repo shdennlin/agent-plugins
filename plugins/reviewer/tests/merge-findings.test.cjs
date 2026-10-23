@@ -407,3 +407,24 @@ test('head sweep is capped at 5 files and word-bounded on the left', () => {
   const bound = merge({ run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }, [mkRep(['a.py', 'b.py'], { pattern: 'x = print(a)' })], mkPatch([['a.py', 'x = print(a)'], ['b.py', 'sprint(b)']]))
   assert.deepEqual(bound.issues[0].locations, ['a.py:f'], 'sprint( does not match print(')
 })
+
+// --- batch E: normalized fold key + same-file containment
+const { normKey } = require('../scripts/merge-findings.cjs')
+test('normKey ignores whitespace, quote style and the statement around a single call', () => {
+  assert.equal(normKey('items[start:start + size - 1]'), normKey('items[start:start+size-1]'))
+  assert.equal(normKey("int('x')"), normKey('int("x")'))
+  assert.equal(normKey('return int(s)'), 'int(')
+  assert.equal(normKey('x = int(raw)'), 'int(')
+  assert.equal(normKey('int(raw) + 1'), 'int(raw)+1')
+  assert.equal(normKey('ab'), null)
+})
+test('same-file issues whose keys contain one another fold; cross-file containment does not', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const issue = (file, pattern, title, angle) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'a.py', verdict: file === 'a.py' ? 'issues' : 'clean', issue_count: file === 'a.py' ? 1 : 0 }, { path: 'b.py', verdict: file === 'b.py' ? 'issues' : 'clean', issue_count: file === 'b.py' ? 1 : 0 }],
+    issues: [{ severity: 'HIGH', title, location: `${file}:f`, category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const same = merge(man, [issue('a.py', 'int(s)', 'unchecked cast', 'correctness'), issue('a.py', 'int(', 'cast may raise', 'robustness')], '')
+  assert.equal(same.issues.length, 1); assert.equal(same.issues[0].folded, 1); assert.match(same.issues[0].rationale || '', /cast may raise|unchecked cast/)
+  const cross = merge(man, [issue('a.py', 'int(', 'unchecked cast', 'correctness'), issue('b.py', 'int(raw) + 1', 'off by one after cast', 'robustness')], '')
+  assert.equal(cross.issues.length, 2, 'different files, one key a substring of the other: not folded')
+})

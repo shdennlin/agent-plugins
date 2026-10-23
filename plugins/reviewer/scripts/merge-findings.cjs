@@ -80,12 +80,25 @@ function constructHead(pattern) {
   return s.length >= MIN_PATTERN ? s : null
 }
 const HEAD_CAP = 5   // a head found in more files than this is too generic to join on
+
+// Fold key: the pattern with the statement around it stripped, whitespace removed, quotes unified, and a
+// single call reduced to its head. Two angles describing one construct with different spacing, quoting or
+// arguments fold on this key; null below MIN_PATTERN.
+function normKey(pattern) {
+  const key = foldKey(pattern)
+  if (key === null) return null
+  let s = key.replace(/^(return|await|yield)\s+/, '').replace(/^[A-Za-z_][\w.]*\s*(:=|=|\+=|-=)\s*/, '').trim()
+  const call = s.match(/^([A-Za-z_][\w.]*)\s*\((?:[^()]|\([^()]*\))*\)$/)
+  if (call) return `${call[1]}(`
+  s = s.replace(/\s+/g, '').replace(/'/g, '"')
+  return s.length >= MIN_PATTERN ? s : null
+}
 const recLines = (r) => String(r ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
 function foldByPattern(issues) {
   const groups = new Map()
   const out = []
   for (const i of issues) {
-    const k = foldKey(i.pattern)
+    const k = normKey(i.pattern)
     if (k === null) {
       out.push({ ...i, folded: 0 })
       continue
@@ -96,7 +109,23 @@ function foldByPattern(issues) {
     }
     groups.get(k).push(i)
   }
-  return out.map((g) => {
+  // Same-file containment: a group whose key contains a shorter group's key joins it when the two
+  // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone.
+  const keys = [...groups.keys()].sort((x, y) => x.length - y.length)
+  for (const longK of keys) {
+    const longG = groups.get(longK)
+    if (!longG || !longG.length) continue
+    for (const shortK of keys) {
+      if (shortK === longK || shortK.length >= longK.length || !longK.includes(shortK)) continue
+      const shortG = groups.get(shortK)
+      if (!shortG || !shortG.length) continue
+      const shortFiles = new Set(shortG.map((i) => pathPart(i.location)))
+      if (!longG.some((i) => shortFiles.has(pathPart(i.location)))) continue
+      shortG.push(...longG.splice(0, longG.length))
+      break
+    }
+  }
+  return out.filter((g) => !Array.isArray(g) || g.length).map((g) => {
     if (!Array.isArray(g)) return g
     if (g.length === 1) return { ...g[0], folded: 0 }
     const sorted = [...g].sort(byWorst)
@@ -413,4 +442,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports, foldByPattern, constructHead }
+module.exports = { merge, loadReports, foldByPattern, constructHead, normKey }
