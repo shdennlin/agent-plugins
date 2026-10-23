@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression test for scripts/log-findings.sh — now a wrapper over log-findings.cjs (history row v2):
+# Regression test for scripts/log-findings.cjs (history row v3):
 # rows are validated (engine vocabulary, integer round), completed (v, ts, engines, locations, pattern,
 # run_id) and appended all-or-nothing under <git-root>/.claude/reviewer/history.jsonl. No Claude, no network.
 #
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT="$HERE/../scripts/log-findings.sh"
+SCRIPT="$HERE/../scripts/log-findings.cjs"
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
 
 TMP="$(mktemp -d)"
@@ -64,4 +64,4 @@ if "$SCRIPT" --change c --source code-review <<<'[]' >/dev/null 2>&1; then
   fail "--source code-review should be rejected; engine, not source, carries the engine name"
 fi
 
-echo "ok: log-findings v2 rows via the wrapper (engine vocabulary + normalization, engines[], integer round, normalized change, locations/pattern defaults, row-level rejection, source enum)"
+echo "ok: log-findings v3 rows (engine vocabulary + normalization, engines[], integer round, normalized change, locations/pattern defaults, row-level rejection, source enum)"

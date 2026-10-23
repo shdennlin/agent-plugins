@@ -262,3 +262,8 @@ test('history v3: orchestrators write outcomes.json from the fixer result and lo
   const sd = body('spec-dual.md'); assert.match(sd, /--outcome residual/); assert.match(sd, /--outcome fixed/); assert.match(sd, /escalated/)
   assert.match(read('README.md'), /schema v3/)
 })
+test('1.21.0: the log-findings.sh wrapper is gone and no prompt or doc names it', () => {
+  assert.ok(!fs.existsSync(path.join(ROOT, 'scripts', 'log-findings.sh')), 'wrapper still on disk')
+  const files = ['commands', 'agents', 'skills', 'templates'].flatMap((d) => fs.readdirSync(path.join(ROOT, d), { recursive: true }).map((f) => path.join(d, String(f)))).filter((f) => f.endsWith('.md') || f.endsWith('.yaml'))
+  for (const f of [...files, 'README.md', '.codex/INSTALL.md']) assert.ok(!read(f).includes('log-findings.sh'), `${f} still names log-findings.sh`)
+})

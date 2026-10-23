@@ -6,7 +6,7 @@ You are a senior engineer / reviewer. Your task is to review the implementation 
 
 Along with the spec files/folders, base branch, and working directory, the prompt may also provide:
 - **plugin_root**: absolute path of the reviewer plugin (holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`); absent under Codex — see Step 0
-- **log_script_path**: absolute path to the findings-logging script (optional). The literal `none` → the merge runs with `--no-log`; a path → it is passed to the merge as `--log-script <path>`; absent → the merge logs through the `log-findings.sh` next to it
+- **log_script_path**: absolute path to the findings-logging script (optional). The literal `none` → the merge runs with `--no-log`; a path → it is passed to the merge as `--log-script <path>`; absent → the merge logs through the `log-findings.cjs` next to it
 
 ## Instructions
 

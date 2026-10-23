@@ -153,7 +153,7 @@ Task tool:
     - angles: <value from --angles, or "default">
     - fix_all: false
     - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
-    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs>
 
     ## Review Angle Templates (result section)
     <paste the result section content from review-angles.yaml>
@@ -240,7 +240,7 @@ Task tool:
     - angles: <value from --angles, or "default">
     - fix_all: <true if "--fix all", false otherwise>
     - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
-    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs>
 
     ## Review Angle Templates (result section)
     <paste the result section content from review-angles.yaml>
