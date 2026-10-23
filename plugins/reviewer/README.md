@@ -370,3 +370,7 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation via s
 | result-fix-orchestrator | sonnet | Orchestrates iterative result review + fix loops |
 | spec-fixer | sonnet | Applies fixes to spec/design documents |
 | result-fixer | sonnet | Applies fixes to implementation code |
+
+## Changelog
+
+- **1.20.0** — refactor batches A–E: `/reviewer:spec` can run its rules step (Bash) and has an Explore fallback; `check-angles.cjs` rejects unknown angle keys; `report_review` rejects contradictory verdicts, empty strings and `..` in `run_dir`; base auto-detect honours `origin/HEAD` and `master`; run dirs via `mktemp`; the result angle brief lives in `templates/result-angle-prompt.md` and is dispatched to typed `reviewer:result-reviewer` / `result-fixer` / `spec-fixer` agents; `skills/*/SKILL.md` are Codex pointer stubs; the spec-dual workflow is `workflows/spec-dual.workflow.js` (`spec-dual-loop`); history rows are schema v2 through `log-findings.cjs` with one engine vocabulary, `engines[]`, integer rounds, `pattern`, `run_id` and `migrate-history.cjs`; spec-dual logs every round; `read-rules.cjs --paths`, `apply-rules.cjs` and `resolve-engine.cjs` take the mechanical work out of the prompts; the merge sweeps by construct head and folds on a normalized key (recall harness 0.75 → 1.0 on the original seeds); the harness has 7 seeds and a severity-match rate; `runs/` keeps the newest 10; skipped submodules make a review incomplete.
