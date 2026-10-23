@@ -1,0 +1,12 @@
+# demo project config
+name: demo
+schema: spec-driven   # keep me
+rules:
+  proposal:
+    - "State the problem being solved in one sentence"   # already present
+    - 'Old rule with ''quotes'''
+  specs:
+    - "Cover all edge cases with explicit expected behavior"
+context: |
+  free text block
+  stays as is

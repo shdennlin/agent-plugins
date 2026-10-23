@@ -181,3 +181,12 @@ test('rules/history paths come from read-rules --paths, not prose', () => {
     assert.ok(!/openspec\/config\.yaml` (if|when) (it )?(exists|present)/.test(t), `${f} still spells out the precedence rule`)
   }
 })
+
+test('init prompts delegate the rules delta to apply-rules.cjs', () => {
+  for (const f of ['skills/init/init-reviewer.md', 'agents/init-reviewer.md']) {
+    const t = read(f)
+    assert.match(t, /apply-rules\.cjs/, `${f} does not call apply-rules.cjs`)
+    assert.ok(!/Compute Delta|exact string match\)/.test(t), `${f} still describes the delta computation`)
+  }
+  assert.match(read('commands/init.md'), /template_path/)
+})

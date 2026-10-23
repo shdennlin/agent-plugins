@@ -128,10 +128,11 @@ Task tool:
     - dry_run: <true or false>
 
     Working directory: <current directory>
+    - template_path: ${CLAUDE_PLUGIN_ROOT}/templates/reviewer-rules.yaml   (omit this line and append the block below only in --from-history mode)
 
-    ## Reviewer Rules Template
+    ## Reviewer Rules Template   (only in --from-history mode)
 
-    <paste full content of reviewer-rules.yaml here>
+    <the confirmed candidate rules as YAML keyed by artifact>
 ```
 
 Report the agent's results back to the user.
