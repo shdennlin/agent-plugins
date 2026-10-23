@@ -301,3 +301,24 @@ test('end to end: run-basic merge still yields one a.py:parse issue, sweep fills
   assert.deepEqual(hit[0].locations, ['src/a.py:parse', 'src/b.py'])
   assert.ok(m.issues.every((i) => typeof i.folded === 'number'))
 })
+
+test('merge: a pattern shorter than MIN_PATTERN is not swept either (locations stay primary only)', () => {
+  const rc = clone(run.reports[2])
+  rc.issues[0].pattern = '('
+  const m = merge(run.manifest, [rc], run.diff)
+  const hit = m.issues.find((i) => i.location === 'src/a.py:parse')
+  assert.deepEqual(hit.locations, ['src/a.py:parse'])
+  assert.equal(hit.folded, 0)
+})
+
+test('merge: pattern on one angle only at the same location+title gives one issue with that pattern, folded 0', () => {
+  const ra = clone(run.reports[2])
+  const rb = clone(run.reports[2])
+  rb.angle = 'robustness'
+  delete rb.issues[0].pattern
+  const m = merge(run.manifest, [ra, rb], run.diff)
+  const hit = m.issues.filter((i) => i.location === 'src/a.py:parse')
+  assert.equal(hit.length, 1)
+  assert.equal(hit[0].pattern, ra.issues[0].pattern)
+  assert.equal(hit[0].folded, 0)
+})

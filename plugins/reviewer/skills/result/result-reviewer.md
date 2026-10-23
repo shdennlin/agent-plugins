@@ -95,7 +95,7 @@ For each issue found, record:
 
 ### Step 5b: Pattern
 
-For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations. Omit it when the construct is unique to this issue. Do not search for other occurrences yourself; the merge step does that from `pattern` and records every occurrence under the issue's `locations`.
+For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations. Do not search for other occurrences yourself; the merge step does that from `pattern` and records every occurrence under the issue's `locations`.
 
 ### Step 5c: Report
 
@@ -207,6 +207,8 @@ Output a markdown-formatted handoff section. This is the copy-paste artifact for
    - **Context:** Spec requires email, password (min 8 chars), and name fields
    - **Missing:** input validation per spec
    - **Action:** Add zod schema for request body matching spec requirements
+
+When an issue has `rationale`, append `also reported as: <its lines>` to the directive's Context; when it has more than one entry in `locations`, list every location so the fixer edits every site.
 
 ---
 

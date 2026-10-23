@@ -242,7 +242,8 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       recommendation: recs.filter((x) => typeof x === 'string' && x !== '').join('\n'),
       angles: [...as].sort(),
     }
-    if (pattern !== undefined) {
+    // the sweep uses the same threshold as the fold: a 1–2 char pattern would match every file
+    if (foldKey(pattern) !== null) {
       const own = pathPart(worst.location)
       for (const [file, lines] of added) {
         if (file === own || issue.locations.includes(file)) continue
