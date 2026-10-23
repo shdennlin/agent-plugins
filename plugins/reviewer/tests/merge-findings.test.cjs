@@ -350,3 +350,11 @@ test('sweep crosses sub-repos through prefixed +++ headers', () => {
   const m = merge(man, [rep], patch)
   assert.deepEqual(m.issues[0].locations, ['central/a.py:f', 'core-api/b.go'])
 })
+
+test('sweep matches on the trimmed pattern (trailing whitespace in pattern does not disable it)', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const patch = ['diff --git a/a.py b/a.py', '+++ b/a.py', '@@ -0,0 +1 @@', '+x = int(raw)', 'diff --git a/b.py b/b.py', '+++ b/b.py', '@@ -0,0 +1 @@', '+y = int(raw)'].join('\n')
+  const rep = { angle: 'correctness', via: 'report_review', verdict: 'FAIL', files: [{ path: 'a.py', verdict: 'issues', issue_count: 1 }, { path: 'b.py', verdict: 'clean', issue_count: 0 }],
+    issues: [{ severity: 'HIGH', title: 't', location: 'a.py:f', category: 'c', pattern: 'int( ', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] }
+  assert.deepEqual(merge(man, [rep], patch).issues[0].locations, ['a.py:f', 'b.py'])
+})

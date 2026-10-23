@@ -243,11 +243,12 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       angles: [...as].sort(),
     }
     // the sweep uses the same threshold as the fold: a 1–2 char pattern would match every file
-    if (foldKey(pattern) !== null) {
+    const key = foldKey(pattern)
+    if (key !== null) {
       const own = pathPart(worst.location)
       for (const [file, lines] of added) {
         if (file === own || issue.locations.includes(file)) continue
-        if (lines.some((l) => l.includes(pattern))) issue.locations.push(file)
+        if (lines.some((l) => l.includes(key))) issue.locations.push(file)
       }
     }
     return issue
