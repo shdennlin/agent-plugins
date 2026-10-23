@@ -137,4 +137,63 @@ NG="$(mktemp -d)"; rc=0; "$SCRIPT" --working-dir "$NG" --base main >/dev/null 2>
 rc=0; "$SCRIPT" --bogus >/dev/null 2>&1 || rc=$?
 [[ "$rc" == 1 ]] || fail "usage error exit code $rc"
 
-echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, $n normalize cases"
+# 8. Superproject with submodules: changed gitlinks are expanded into prefixed files and patches.
+S="$(mktemp -d)"
+mkrepo() { # $1 dir, $2 "develop" to also create develop
+  mkdir -p "$1" && git -C "$1" init -q -b main && git -C "$1" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+  [[ "${2:-}" == "develop" ]] && git -C "$1" branch -q develop
+  return 0
+}
+gc() { git -C "$1" -c user.email=t@t -c user.name=t -c protocol.file.allow=always "${@:2}"; }
+# libA: has develop; feature branch changes two files, one adds a line containing int(x)
+mkrepo "$S/libA" develop
+mkdir -p "$S/libA/src" && printf 'a\n' >"$S/libA/src/a.py" && printf 'b\n' >"$S/libA/src/b.py"
+gc "$S/libA" add -A && gc "$S/libA" commit -q -m base && gc "$S/libA" branch -f develop
+gc "$S/libA" switch -q -c feat && printf 'a\ny = int(x)\n' >"$S/libA/src/a.py" && printf 'b\nc\n' >"$S/libA/src/b.py" && gc "$S/libA" commit -q -am "feat"
+# libB: pointer will stay unchanged; worktree made dirty
+mkrepo "$S/libB"; printf 'x\n' >"$S/libB/x.txt" && gc "$S/libB" add -A && gc "$S/libB" commit -q -m base
+# libB2: NO develop branch; feature commit on main-based branch
+mkrepo "$S/libB2"; printf 'm\n' >"$S/libB2/m.txt" && gc "$S/libB2" add -A && gc "$S/libB2" commit -q -m base
+gc "$S/libB2" switch -q -c feat && printf 'm\nn\n' >"$S/libB2/m.txt" && gc "$S/libB2" commit -q -am "feat"
+# libC: added as a new submodule on the feature branch
+mkrepo "$S/libC"; printf 'new\n' >"$S/libC/c.txt" && gc "$S/libC" add -A && gc "$S/libC" commit -q -m base
+# super: develop with libA (at base), libB, libB2 (at base) + openspec/
+mkrepo "$S/super" develop; mkdir -p "$S/super/openspec"; printf 'o\n' >"$S/super/openspec/README.md"
+gc "$S/super" submodule add -q "$S/libA" libA && gc "$S/super" submodule add -q "$S/libB" libB && gc "$S/super" submodule add -q "$S/libB2" libB2
+# `submodule add` clones the source's current HEAD (feat); pin the base pointers to the pre-feature commits
+gc "$S/super/libA" checkout -q "$(git -C "$S/libA" rev-parse develop)" && gc "$S/super/libB2" checkout -q "$(git -C "$S/libB2" rev-parse main)"
+gc "$S/super" add -A && gc "$S/super" commit -q -m "base with submodules" && gc "$S/super" branch -f develop
+# feature: bump libA to feat, bump libB2 to feat, add libC, add a plain file that shares libA's prefix, dirty libB
+gc "$S/super" switch -q -c feat
+gc "$S/super/libA" fetch -q origin && gc "$S/super/libA" checkout -q "$(git -C "$S/libA" rev-parse feat)"
+gc "$S/super/libB2" fetch -q origin && gc "$S/super/libB2" checkout -q "$(git -C "$S/libB2" rev-parse feat)"
+gc "$S/super" submodule add -q "$S/libC" libC
+mkdir -p "$S/super/libA-docs" && printf 'd\n' >"$S/super/libA-docs/readme.md"
+gc "$S/super" add -A && gc "$S/super" commit -q -m "feat: bump libA, libB2; add libC"
+printf 'dirty\n' >>"$S/super/libB/x.txt"
+out="$("$SCRIPT" --working-dir "$S/super" --base develop 2>"$S/err.txt")"; run="$(jq -r .run_dir <<<"$out")"; files="$(jq -r '.files|join(",")' <<<"$out")"
+[[ ",$files," == *",libA/src/a.py,"* && ",$files," == *",libA/src/b.py,"* ]] || fail "libA expanded into prefixed files (got $files)"
+[[ ",$files," != *",libA,"* && ",$files," != *",libB2,"* && ",$files," != *",libC,"* ]] || fail "gitlink entries removed from files (got $files)"
+[[ ",$files," == *",libC/c.txt,"* ]] || fail "added submodule expanded from the empty tree"
+[[ ",$files," == *",libB2/m.txt,"* ]] || fail "sub without the base branch still expanded"
+[[ ",$files," != *",libB/"* ]] || fail "unchanged-pointer submodule not expanded"
+[[ ",$files," == *",libA-docs/readme.md,"* ]] || fail "plain file sharing a submodule name prefix listed as-is"
+grep -q '^+++ b/libA/src/a.py$' "$run/diff.patch" || fail "prefixed +++ header for libA"
+grep -q '^diff --git a/libC/c.txt b/libC/c.txt$' "$run/diff.patch" || fail "prefixed diff header for the added submodule"
+grep -q '^+y = int(x)$' "$run/diff.patch" || fail "sub-repo added line present in diff.patch"
+[[ "$(jq -r '.submodules|length' "$run/manifest.json")" == "3" ]] || fail "three submodules recorded (got $(jq -c .submodules "$run/manifest.json"))"
+[[ "$(jq -r '.submodules[]|select(.path=="libA")|.strategy' "$run/manifest.json")" == "merge-base(develop,HEAD)" ]] || fail "libA strategy"
+[[ "$(jq -r '.submodules[]|select(.path=="libB2")|.strategy' "$run/manifest.json")" == "recorded-pointer" ]] || fail "libB2 falls back to the recorded pointer"
+[[ "$(jq -r '.submodules[]|select(.path=="libC")|.strategy' "$run/manifest.json")" == "empty-tree" ]] || fail "libC strategy"
+[[ "$(jq -r '.submodules[]|select(.path=="libA")|.base' "$run/manifest.json")" == "$(git -C "$S/libA" rev-parse develop)" ]] || fail "libA base is its develop merge-base"
+[[ "$(jq -r '.submodules[]|.path' "$run/manifest.json" | grep -c 'libA-docs')" == "0" ]] || fail "libA-docs is not a submodule"
+grep -q "submodule libB: pointer unchanged, dirty worktree ignored" "$S/err.txt" || fail "dirty libB noted on stderr (got: $(cat "$S/err.txt"))"
+(( $(jq -r .line_count <<<"$out") >= 4 )) || fail "line_count counts sub-repo lines (got $(jq -r .line_count <<<"$out"))"
+[[ "$(jq -r .file_count <<<"$out")" == "$(jq -r '.files|length' <<<"$out")" ]] || fail "file_count matches expanded files"
+# no-op guarantee: a plain repo (libA itself, on feat vs develop) records submodules: []
+plain="$("$SCRIPT" --working-dir "$S/libA" --base develop)"
+[[ "$(jq -r '.submodules|length' "$(jq -r .run_dir <<<"$plain")/manifest.json")" == "0" ]] || fail "plain repo: submodules []"
+[[ "$(jq -r '.files|join(",")' <<<"$plain")" == "src/a.py,src/b.py" ]] || fail "plain repo files unchanged by the expansion code"
+rm -rf "$S"
+
+echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, submodules, $n normalize cases"

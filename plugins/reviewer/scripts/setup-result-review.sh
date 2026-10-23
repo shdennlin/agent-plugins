@@ -102,9 +102,57 @@ fi
 [[ -n "$FILES" ]] || die2 "empty diff for $STRATEGY: nothing to review"
 [[ -n "$PATCH" ]] || die2 "empty diff for $STRATEGY: git listed changed files but produced no patch"
 
-FILE_COUNT="$(grep -c '' <<<"$FILES")"
 INS="$({ grep -oE '[0-9]+ insertion' <<<"$STAT" || true; } | awk '{s+=$1} END{print s+0}')"
 DEL="$({ grep -oE '[0-9]+ deletion' <<<"$STAT" || true; } | awk '{s+=$1} END{print s+0}')"
+
+# --- Submodules: a changed gitlink is replaced by that sub-repository's own diff, paths prefixed
+# "<sub>/" and patch headers written by git (--src-prefix/--dst-prefix), so merge-findings.cjs reads
+# them unchanged. One level only. Range: merge-base(<base>, HEAD) of the sub when it has that branch,
+# else the pointer the superproject recorded at the diff base (HEAD under WORKTREE); a submodule
+# added in this change diffs from the empty tree. Always two-dot to the sub's working tree.
+EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+SUBS_JSON="[]"
+PTR_TREE="HEAD"; [[ -n "$DIFF_BASE" ]] && PTR_TREE="$DIFF_BASE"
+EXPANDED=""
+while IFS= read -r p; do
+  [[ -n "$p" ]] || continue
+  mode="$(g ls-files -s -- "$p" 2>/dev/null | awk 'NR==1{print $1}')"
+  if [[ "$mode" != "160000" ]]; then EXPANDED+="$p"$'\n'; continue; fi
+  if [[ ! -e "$TOP/$p/.git" ]]; then echo "setup-result-review: submodule $p: not checked out, skipped" >&2; continue; fi
+  gs() { git -C "$TOP/$p" -c core.quotePath=false -c diff.noprefix=false -c diff.mnemonicPrefix=false "$@"; }
+  gsd() { gs diff --no-ext-diff --no-color "$@"; }
+  old_ptr="$(g rev-parse -q --verify "$PTR_TREE:$p" 2>/dev/null || true)"
+  new_ptr="$(gs rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$old_ptr" && "$old_ptr" == "$new_ptr" ]]; then
+    # pointer unchanged: the superproject lists it only because the sub's worktree is dirty
+    if [[ -n "$(gs status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+      echo "setup-result-review: submodule $p: pointer unchanged, dirty worktree ignored" >&2
+    fi
+    continue
+  fi
+  if [[ -z "$old_ptr" ]]; then
+    sub_base="$EMPTY_TREE"; sub_strategy="empty-tree"
+  elif [[ -n "$BASE_REF" ]] && { gs rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1 || gs rev-parse --verify -q "origin/$BASE_REF" >/dev/null 2>&1; }; then
+    # the sub may carry the base only as a remote-tracking branch (a fresh submodule clone)
+    sub_ref="$BASE_REF"; gs rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1 || sub_ref="origin/$BASE_REF"
+    sub_base="$(gs merge-base "$sub_ref" HEAD 2>/dev/null || true)"; sub_strategy="merge-base($BASE_REF,HEAD)"
+    [[ -n "$sub_base" ]] || { sub_base="$old_ptr"; sub_strategy="recorded-pointer"; }
+  else
+    sub_base="$old_ptr"; sub_strategy="recorded-pointer"
+  fi
+  if [[ -n "$(gs submodule status 2>/dev/null)" ]]; then echo "setup-result-review: submodule $p: nested submodules not expanded" >&2; fi
+  sub_files="$(gsd --name-only "$sub_base" | norm_lines | sed "s|^|$p/|")"
+  [[ -n "$sub_files" ]] && EXPANDED+="$sub_files"$'\n'
+  PATCH+=$'\n'"$(gsd --src-prefix="a/$p/" --dst-prefix="b/$p/" "$sub_base")"
+  sub_stat="$(gsd --shortstat "$sub_base")"
+  INS=$((INS + $({ grep -oE '[0-9]+ insertion' <<<"$sub_stat" || true; } | awk '{s+=$1} END{print s+0}')))
+  DEL=$((DEL + $({ grep -oE '[0-9]+ deletion' <<<"$sub_stat" || true; } | awk '{s+=$1} END{print s+0}')))
+  SUBS_JSON="$(jq -c --arg path "$p" --arg base "$sub_base" --arg st "$sub_strategy" '. + [{path:$path, base:$base, strategy:$st}]' <<<"$SUBS_JSON")"
+done <<<"$FILES"
+FILES="$(printf '%s' "$EXPANDED" | grep -v '^$' | sorted_lines || true)"
+[[ -n "$FILES" ]] || die2 "empty diff for $STRATEGY: only unchanged submodule pointers"
+
+FILE_COUNT="$(grep -c '' <<<"$FILES")"
 LINE_COUNT=$((INS + DEL))
 SIZE="small"
 if (( FILE_COUNT >= 20 || LINE_COUNT >= 500 )); then SIZE="large"; fi
@@ -127,8 +175,8 @@ BASEOBJ="$(jq -n --arg run_id "$RUN_ID" --arg run_dir "$RUN_DIR" --arg s "$STRAT
 
 jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg wd "$TOP" \
    --argjson so "$(lines_json "$STAGED_ONLY")" --argjson uo "$(lines_json "$UNSTAGED_ONLY")" \
-   --arg db "$DIFF_BASE" \
-   '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo}
+   --arg db "$DIFF_BASE" --argjson subs "$SUBS_JSON" \
+   '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo, submodules:$subs}
     + (if $db == "" then {} else {diff_base:$db} end)' \
    <<<"$BASEOBJ" >"$RUN_DIR/manifest.json"
 
