@@ -95,7 +95,7 @@ For each issue found, record:
 
 ### Step 5b: Pattern
 
-For each issue, add **pattern** (optional): a literal substring copied from the offending added line, enough to find the same construct elsewhere, or omit it. Do not search for other occurrences yourself; the merge step does that from `pattern` and records every occurrence under the issue's `locations`.
+For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations. Omit it when the construct is unique to this issue. Do not search for other occurrences yourself; the merge step does that from `pattern` and records every occurrence under the issue's `locations`.
 
 ### Step 5c: Report
 
@@ -150,6 +150,7 @@ Checklist from `coverage` ([x] implemented, [~] partial, [ ] missing):
 From `issues`, worst first. For each issue:
 - **Title** | Location: `file:function` | Severity: `critical` / `high` / `medium` / `low`
 - **Locations:** the issue's `locations`, primary first
+- **Also reported as:** the issue's `rationale` lines, when present (other angles' wording of the same defect; `folded` says how many were merged)
 - **Expected:** what the spec says
 - **Actual:** what the implementation does (or doesn't do)
 - **Impact:** what could go wrong

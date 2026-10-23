@@ -111,7 +111,7 @@ uncommitted edits are included) and creates a run directory — `openspec/review
 Each angle reports through the `report_review` tool of the plugin's stdio MCP server
 (`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
 verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges
-the angle reports into `merged.json` (per-file verdicts, issues worst-first with `locations`
+the angle reports into `merged.json` (per-file verdicts, issues worst-first with `locations`; issues that share a `pattern` fold into one entry whose `rationale` lists the other angles' wording
 found from each issue's `pattern`, coverage, `invalid_reports`, verdict, `complete`, counts) and logs the
 merged issues once. `via` records per angle whether the report came through `report_review` or
 the fallback of writing `<angle>.json` directly (Codex has no plugin MCP server); a fallback
