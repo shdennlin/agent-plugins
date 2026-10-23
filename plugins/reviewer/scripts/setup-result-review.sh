@@ -141,7 +141,8 @@ while IFS= read -r p; do
     sub_base="$old_ptr"; sub_strategy="recorded-pointer"
   fi
   if [[ -n "$(gs submodule status 2>/dev/null)" ]]; then echo "setup-result-review: submodule $p: nested submodules not expanded" >&2; fi
-  sub_files="$(gsd --name-only "$sub_base" | norm_lines | sed "s|^|$p/|")"
+  # prefix as data, never inside a sed/awk program: the path is attacker-controlled repo content
+  sub_files="$(gsd --name-only "$sub_base" | norm_lines | while IFS= read -r l; do printf '%s/%s\n' "$p" "$l"; done)"
   [[ -n "$sub_files" ]] && EXPANDED+="$sub_files"$'\n'
   PATCH+=$'\n'"$(gsd --src-prefix="a/$p/" --dst-prefix="b/$p/" "$sub_base")"
   sub_stat="$(gsd --shortstat "$sub_base")"
