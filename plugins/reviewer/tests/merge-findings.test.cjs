@@ -556,3 +556,18 @@ test('outcomes.json in the run dir is orchestrator state, not an angle report', 
   const again = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
   assert.deepEqual(again.issues, m.issues, 're-running the merge is stable')
 })
+test('spec mode never folds on containment (prose patterns); a fold unions the members\' locations', () => {
+  const rep = (man, angle, pattern, title, loc) => ({ run_dir: '/tmp/x/openspec/reviews/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: man.files.map((p) => ({ path: p, verdict: p === pathOf(loc) ? 'issues' : 'clean', issue_count: p === pathOf(loc) ? 1 : 0 })),
+    issues: [{ severity: 'HIGH', title, location: loc, category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const pathOf = (loc) => loc.split(/ §|:/)[0]
+  const spec = { run_id: 'x', mode: 'spec', files: ['design.md'], working_directory: '/tmp/x' }
+  const s = merge(spec, [rep(spec, 'design', 'rollback', 'No rollback owner', 'design.md §3'), rep(spec, 'scope', 'rollback owner named', 'Rollback step ordering wrong', 'design.md §5')], '')
+  assert.equal(s.issues.length, 2, 'prose containment is not a fold')
+  const same = merge(spec, [rep(spec, 'design', 'rollback owner', 'No rollback owner', 'design.md §3'), rep(spec, 'scope', 'rollback  owner', 'Rollback owner missing', 'design.md §5')], '')
+  assert.equal(same.issues.length, 1, 'an equal normalized pattern still folds in spec mode')
+  assert.deepEqual(same.issues[0].locations.sort(), ['design.md §3', 'design.md §5'], 'a fold keeps every member location')
+  const code = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x' }
+  const c = merge(code, [rep(code, 'correctness', 'int(s)', 'unchecked cast', 'a.py:f'), rep(code, 'robustness', 'int(', 'cast may raise', 'a.py:g')], '')
+  assert.equal(c.issues.length, 1); assert.deepEqual(c.issues[0].locations, ['a.py:f'], 'result mode keeps one location per file (unchanged)')
+})

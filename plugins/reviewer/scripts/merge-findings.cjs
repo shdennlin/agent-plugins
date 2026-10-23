@@ -50,7 +50,10 @@ const byWorst = (a, b) => sevRank(a.severity) - sevRank(b.severity) || cmpStr(St
 
 // Ordered union of locations deduplicated by path part: a `file:function` entry replaces a bare
 // swept path for the same file in place; the first entry seen for a path keeps its position.
-function unionLocations(lists) {
+// Result runs keep one location per file (the one with detail wins); spec runs keep every distinct
+// `<file> §<section>` because the section is the unit the fixer edits.
+function unionLocations(lists, mode) {
+  if (mode === 'spec') return [...new Set(lists.flat().map((l) => String(l).trim()).filter(Boolean))]
   const out = []
   const at = new Map() // pathPart -> index in out
   for (const loc of lists.flat()) {
@@ -130,8 +133,9 @@ function foldByPattern(issues, opts = {}) {
     groups.get(k).push(i)
   }
   // Same-file containment: a group whose key contains a shorter group's key joins it when the two
-  // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone.
-  const keys = [...groups.keys()].sort((x, y) => baseKey(x).length - baseKey(y).length)
+  // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone, and
+  // never in spec mode: prose patterns contain one another by accident ("rollback" in "rollback owner").
+  const keys = opts.mode === 'spec' ? [] : [...groups.keys()].sort((x, y) => baseKey(x).length - baseKey(y).length)
   for (const longK of keys) {
     const longG = groups.get(longK)
     if (!longG || !longG.length) continue
@@ -161,7 +165,7 @@ function foldByPattern(issues, opts = {}) {
     for (const l of sorted.flatMap((i) => recLines(i.recommendation))) if (!recs.includes(l)) recs.push(l)
     return {
       ...survivor,
-      locations: unionLocations(sorted.map((i) => i.locations)),
+      locations: unionLocations(sorted.map((i) => i.locations), opts.mode),
       angles: [...new Set(sorted.flatMap((i) => i.angles))].sort(),
       recommendation: recs.join('\n'),
       ...(rationale.length && { rationale: rationale.join('\n') }),
@@ -336,7 +340,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     for (const [, lines] of added) if (lines.some((l) => re.test(l)) && ++n > HEAD_CAP) return true
     return false
   }
-  const folded = foldByPattern(issues, { genericHead }).sort(byWorst)
+  const folded = foldByPattern(issues, { genericHead, mode: manifest.mode === 'spec' ? 'spec' : 'result' }).sort(byWorst)
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)
