@@ -159,7 +159,7 @@ const scenarios = {
     'claude:1': { verdict: 'FAIL', findings: [
       F('C1','HIGH','Goal unmeasurable','proposal.md:4',{ category: 'scope' }),
       F('C2','MEDIUM','No rollback section','design.md:30',{ category: 'design' }),
-      F('C3','LOW','Task 7 lacks done criteria','tasks.md:40',{ category: 'tasks' }) ] },
+      F('C3','LOW','Task 7 lacks done criteria','tasks.md:40',{ category: 'tasks', pattern: 'done criteria' }) ] },
     'codex:1':  { verdict: 'PASS', findings: [F('X9','LOW','Codex note without category','tasks.md:9', { category: '' })] },
     'fix:round1': { applied: [{ index: 1 }, { index: 2 }], rejected: [] },
     'fix-low': { applied: [{ index: 1 }], rejected: [] },
@@ -451,6 +451,7 @@ if (scenario === 'fanout') {
     assert(typeof f.title === 'string' && typeof f.location === 'string' && typeof f.severity === 'string' && typeof f.category === 'string' && f.category.length > 0, 'history finding carries a non-empty title/location/severity/category (codex findings get a default category)')
   }
   for (const f of result.findings) assert(Array.isArray(f.engines) && f.engine !== 'both', 'final findings carry engines[] and no both')
+  assert(result.history[0].findings.some(f => f.pattern === 'done criteria'), 'a reviewer-given pattern passes through to the history row')
 }
 if (scenario === 'angledown') {
   assert(result.history[0].degraded === true, 'a dead angle degrades the round')

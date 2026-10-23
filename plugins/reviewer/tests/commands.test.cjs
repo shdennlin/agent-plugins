@@ -250,3 +250,7 @@ test('both fixers end with the FIXER-RESULT block; the spec fix loop runs on mer
   assert.ok(!o.includes('For each issue in the merged report, decide'), 'triage reads merged.issues')
   assert.match(read('agents/result-fix-orchestrator.md'), /--parse-fixer/)
 })
+test('spec-dual folds each round through fold-findings.cjs before logging with log-findings.cjs', () => {
+  const sd = read('commands/spec-dual.md')
+  assert.match(sd, /fold-findings\.cjs/); assert.match(sd, /log-findings\.cjs/); assert.ok(!sd.includes('log-findings.sh'))
+})

@@ -113,6 +113,9 @@ const FINDINGS = {
         location:  { type: 'string' },   // file:line or artifact name
         rationale: { type: 'string' },
         category: { type: 'string' },
+        // optional: the shortest literal phrase from the spec text that identifies the defect; the
+        // command folds rows sharing it before logging (same key as the result merge)
+        pattern:  { type: 'string' },
         // Set when this finding is the SAME concern as a prior-round finding listed in the
         // prompt (by the script-assigned id, e.g. "R1-3"), even if reworded or evolved by a fix.
         priorId:  { type: 'string' },
@@ -358,7 +361,7 @@ const engineTag = (cat, f) => {
   const s = seenBy(cat, f)
   return s === 'both' ? { engine: 'claude', engines: ['claude', 'codex'] } : { engine: s, engines: [s] }
 }
-const historyFinding = (cat, f) => ({ title: f.title, location: f.location, severity: f.severity, category: f.category || '', ...engineTag(cat, f) })
+const historyFinding = (cat, f) => ({ title: f.title, location: f.location, severity: f.severity, category: f.category || '', ...(typeof f.pattern === 'string' && f.pattern ? { pattern: f.pattern } : {}), ...engineTag(cat, f) })
 
 // Build ONE directive covering all of a round's findings. Findings on a spec are
 // highly interrelated (the same license/workspace/path decision shows up across
