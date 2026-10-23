@@ -177,5 +177,5 @@ The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spe
 (e.g., jq missing), mention it in one line and continue — a logging failure MUST NOT fail
 or repeat the review.
 
-Findings now include `category` and `engine` (both/claude/codex) — pass them through
+Findings include `category`, `engine` (`claude` or `codex`) and `engines` (both engines when both raised it) — pass them through
 unchanged; the script persists them.

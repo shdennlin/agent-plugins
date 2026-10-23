@@ -187,7 +187,7 @@ The second engine is a spec-blind review whose recipe this plugin does not contr
    ```
    Never append any flag listed in `never_pass`, and never add `--fix`, `--comment` or anything that edits files or posts externally, whatever the engine. `--fix` would edit the working tree outside this command's fix loop; `--comment` posts to GitHub.
 4. Capture its findings where `findings_from` says they are. Each should have a file (or artifact) reference, a one-sentence summary, a failure scenario when the engine gives one, and the engine's own label (verdict, severity or confidence). Note what the engine says about its scope (tests excluded, single pass, truncated at N, approximated scope) — carry that into the report as the scope note.
-5. **If the skill is unavailable, denied, or fails** (not installed in this session — e.g. `/code-review` under Codex, `spectra-review` outside a Spectra repo — or the Skill call errors): print one line `<engine> engine skipped: <reason>` and continue with Steps 3c–3d using the spec findings alone, all tagged `engine: claude-result`, so they are still reported and logged. The second verdict line then reads `<engine>: skipped (<reason>)`.
+5. **If the skill is unavailable, denied, or fails** (not installed in this session — e.g. `/code-review` under Codex, `spectra-review` outside a Spectra repo — or the Skill call errors): print one line `<engine> engine skipped: <reason>` and continue with Steps 3c–3d using the spec findings alone, all tagged `engine: claude`, so they are still reported and logged. The second verdict line then reads `<engine>: skipped (<reason>)`.
 6. At the end of the report print each line from the entry's `notes` (side effects the user must know about, e.g. `/code-review` remembering `--max-findings all`).
 
 #### Step 3c: Merge the two engines' findings
@@ -195,9 +195,9 @@ The second engine is a spec-blind review whose recipe this plugin does not contr
 This is LLM judgment; do it here, not in a script. Nothing below depends on which engine ran — only on the entry's `severity_map` and the tag `engine`.
 
 1. **Severity for engine findings.** Map the engine's own label through `severity_map` (case-insensitive); an unlabeled finding or an unlisted label becomes `low`. Raise to `high` or `critical` only when the failure scenario names data loss, a security bypass, or a startup crash on a documented configuration. Never lower.
-2. **Engine tag.** Mark each finding `engine: claude-result` (spec review) or `engine: <engine key>` (e.g. `code-review`, `spectra-review`). Two findings are the SAME issue only when they point at the same file and the same root cause (line numbers may differ); merge those into one entry tagged `engine: both`, keep the worse severity, and keep both descriptions. Expect the intersection to be near zero — the two engines ask different questions, and a finding only one engine saw is still signal.
-3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry tagged `engine: both`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
-4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its engine tag. Replace the Verdict with two lines:
+2. **Engine tag.** Mark each finding `engine: claude` (spec review) or `engine: <engine key>` (e.g. `code-review`, `spectra-review`), and `engines: [<engine>]`. Two findings are the SAME issue only when they point at the same file and the same root cause (line numbers may differ); merge those into one entry with `engine: claude` and `engines: [claude, <engine key>]` (agreement is the list, never a separate engine value), keep the worse severity, and keep both wordings in the rationale.
+3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry with `engine: claude`, `engines: [claude, <engine key>]`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
+4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its `engines` list. Replace the Verdict with two lines:
    ```
    Spec review: PASS | FAIL (N critical, N high) | FAIL (review incomplete: <angles>)
    <engine>[ <level>]: N findings (N critical, N high, N medium, N low) — <scope note from Step 3b.4>
@@ -214,10 +214,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/merge-findings.cjs" <run_dir> --change "<cha
 
 (no `--no-log`; the orchestrator's own run used `--no-log`). Repeat its `logged N finding(s)` or `findings not logged: …` line and skip the rest of this step — `merged.json` already holds every finding and location, and re-typing them loses function names and drops locations.
 
-Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`) — and run, from the git root:
+Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `engines`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`), `pattern` (the orchestrator's, else null) — and run, from the git root, with `--run-id` set to the run id from the `Run dir:` line (its last path segment):
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 <<'FINDINGS_JSON'
+node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 --run-id "<run id>" <<'FINDINGS_JSON'
 <the JSON array>
 FINDINGS_JSON
 ```

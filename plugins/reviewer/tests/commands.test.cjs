@@ -146,3 +146,15 @@ test('the template keeps the spec-silent defect examples and the test-file rule'
 test('INSTALL.md does not overclaim spec under Codex', () => {
   assert.match(read('.codex/INSTALL.md'), /\| `spec` \| untested/)
 })
+
+// --- batch B: one engine vocabulary
+test('no prompt or doc uses the legacy engine names claude-result / both', () => {
+  const files = [...CMDS.map((c) => 'commands/' + c), ...fs.readdirSync(path.join(ROOT, 'agents')).map((a) => 'agents/' + a),
+    'skills/result/result-reviewer.md', 'skills/init/init-reviewer.md', 'README.md', 'templates/review-engines.yaml']
+  for (const f of files) {
+    const t = read(f)
+    assert.ok(!t.includes('claude-result'), `${f} still says claude-result`)
+    assert.ok(!/engine: both|`both`|\(both\/|both\/claude\/codex/.test(t), `${f} still uses the engine value both`)
+  }
+  assert.match(read('commands/result.md'), /`engines`/)
+})

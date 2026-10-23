@@ -109,6 +109,7 @@ uncommitted edits are included) and creates a run directory — `openspec/review
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
 The slash commands are `commands/*.md`; `skills/*/SKILL.md` are Codex pointer stubs (see `.codex/INSTALL.md` for what works there).
+History rows (`history.jsonl`) are schema v2, written only by `scripts/log-findings.cjs`: `engine` is one of `claude`, `codex`, `code-review`, `spectra-review` or `other:<skill>` (never empty), `engines` lists every engine that raised the finding, `round` is an integer, `change` has no trailing slash, and `pattern`, `run_id` and `v: 2` travel with each row. Older rows migrate with `scripts/migrate-history.cjs --dry-run`.
 In a git superproject the setup script expands each changed, checked-out submodule into its own
 diff (paths prefixed `<sub>/`, recorded under `submodules` with the base commit and how it was
 chosen; uncommitted edits inside a sub count), so a review run from the superproject sees the
@@ -161,7 +162,7 @@ With `-c <engine>` (long `--with-code-review`):
   via `spectra scope`) says so in the scope note;
 - engine findings get a mapped severity (raised only for data loss / security bypass / startup
   crash), an `engine` tag, and are merged with the spec findings — same file and same root
-  cause collapse to one `engine: both` entry;
+  cause collapse to one entry whose `engines` lists both;
 - a behaviour the spec sanctions and the engine flags is reported as a `spec-conflict`
   entry for a human decision, never dropped;
 - the report shows both verdict lines; the merged list is logged once to `history.jsonl` with
