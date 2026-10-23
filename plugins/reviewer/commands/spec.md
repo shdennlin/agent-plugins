@@ -1,6 +1,7 @@
 ---
 allowed-tools:
   - Read
+  - Bash
   - Task
   - AskUserQuestion
 description: Review a spec/proposal/design before implementation to catch gaps, risks, and ambiguities
@@ -12,8 +13,8 @@ argument-hint: "[path...] [--fix] [--no-explore] [--angles list] [-n N] [--help/
 Review feature specifications, proposals, designs, or task lists before implementation starts.
 
 Multi-angle parallel review is the default — every invocation fans out across all
-built-in angles (scope, completeness, tasks, platform, and composition when the
-orchestrator judges multiple independent spec units are in scope). Use `--angles`
+built-in angles (scope, completeness, tasks, platform, design, consistency, and
+composition when the orchestrator judges multiple independent spec units are in scope). Use `--angles`
 to narrow that set; use `--fix` to also run an iterative review → fix loop.
 
 ## Arguments
@@ -122,6 +123,8 @@ Task tool:
     Stay focused and efficient — breadth over depth. Do NOT analyze or judge the spec,
     only report codebase facts.
 ```
+
+If that agent type is not available in this session (the `feature-dev` plugin is not installed), use the built-in `Explore` agent with the same brief instead.
 
 Capture the code-explorer output as `CODEBASE_CONTEXT`.
 
