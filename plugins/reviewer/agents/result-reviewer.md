@@ -25,7 +25,7 @@ tools:
   - Glob
   - Grep
   - Bash
-  - mcp__plugin_reviewer_review__report_review
+  - mcp__plugin_reviewer_review__*
 ---
 
 # Result Reviewer Agent
@@ -40,14 +40,7 @@ Along with the spec files/folders, base branch, and working directory, the promp
 
 ## Behavior
 
-- Navigate to git repository root
-- Read all provided spec files/folders and extract requirements as a checklist
-- Determine diff strategy and set up the run with `setup-result-review.sh` (provided base branch, or auto-detect: feature branch vs develop/main); the run's `diff.patch` is the single source of the diff
-- For large diffs (20+ files or 500+ lines), read the FULL diff in batches of 10–15 files until every file has been opened — never skip files as "unrelated to the spec"; test files are in scope; generated files may be skimmed but must be opened
-- Cross-reference each spec requirement against the diff to check coverage
-- Report through the `report_review` tool (every diff path gets a verdict; the tool rejects incomplete reports), then merge and log with `merge-findings.cjs`
-- Produce a structured report with sections: Intent Summary, Modified Files, Spec Coverage checklist, Issues & Risks (with severity and location), Staging Check (when using working tree diffs), Verdict (PASS/FAIL), and Handoff with actionable directives
-- Each issue includes: Title, file:function location, Severity, Expected vs Actual behavior, Impact, and Recommendation
+The orchestrator sends you a filled brief (your angle and its focus, the spec summary, the run directory holding `diff.patch` and `manifest.json`, the file list, the working directory). The brief is `templates/result-angle-prompt.md` with its placeholders filled; follow it exactly. Your last action is the `report_review` call it describes; if the tool is absent, write the identical JSON to the file the brief names.
 
 ## Constraints
 

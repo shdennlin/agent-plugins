@@ -188,6 +188,7 @@ If there are directives to fix, spawn the spec-fixer Agent:
 
 ```
 Agent tool:
+  subagent_type: "reviewer:spec-fixer"
   description: "Fix spec issues — round {N}"
   prompt: |
     Apply the following fix directives to the spec documents.

@@ -75,3 +75,48 @@ test('the -c route takes the base from the Run dir line, not a second auto-detec
   assert.match(read('agents/result-fix-orchestrator.md'), /Run dir: \{run_dir\} \(angles: [^)]*; base: /)
   assert.match(read('skills/result/result-reviewer.md'), /Run dir: \{run_dir\} \(angles: [^)]*; base: /)
 })
+
+// --- batch C: one source for each prompt
+const SHARED = {
+  batching: 'read it in slices of 10–15 files',
+  neverSkip: 'Do NOT skip files as "unrelated to the spec"',
+  submodule: 'belongs to that sub-repository',
+  patternRule: 'smallest literal substring that identifies the construct',
+}
+test('the angle brief lives only in templates/result-angle-prompt.md', () => {
+  const tpl = read('templates/result-angle-prompt.md')
+  for (const s of Object.values(SHARED)) assert.ok(tpl.includes(s), `template lacks: ${s}`)
+  for (const f of ['agents/result-fix-orchestrator.md', 'agents/result-reviewer.md', 'skills/result/result-reviewer.md'])
+    for (const [k, s] of Object.entries(SHARED)) assert.ok(!read(f).includes(s), `${f} still carries the ${k} sentence`)
+  for (const p of ['{angle_label}', '{angle_focus}', '{angle_key}', '{spec_summary}', '{run_dir}', '{size_class}', '{working_directory}', '{file_list}'])
+    assert.ok(tpl.includes(p), `template lacks ${p}`)
+})
+test('orchestrators dispatch plugin agents by type and fill the template', () => {
+  assert.match(read('agents/result-fix-orchestrator.md'), /subagent_type: "reviewer:result-reviewer"/)
+  assert.match(read('agents/result-fix-orchestrator.md'), /subagent_type: "reviewer:result-fixer"/)
+  assert.match(read('agents/spec-orchestrator.md'), /subagent_type: "reviewer:spec-fixer"/)
+  assert.match(read('agents/result-fix-orchestrator.md'), /templates\/result-angle-prompt\.md/)
+  assert.match(read('skills/result/result-reviewer.md'), /templates\/result-angle-prompt\.md/)
+})
+
+test('INSTALL.md states per-command Codex support', () => {
+  const t = read('.codex/INSTALL.md')
+  for (const row of ['| `init` |', '| `result` |', '| `spec` |', '| `spec-dual` |']) assert.ok(t.includes(row), `INSTALL lacks ${row}`)
+  assert.match(t, /spec-dual.*Workflow tool/)
+})
+
+test('SKILL.md files are pointer stubs, not flag copies', () => {
+  for (const n of ['init', 'result', 'spec', 'spec-dual']) {
+    const t = read(`skills/${n}/SKILL.md`).replace(/^---[\s\S]*?---\n/, '')
+    const lines = t.split('\n').filter((l) => l.trim())
+    assert.ok(lines.length <= 15, `${n}/SKILL.md body has ${lines.length} lines`)
+    assert.ok(t.includes(`commands/${n}.md`), `${n}/SKILL.md does not point at commands/${n}.md`)
+    assert.ok(!/^\s*--[a-z]/m.test(t), `${n}/SKILL.md restates flags`)
+  }
+})
+
+test('the spec-dual workflow carries the command name', () => {
+  assert.ok(fs.existsSync(path.join(ROOT, 'workflows', 'spec-dual.workflow.js')), 'workflows/spec-dual.workflow.js missing')
+  assert.match(read('workflows/spec-dual.workflow.js'), /name: 'spec-dual'/)
+  for (const f of ['commands/spec-dual.md', 'skills/spec-dual/SKILL.md', 'README.md']) assert.ok(!read(f).includes('two-engine-spec-review'), `${f} still names two-engine-spec-review`)
+})
