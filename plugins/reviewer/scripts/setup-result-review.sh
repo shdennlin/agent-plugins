@@ -195,10 +195,19 @@ if (( FILE_COUNT >= 20 || LINE_COUNT >= 500 )); then SIZE="large"; fi
 
 if [[ -d "$TOP/openspec" ]]; then ROOT="$TOP/openspec/reviews/runs"; else ROOT="$TOP/.claude/reviewer/runs"; fi
 mkdir -p "$ROOT"
-# Retention: keep the newest KEEP_RUNS run directories (by name = timestamp); files in runs/ are never touched.
+# The runs root must be a real directory inside the repository: pruning deletes under it, so a
+# symlinked runs/ (or a symlinked parent) pointing elsewhere is refused outright.
+REAL_TOP="$(cd "$TOP" && pwd -P)"
+REAL_ROOT="$(cd "$ROOT" 2>/dev/null && pwd -P)" || die2 "cannot enter the runs directory $ROOT"
+[[ "$REAL_ROOT" == "$REAL_TOP/"* ]] || die2 "runs directory resolves outside the repository ($ROOT -> $REAL_ROOT)"
+[[ -L "$ROOT" ]] && die2 "runs directory resolves outside the repository: $ROOT is a symlink"
+# Retention: keep the newest KEEP_RUNS run directories (by name = timestamp); files, symlinks and
+# anything not named like a run are never touched (find does not follow symlinks; -type d excludes them).
 KEEP_RUNS="${REVIEWER_KEEP_RUNS:-10}"
-find "$ROOT" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-*' \
-  | LC_ALL=C sort | awk -v k="$KEEP_RUNS" '{a[NR]=$0} END{for(i=1;i<=NR-k;i++) print a[i]}' | while IFS= read -r old; do rm -rf "$old"; done
+[[ "$KEEP_RUNS" =~ ^[0-9]+$ ]] || KEEP_RUNS=10
+find -P "$REAL_ROOT" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-*' \
+  | LC_ALL=C sort | awk -v k="$KEEP_RUNS" '{a[NR]=$0} END{for(i=1;i<=NR-k;i++) print a[i]}' \
+  | while IFS= read -r old; do [[ "$old" == "$REAL_ROOT/"* && ! -L "$old" ]] && rm -rf "$old"; done
 [[ -f "$ROOT/.gitignore" ]] || printf '*\n' >"$ROOT/.gitignore"
 
 # mktemp guarantees a fresh directory even when two runs start in the same second

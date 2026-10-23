@@ -303,6 +303,14 @@ outq="$("$SCRIPT" --working-dir "$Q/super" --base develop 2>"$Q/err.txt")" || fa
 runq="$(jq -r .run_dir <<<"$outq")"
 [[ "$(jq -c '.skipped_submodules' "$runq/manifest.json")" == '[{"path":"libZ","reason":"not checked out"}]' ]] || fail "skipped submodule recorded (got $(jq -c .skipped_submodules "$runq/manifest.json"))"
 [[ "$(jq -r '.files|join(",")' <<<"$outq")" == "plain.txt" ]] || fail "skipped submodule contributes no files"
+# a runs/ that is a symlink out of the repo is never pruned (and never deleted through)
+OUTSIDE="$(mktemp -d)"; mkdir "$OUTSIDE/20260101T000000Z-victim"; printf 'keep\n' >"$OUTSIDE/20260101T000000Z-victim/x"
+rm -rf "$RUNS"; ln -s "$OUTSIDE" "$RUNS"
+"$SCRIPT" --working-dir "$Q/super" --base develop >/dev/null 2>"$Q/err2.txt" || true
+[[ -f "$OUTSIDE/20260101T000000Z-victim/x" ]] || fail "prune followed a symlinked runs/ outside the repo"
+grep -q "runs directory resolves outside the repository" "$Q/err2.txt" || fail "symlinked runs/ is reported (got: $(cat "$Q/err2.txt"))"
+rm -f "$RUNS"; rm -rf "$OUTSIDE"; mkdir -p "$RUNS"
+REVIEWER_KEEP_RUNS="abc" "$SCRIPT" --working-dir "$Q/super" --base develop >/dev/null 2>"$Q/err3.txt" || fail "non-integer REVIEWER_KEEP_RUNS must fall back, not fail ($(cat "$Q/err3.txt"))"
 rm -rf "$Q"
 
 echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, submodules, $n normalize cases"

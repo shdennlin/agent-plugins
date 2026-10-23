@@ -28,7 +28,7 @@ test('dry-run scores given merged.json files and writes summary.json', () => {
   assert.equal(s.runs[1].ok, false)
   assert.equal(s.perSeed['type-none'].hits, 1)
   assert.equal(s.perSeed['type-none'].outOf, 1)
-  assert.ok(Math.abs(s.meanRecall - 0.25) < 1e-9, `meanRecall=${s.meanRecall}`)
+  assert.ok(Math.abs(s.meanRecall - 1 / s.seeds) < 1e-9, `meanRecall=${s.meanRecall} (one hit of ${s.seeds} seeds)`)
   assert.match(r.stdout, /type-none/)
 })
 
