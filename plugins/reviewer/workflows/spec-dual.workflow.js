@@ -351,6 +351,12 @@ function categorize({ claude, codex }, round) {
 
 const seenBy = (cat, f) =>
   cat.both.includes(f) ? 'both' : (cat.onlyClaude.includes(f) ? 'claude' : 'codex')
+// history row v2 vocabulary: `engine` is one engine, agreement is the `engines` list (never 'both')
+const engineTag = (cat, f) => {
+  const s = seenBy(cat, f)
+  return s === 'both' ? { engine: 'claude', engines: ['claude', 'codex'] } : { engine: s, engines: [s] }
+}
+const historyFinding = (cat, f) => ({ title: f.title, location: f.location, severity: f.severity, category: f.category || '', ...engineTag(cat, f) })
 
 // Build ONE directive covering all of a round's findings. Findings on a spec are
 // highly interrelated (the same license/workspace/path decision shows up across
@@ -552,6 +558,7 @@ while (round <= MAX_ROUNDS + 1) {
       `fresh=${fresh.length} linked=${linked} escalated=${escalated.size}` +
       (down.length ? ` | ⚠️ ENGINE DOWN: ${down.join('+')} — NOT a clean review` : ''))
   history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length,
+                 findings: cat.all.map(f => historyFinding(cat, f)),
                  // intersection = findings BOTH engines reported (by key). ~0 is normal with independent
                  // engines and means every blocker is single-engine; surfaced so the consumer can weigh it.
                  intersection: cat.both.length, claudeOnly: cat.onlyClaude.length, codexOnly: cat.onlyCodex.length,
@@ -613,7 +620,7 @@ if (!cleared) {
   return { ready: false, enginesClean: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
             gateRan: GATES.length ? gateRan : null,
             intersection: intersectionSummary(),
-            findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
+            findings: lastAll.map(f => ({ ...f, ...(lastCat ? engineTag(lastCat, f) : { engine: 'claude', engines: ['claude'] }) })) }
 }
 
 // After blockers clear, fix remaining LOW issues (no re-review needed).
@@ -642,4 +649,4 @@ return { ready, enginesClean: true, change: CHANGE, rounds: history.length, fixR
          gateRan: GATES.length ? gateRan : null,
          ...(ready ? {} : { reason: `engines are clean but ${openHuman.length} MEDIUM+ blocker(s) are escalated to the human (see needsHuman)` }),
          intersection: intersectionSummary(),
-         findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
+         findings: lastAll.map(f => ({ ...f, ...(lastCat ? engineTag(lastCat, f) : { engine: 'claude', engines: ['claude'] }) })) }

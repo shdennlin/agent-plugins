@@ -162,13 +162,16 @@ chosen fixes — and if changes were made, offer to re-run `/reviewer:spec-dual`
 
 ### Step 6: Log findings history (best-effort)
 
-Persist the final round's findings for the rules-harvest loop (`/reviewer:init --from-history`).
-The Workflow result includes `findings` (final-round union). If it is non-empty, pipe it as a
-JSON array to the logging script:
+Persist EVERY review round for the rules-harvest loop (`/reviewer:init --from-history`): the
+problems found and fixed in round 1 are the ones most worth turning into rules, so logging only
+the post-fix residue would lose them. The Workflow result's `history[]` has one row per review
+round, each with `round` and `findings` (that round's union: `title`, `location`, `severity`,
+`category`, `engine`, `engines`). For each row whose `findings` is non-empty, pipe the array
+as JSON to the logging script with that row's round:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change>" --source spec-dual --round <rounds> <<'FINDINGS_JSON'
-<findings as JSON array>
+"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change>" --source spec-dual --round <n> <<'FINDINGS_JSON'
+<history[n-1].findings as a JSON array>
 FINDINGS_JSON
 ```
 

@@ -442,6 +442,15 @@ if (scenario === 'fanout') {
   assert(labels.includes('fix-low'), 'the LOW is cleared by fix-low afterwards')
   const codex1 = calls.find(c => c.label === 'codex:1')
   assert(codex1 && /Cover these angles: Scope & Boundaries/.test(codex1.prompt), 'codex prompt lists the template labels')
+  // history v2: every round carries its union findings with engine/engines (never 'both')
+  for (const [i, row] of result.history.entries()) assert(Array.isArray(row.findings), `history[${i}].findings is an array`)
+  assert(result.history[0].findings.length >= 2, 'round 1 history row lists its findings (got ' + result.history[0].findings.length + ')')
+  for (const f of result.history[0].findings) {
+    assert(['claude', 'codex'].includes(f.engine), 'history finding engine is claude|codex (got ' + f.engine + ')')
+    assert(Array.isArray(f.engines) && f.engines.length >= 1 && f.engines.every(e => ['claude', 'codex'].includes(e)), 'history finding engines[] lists the raising engines')
+    assert(typeof f.title === 'string' && typeof f.location === 'string' && typeof f.severity === 'string' && typeof f.category === 'string', 'history finding carries title/location/severity/category')
+  }
+  for (const f of result.findings) assert(Array.isArray(f.engines) && f.engine !== 'both', 'final findings carry engines[] and no both')
 }
 if (scenario === 'angledown') {
   assert(result.history[0].degraded === true, 'a dead angle degrades the round')
@@ -492,6 +501,9 @@ if (scenario === 'badrules') {
   assert(labels.includes('claude:scope:1') && labels.includes('codex:1'), 'labels unaffected by malformed rules')
   assert(calls.every(c => !/## Project Rules/.test(c.prompt)), 'no rules section anywhere')
   assert(logs.some(l => /projectRules ignored/.test(l)), 'malformed projectRules are logged')
+}
+if (scenario === 'noangles') {
+  assert(Array.isArray(result.history[0].findings) && result.history[0].findings.length === 0, 'a round with an empty union has findings: []')
 }
 if (scenario === 'angledownclean') {
   const labels = calls.map(c => c.label)

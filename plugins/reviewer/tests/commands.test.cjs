@@ -158,3 +158,9 @@ test('no prompt or doc uses the legacy engine names claude-result / both', () =>
   }
   assert.match(read('commands/result.md'), /`engines`/)
 })
+
+test('spec-dual logs every round from the workflow history; spec rows name the engine', () => {
+  const sd = read('commands/spec-dual.md')
+  assert.match(sd, /history\[\]/); assert.match(sd, /--round <n>/); assert.match(sd, /engines/)
+  assert.match(read('agents/spec-orchestrator.md'), /`engine` \(always `claude`\)/)
+})
