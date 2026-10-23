@@ -196,8 +196,7 @@ Agent tool:
 After the fixer completes, paste its `FIXER-RESULT … END` block into
 `node "{plugin_root}/scripts/merge-findings.cjs" --parse-fixer` (stdin), keep the JSON it prints as this
 round's fixer result (`applied[]`, `skipped[]`; `mismatch: true` means the fixer's counts disagree
-with its lines — say so), and output a brief summary of what was fixed. Directives escalated to the
-user and declined are not sent to the fixer; keep them as this round's `escalated[]` list.
+with its lines — say so), and output a brief summary of what was fixed. Then write `{run_dir}/outcomes.json`: a JSON array of `{title, location, outcome}` — every `applied[]` entry with `outcome: "fixed"`, every `skipped[]` entry with `"open"`, and every directive the user escalated and declined (`none`, or not among the chosen numbers) with `"escalated"`; those declined directives are not sent to the fixer.
 
 ### Step 7: Next Round
 
@@ -237,7 +236,7 @@ step below — run its merge command BEFORE printing the Final Summary. Then out
 
 ## Log Findings (REQUIRED — run before the Final Summary)
 
-Only the FINAL round is logged. After the loop ends, re-run the Step 3 merge once on the last round's `run_dir`, with the same `--change` and `--expect`, `--round {final N}`, and without `--no-log` (append `--log-script "{log_script_path}"`). Re-running is safe: `merged.json` comes out the same. If `log_script_path` is absent or `none`, do not re-run; the log line is `findings not logged: logging disabled`.
+Only the FINAL round is logged. After the loop ends, re-run the Step 3 merge once on the last round's `run_dir`, with the same `--change` and `--expect`, `--round {final N}`, and without `--no-log` (append `--log-script "{log_script_path}"`, and `--outcomes "{run_dir}/outcomes.json"` when that round ran the fixer, so applied directives log as `fixed`, declined escalations as `escalated`, the rest as `open`). Re-running is safe: `merged.json` comes out the same. If `log_script_path` is absent or `none`, do not re-run; the log line is `findings not logged: logging disabled`.
 
 If the merge script printed a `logged N finding(s)` line, put it in the Final Summary; if it printed `findings not logged: <reason>`, put that there instead. Never log yourself any other way.
 

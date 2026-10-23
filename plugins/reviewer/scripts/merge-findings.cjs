@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 // Deterministic merge of per-angle review reports in a result-review run directory.
-//   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>]
+//   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>] [--outcomes <file>]
 //   node merge-findings.cjs --parse-fixer   (stdin: a fixer report; stdout: {applied[], skipped[], mismatch})
 //                           [--expect <angle1,angle2,...>]
 // --expect names the angles that must have reported; one with no <angle>.json is recorded as an
@@ -402,6 +402,7 @@ function parseArgs(argv) {
     else if (a === '--round') o.round = argv[++i]
     else if (a === '--log-script') o.logScript = argv[++i]
     else if (a === '--no-log') o.log = false
+    else if (a === '--outcomes') o.outcomes = argv[++i]
     else if (a === '--expect') o.expect = String(argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     else if (a.startsWith('--')) throw new Error(`unknown argument: ${a}`)
     else if (o.runDir === null) o.runDir = a
@@ -500,9 +501,11 @@ function main(argv) {
     locations: i.locations,
     pattern: typeof i.pattern === 'string' && i.pattern.trim() ? i.pattern : null,
   }))
+  // outcome: a reviewed finding is open unless the orchestrator's outcomes file (what the fixer applied,
+  // what the human took) says otherwise
   const isNode = /\.c?js$/.test(o.logScript)
   const source = manifest.mode === 'spec' ? 'spec' : 'result'
-  const logArgs = ['--change', o.change, '--source', source, '--round', String(o.round), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
+  const logArgs = ['--change', o.change, '--source', source, '--round', String(o.round), '--outcome', 'open', ...(o.outcomes ? ['--outcomes', o.outcomes] : []), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
   const r = spawnSync(isNode ? process.execPath : o.logScript, isNode ? [o.logScript, ...logArgs] : logArgs, {
     input: JSON.stringify(rows),
     cwd: manifest.working_directory || runDir,

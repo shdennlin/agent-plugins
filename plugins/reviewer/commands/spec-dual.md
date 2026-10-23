@@ -168,10 +168,14 @@ the post-fix residue would lose them. The Workflow result's `history[]` has one 
 round, each with `round` and `findings` (that round's union: `title`, `location`, `severity`,
 `category`, `engine`, `engines`, `pattern` when a reviewer gave one). For each row whose `findings`
 is non-empty, fold the union first (one entry per defect: two engines wording one issue at one
-location, or sharing a `pattern`, become one row with both engines), then log it with that row's round:
+location, or sharing a `pattern`, become one row with both engines), then log it with that row's round
+and its outcome: every round before the last was sent to the fixer in full, so its rows log with
+`--outcome fixed`; the last round's rows are what remained when the loop ended, `--outcome residual`.
+Before piping, set `"outcome": "escalated"` on every finding whose title is in the result's
+`needsHuman` list (a row's own outcome wins over the flag).
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/fold-findings.cjs" <<'FINDINGS_JSON' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(o.findings))' | node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change>" --source spec-dual --round <n>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/fold-findings.cjs" <<'FINDINGS_JSON' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(o.findings))' | node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change>" --source spec-dual --round <n> --outcome <fixed | residual>
 <history[n-1].findings as a JSON array>
 FINDINGS_JSON
 ```

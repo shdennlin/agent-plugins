@@ -254,3 +254,11 @@ test('spec-dual folds each round through fold-findings.cjs before logging with l
   const sd = read('commands/spec-dual.md')
   assert.match(sd, /fold-findings\.cjs/); assert.match(sd, /log-findings\.cjs/); assert.ok(!sd.includes('log-findings.sh'))
 })
+test('history v3: orchestrators write outcomes.json from the fixer result and log with --outcomes; -c route and spec-dual carry outcome', () => {
+  for (const f of ['agents/spec-orchestrator.md', 'agents/result-fix-orchestrator.md']) {
+    const t = read(f); assert.match(t, /outcomes\.json/, f); assert.match(t, /--outcomes/, f); assert.match(t, /escalated/, f)
+  }
+  assert.match(body('result.md'), /`outcome`/)
+  const sd = body('spec-dual.md'); assert.match(sd, /--outcome residual/); assert.match(sd, /--outcome fixed/); assert.match(sd, /escalated/)
+  assert.match(read('README.md'), /schema v3/)
+})

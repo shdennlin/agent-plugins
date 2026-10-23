@@ -197,9 +197,7 @@ Agent tool:
 After the fixer completes, paste its `FIXER-RESULT … END` block into
 `node "{plugin_root}/scripts/merge-findings.cjs" --parse-fixer` (stdin), keep the JSON it prints as this
 round's fixer result (`applied[]`, `skipped[]`; `mismatch: true` means the fixer's counts disagree
-with its lines — say so), and output a brief summary of what was fixed. Directives escalated to the
-user and declined (`none`, or not in the chosen numbers) are not sent to the fixer; keep them as this
-round's `escalated[]` list.
+with its lines — say so), and output a brief summary of what was fixed. Then write `{run_dir}/outcomes.json`: a JSON array of `{title, location, outcome}` — every `applied[]` entry with `outcome: "fixed"`, every `skipped[]` entry with `"open"`, and every directive the user escalated and declined (`none`, or not among the chosen numbers) with `"escalated"`; those declined directives are not sent to the fixer.
 
 ### Step 7: Next Round
 
@@ -238,11 +236,12 @@ ends without either running this command or printing a "findings not logged: <re
 If `log_script_path` was provided, re-run the merge on the FINAL round's run dir without `--no-log`:
 
 ```bash
-node "{plugin_root}/scripts/merge-findings.cjs" {final run_dir} --change "<the same change id as Step 3>" --round <final round number> --expect {angle keys} --log-script "{log_script_path}"
+node "{plugin_root}/scripts/merge-findings.cjs" {final run_dir} --change "<the same change id as Step 3>" --round <final round number> --expect {angle keys} --log-script "{log_script_path}" --outcomes "{final run_dir}/outcomes.json"
 ```
 
-The merge writes the rows itself (`source: spec`, `engine: claude`, `pattern`, `run_id`), one per
-merged issue; you never hand-build rows. If the command fails or `log_script_path` is missing, add
+(omit `--outcomes` when no fixer ran in that round, so the file does not exist). The merge writes the
+rows itself (`source: spec`, `engine: claude`, `pattern`, `run_id`, `outcome`: `fixed` / `escalated`
+from `outcomes.json`, `open` otherwise), one per merged issue; you never hand-build rows. If the command fails or `log_script_path` is missing, add
 one line to your output ("findings not logged: <reason>") and continue — logging failure MUST NOT
 change your verdict or output format.
 
