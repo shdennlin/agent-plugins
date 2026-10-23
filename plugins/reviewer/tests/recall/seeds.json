@@ -1,0 +1,59 @@
+[
+  {
+    "id": "type-none",
+    "kind": "type",
+    "file": "src/parse.py",
+    "function": "parse_amount",
+    "pattern": "return int(s)",
+    "titleHints": [
+      "TypeError",
+      "\\bNone\\b",
+      "non-string",
+      "not a str"
+    ]
+  },
+  {
+    "id": "boundary-slice",
+    "kind": "boundary",
+    "file": "src/paginate.py",
+    "function": "page",
+    "pattern": "items[start:start + size - 1]",
+    "titleHints": [
+      "off-by-one",
+      "one (item|element|short|fewer)",
+      "size - 1",
+      "slice"
+    ]
+  },
+  {
+    "id": "dataflow-stale",
+    "kind": "dataflow",
+    "file": "src/report.py",
+    "function": "build_report",
+    "pattern": "\"total\": sum(items)",
+    "titleHints": [
+      "unfiltered",
+      "skip",
+      "filtered",
+      "excluded",
+      "stale"
+    ]
+  },
+  {
+    "id": "crossfile-cast",
+    "kind": "crossfile",
+    "file": "src/parse.py",
+    "function": "parse_amount_field",
+    "pattern": "int(raw)",
+    "titleHints": [
+      "non-numeric",
+      "ValueError",
+      "unchecked",
+      "cast"
+    ],
+    "crossFile": [
+      "src/parse.py",
+      "src/importer.py"
+    ]
+  }
+]
