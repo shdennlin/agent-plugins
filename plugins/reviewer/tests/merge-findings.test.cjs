@@ -12,7 +12,7 @@ const { merge, foldByPattern } = require('../scripts/merge-findings.cjs')
 
 const FIXTURES = path.join(__dirname, 'fixtures')
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'merge-findings.cjs')
-const LOG_SCRIPT = path.join(__dirname, '..', 'scripts', 'log-findings.sh')
+const LOG_SCRIPT = path.join(__dirname, '..', 'scripts', 'log-findings.cjs')
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'))
 const clone = (v) => structuredClone(v)
@@ -233,7 +233,12 @@ test('CLI writes merged.json and logs through log-findings.sh with locations', (
   const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
   assert.equal(rows.length, 1)
   assert.equal(rows[0].locations.length, 2)
-  assert.equal(rows[0].engine, '')
+  assert.equal(rows[0].engine, 'claude')
+  assert.deepEqual(rows[0].engines, ['claude'])
+  assert.equal(rows[0].v, 2)
+  assert.equal(rows[0].round, 2)
+  assert.equal(typeof rows[0].run_id, 'string')
+  assert.ok('pattern' in rows[0])
 })
 
 test('CLI --no-log writes merged.json and no history file', (t) => {

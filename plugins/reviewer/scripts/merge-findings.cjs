@@ -11,7 +11,7 @@
 // merged.json `complete` is false when any report is invalid or any file is not_reviewed; `verdict`
 // stays the severity verdict, so a caller must check `complete` before treating PASS as a pass.
 // Writes <run_dir>/merged.json, prints it, then (unless --no-log) appends the merged issues to the
-// review history through log-findings.sh. Logging is best-effort: a failure is reported, exit stays 0.
+// review history through log-findings.cjs. Logging is best-effort: a failure is reported, exit stays 0.
 
 const fs = require('fs')
 const path = require('path')
@@ -308,7 +308,7 @@ function loadReports(runDir) {
 }
 
 function parseArgs(argv) {
-  const o = { runDir: null, change: null, round: '1', expect: [], log: true, logScript: path.join(__dirname, 'log-findings.sh') }
+  const o = { runDir: null, change: null, round: '1', expect: [], log: true, logScript: path.join(__dirname, 'log-findings.cjs') }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--change') o.change = argv[++i]
@@ -357,15 +357,20 @@ function main(argv) {
   process.stdout.write(json + '\n')
   if (!o.log) return
 
+  // v2 rows: the merge is always the Claude engine's result review; pattern and run_id travel along
   const rows = merged.issues.map((i) => ({
     severity: i.severity,
     title: i.title,
     location: i.location,
     category: i.category,
-    engine: '',
+    engine: 'claude',
+    engines: ['claude'],
     locations: i.locations,
+    pattern: typeof i.pattern === 'string' && i.pattern.trim() ? i.pattern : null,
   }))
-  const r = spawnSync(o.logScript, ['--change', o.change, '--source', 'result', '--round', String(o.round)], {
+  const isNode = /\.c?js$/.test(o.logScript)
+  const logArgs = ['--change', o.change, '--source', 'result', '--round', String(o.round), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
+  const r = spawnSync(isNode ? process.execPath : o.logScript, isNode ? [o.logScript, ...logArgs] : logArgs, {
     input: JSON.stringify(rows),
     cwd: manifest.working_directory || runDir,
     encoding: 'utf8',

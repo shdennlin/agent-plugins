@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Regression test for scripts/log-findings.sh as used by `/reviewer:result --with-code-review`:
-# a merged findings array carrying an `engine` field per finding must be persisted verbatim,
-# with one JSONL row per finding, under <git-root>/.claude/reviewer/history.jsonl
-# (no openspec/ in the temp repo). No Claude, no network.
+# Regression test for scripts/log-findings.sh — now a wrapper over log-findings.cjs (history row v2):
+# rows are validated (engine vocabulary, integer round), completed (v, ts, engines, locations, pattern,
+# run_id) and appended all-or-nothing under <git-root>/.claude/reviewer/history.jsonl. No Claude, no network.
 #
 #   bash plugins/reviewer/tests/log-findings.test.sh
 set -euo pipefail
@@ -18,56 +17,49 @@ cd "$TMP"
 
 fail() { echo "ASSERT FAIL: $*" >&2; exit 1; }
 
-# 1. Merged array with engine tags (spec review + code-review + both) is persisted.
-"$SCRIPT" --change "openspec/changes/demo" --source result --round 1 <<'JSON' >/dev/null
+# 1. A merged array with engine tags (claude + code-review + agreement via engines[]) is persisted.
+"$SCRIPT" --change "openspec/changes/demo/" --source result --round 1 <<'JSON' >/dev/null
 [
-  {"severity":"LOW","title":"hint path omits WARNING","location":"src/base_l2.py","category":"coverage","engine":"claude-result"},
+  {"severity":"LOW","title":"hint path omits WARNING","location":"src/base_l2.py","category":"coverage","engine":"claude"},
   {"severity":"MEDIUM","title":"max_iterations overrides caller config","location":"src/skill_flow.py","category":"correctness","engine":"code-review"},
-  {"severity":"MEDIUM","title":"send_feedback exemption bypasses allowlist","location":"src/executor.py","category":"spec-conflict","engine":"both"}
+  {"severity":"MEDIUM","title":"send_feedback exemption bypasses allowlist","location":"src/executor.py","category":"spec-conflict","engine":"claude","engines":["claude","code-review"]}
 ]
 JSON
 
 OUT=".claude/reviewer/history.jsonl"
 [[ -f "$OUT" ]] || fail "expected $OUT to exist"
 [[ "$(wc -l <"$OUT" | tr -d ' ')" == "3" ]] || fail "expected 3 rows, got $(wc -l <"$OUT")"
+[[ "$(jq -r '.engine' "$OUT" | paste -sd, -)" == "claude,code-review,claude" ]] || fail "engine column mismatch"
+[[ "$(tail -1 "$OUT" | jq -c '.engines')" == '["claude","code-review"]' ]] || fail "engines[] not persisted"
+[[ "$(jq -r '.category' "$OUT" | paste -sd, -)" == "coverage,correctness,spec-conflict" ]] || fail "category column mismatch"
+jq -e 'select(.source=="result" and .change=="openspec/changes/demo" and .round==1 and .v==2)' "$OUT" >/dev/null \
+  || fail "source/normalized change/integer round/v not persisted"
 
-engines="$(jq -r '.engine' "$OUT" | paste -sd, -)"
-[[ "$engines" == "claude-result,code-review,both" ]] || fail "engine column mismatch: $engines"
-
-cats="$(jq -r '.category' "$OUT" | paste -sd, -)"
-[[ "$cats" == "coverage,correctness,spec-conflict" ]] || fail "category column mismatch: $cats"
-
-sevs="$(jq -r '.severity' "$OUT" | sort -u | paste -sd, -)"
-for s in ${sevs//,/ }; do
-  case "$s" in CRITICAL|HIGH|MEDIUM|LOW) ;; *) fail "severity outside the four legal values: $s" ;; esac
-done
-
-jq -e 'select(.source=="result" and .change=="openspec/changes/demo" and .round=="1")' "$OUT" >/dev/null \
-  || fail "source/change/round not persisted"
-
-# 2. A finding without an engine still logs, with engine as empty string (single-engine runs).
-"$SCRIPT" --change "openspec/changes/demo" --source result --round 2 <<'JSON' >/dev/null
+# 2. A finding without an engine is rejected (v2 requires the vocabulary) and nothing is appended.
+if "$SCRIPT" --change "openspec/changes/demo" --source result --round 2 <<'JSON' >/dev/null 2>"$TMP/err.txt"
 [{"severity":"LOW","title":"no engine field","location":"x.py","category":"coverage"}]
 JSON
-[[ "$(tail -1 "$OUT" | jq -r '.engine')" == "" ]] || fail "missing engine should persist as empty string"
+then fail "a row without engine must be rejected"; fi
+grep -q "row 0 rejected: engine" "$TMP/err.txt" || fail "rejection names the row and field (got: $(cat "$TMP/err.txt"))"
+[[ "$(wc -l <"$OUT" | tr -d ' ')" == "3" ]] || fail "rejected batch must not append"
 
-# 3. `locations` (pattern-sweep occurrences) persists as an array; absent → []; bare string → [string].
+# 3. `locations` persists as an array; absent → [location]; bare string → [string]; pattern absent → null.
 "$SCRIPT" --change "openspec/changes/demo" --source result --round 3 <<'JSON' >/dev/null
 [
-  {"severity":"MEDIUM","title":"unchecked cast","location":"a.py:parse","category":"correctness","locations":["a.py:parse","b.py:parse","c.py:load"]},
-  {"severity":"LOW","title":"no locations field","location":"x.py","category":"coverage"},
-  {"severity":"LOW","title":"bare string locations","location":"y.py","category":"coverage","locations":"y.py:run"}
+  {"severity":"MEDIUM","title":"unchecked cast","location":"a.py:parse","category":"correctness","engine":"claude","pattern":"int(","locations":["a.py:parse","b.py:parse","c.py:load"]},
+  {"severity":"LOW","title":"no locations field","location":"x.py","category":"coverage","engine":"claude"},
+  {"severity":"LOW","title":"bare string locations","location":"y.py","category":"coverage","engine":"claude","locations":"y.py:run"}
 ]
 JSON
 [[ "$(tail -3 "$OUT" | head -1 | jq -c '.locations')" == '["a.py:parse","b.py:parse","c.py:load"]' ]] || fail "locations array not persisted verbatim"
-[[ "$(tail -2 "$OUT" | head -1 | jq -c '.locations')" == '[]' ]] || fail "missing locations should persist as []"
+[[ "$(tail -3 "$OUT" | head -1 | jq -r '.pattern')" == 'int(' ]] || fail "pattern not persisted"
+[[ "$(tail -2 "$OUT" | head -1 | jq -c '.locations')" == '["x.py"]' ]] || fail "missing locations should default to [location]"
+[[ "$(tail -2 "$OUT" | head -1 | jq -r '.pattern')" == 'null' ]] || fail "missing pattern should persist as null"
 [[ "$(tail -1 "$OUT" | jq -c '.locations')" == '["y.py:run"]' ]] || fail "bare-string locations should be wrapped into an array"
-# Rows written before this change (test 1/2 above) also carry locations=[] so readers can rely on the key.
-[[ "$(jq -c 'select(.round=="1") | .locations' "$OUT" | sort -u)" == '[]' ]] || fail "older-shaped input should still get locations=[]"
 
-# 4. Unknown --source is rejected (engine is free text; source is the enum).
+# 4. Unknown --source is rejected (engine is the vocabulary; source is the pipeline).
 if "$SCRIPT" --change c --source code-review <<<'[]' >/dev/null 2>&1; then
   fail "--source code-review should be rejected; engine, not source, carries the engine name"
 fi
 
-echo "ok: log-findings persists engine/category per finding (3 rows), empty engine, locations array, source enum enforced"
+echo "ok: log-findings v2 rows via the wrapper (engine vocabulary, engines[], integer round, normalized change, locations/pattern defaults, all-or-nothing, source enum)"
