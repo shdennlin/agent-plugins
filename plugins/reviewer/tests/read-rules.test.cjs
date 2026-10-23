@@ -85,3 +85,8 @@ test('CLI prints JSON for --root', () => {
   assert.equal(out.status, 0, out.stderr)
   assert.deepEqual(JSON.parse(out.stdout).specs, ['S'])
 })
+
+test('quoted item followed by a trailing comment is unquoted', () => {
+  const p = parseRulesYaml('tasks:\n  - "T1"   # comment\n  - \'T2\' # c\n', { nested: false })
+  assert.deepEqual(p.tasks, ['T1', 'T2'])
+})

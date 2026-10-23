@@ -23,12 +23,11 @@ const emptyRules = () => Object.fromEntries(AREAS.map(a => [a, []]))
 // Strip surrounding quotes (double: unescape \" and \\; single: '' -> '); plain: cut at " #".
 function unquote(raw) {
   const s = raw.trim()
-  if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
-    return s.slice(1, -1).replace(/\\(["\\])/g, '$1')
-  }
-  if (s.startsWith("'") && s.endsWith("'") && s.length >= 2) {
-    return s.slice(1, -1).replace(/''/g, "'")
-  }
+  // quoted scalar, optionally followed by a trailing comment
+  const dq = s.match(/^"((?:[^"\\]|\\.)*)"\s*(#.*)?$/)
+  if (dq) return dq[1].replace(/\\(["\\])/g, '$1')
+  const sq = s.match(/^'((?:[^']|'')*)'\s*(#.*)?$/)
+  if (sq) return sq[1].replace(/''/g, "'")
   const hash = s.search(/\s#/)
   return (hash === -1 ? s : s.slice(0, hash)).trim()
 }
