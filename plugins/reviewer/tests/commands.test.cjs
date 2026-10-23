@@ -267,3 +267,12 @@ test('1.21.0: the log-findings.sh wrapper is gone and no prompt or doc names it'
   const files = ['commands', 'agents', 'skills', 'templates'].flatMap((d) => fs.readdirSync(path.join(ROOT, d), { recursive: true }).map((f) => path.join(d, String(f)))).filter((f) => f.endsWith('.md') || f.endsWith('.yaml'))
   for (const f of [...files, 'README.md', '.codex/INSTALL.md']) assert.ok(!read(f).includes('log-findings.sh'), `${f} still names log-findings.sh`)
 })
+test('fix loops log every round with that round\'s outcomes, so fixed and escalated reach history', () => {
+  for (const f of ['agents/spec-orchestrator.md', 'agents/result-fix-orchestrator.md']) {
+    const t = read(f)
+    const log = t.slice(t.indexOf('## Log Findings'))
+    assert.match(log, /every round/i, f)
+    assert.ok(!/Only the FINAL round is logged/.test(log), `${f} still logs only the final round`)
+    assert.match(log, /--outcomes/, f)
+  }
+})

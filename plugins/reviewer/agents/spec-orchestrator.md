@@ -233,15 +233,19 @@ BEFORE printing the Final Summary. Then output:
 
 This is a mandatory step of every run, not an optional postscript: your run is INCOMPLETE if it
 ends without either running this command or printing a "findings not logged: <reason>" line.
-If `log_script_path` was provided, re-run the merge on the FINAL round's run dir without `--no-log`:
+If `log_script_path` was provided, log EVERY round (the problems found and fixed in round 1 are the
+ones most worth turning into rules): for each round n = 1..N in order, re-run the merge on that
+round's run dir without `--no-log`:
 
 ```bash
-node "{plugin_root}/scripts/merge-findings.cjs" {final run_dir} --change "<the same change id as Step 3>" --round <final round number> --expect {angle keys} --log-script "{log_script_path}" --outcomes "{final run_dir}/outcomes.json"
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir of round n} --change "<the same change id as Step 3>" --round n --expect {angle keys of round n} --log-script "{log_script_path}" --outcomes "{run_dir of round n}/outcomes.json"
 ```
 
-(omit `--outcomes` when no fixer ran in that round, so the file does not exist). The merge writes the
-rows itself (`source: spec`, `engine: claude`, `pattern`, `run_id`, `outcome`: `fixed` / `escalated`
-from `outcomes.json`, `open` otherwise), one per merged issue; you never hand-build rows. If the command fails or `log_script_path` is missing, add
+Omit `--outcomes` for a round whose fixer did not run (the file does not exist). Re-running is
+safe: `merged.json` comes out the same. The merge writes the rows itself
+(`source: spec`, `engine: claude`, `pattern`, `run_id`, `outcome`: `fixed` / `escalated` from `outcomes.json`,
+`open` otherwise), one per merged issue; you never hand-build rows. Collect the `logged N
+finding(s)` lines for the Final Summary. If a command fails or `log_script_path` is missing, add
 one line to your output ("findings not logged: <reason>") and continue — logging failure MUST NOT
 change your verdict or output format.
 

@@ -32,8 +32,9 @@ function handle(args) {
   }
 
   // angle becomes a filename: restrict it to a plain slug and protect orchestrator-owned files.
-  if (!/^[a-z][a-z0-9_-]*$/i.test(args.angle) || args.angle.toLowerCase() === 'manifest') {
-    return fail('report_review rejected: angle must match [a-z][a-z0-9_-]* and must not be "manifest"')
+  const RESERVED = ['manifest', 'merged', 'outcomes']
+  if (!/^[a-z][a-z0-9_-]*$/i.test(args.angle) || RESERVED.includes(args.angle.toLowerCase())) {
+    return fail(`report_review rejected: angle must match [a-z][a-z0-9_-]* and must not be one of ${RESERVED.join(', ')}`)
   }
   // Resolve symlinks in run_dir and keep the write inside a runs directory.
   const realDir = fs.realpathSync(runDir)

@@ -373,10 +373,13 @@ function merge(manifest, reports, diffPatch, opts = {}) {
 }
 
 // Every <run_dir>/*.json except manifest.json and merged.json, stamped with its basename as angle.
+// Files in a run dir that are not angle reports: the setup's manifest, this script's output, and the
+// orchestrator's outcomes file (report_review refuses these names as angles).
+const ORCHESTRATOR_FILES = new Set(['manifest.json', 'merged.json', 'outcomes.json'])
 function loadReports(runDir) {
   return fs
     .readdirSync(runDir)
-    .filter((f) => f.endsWith('.json') && f !== 'manifest.json' && f !== 'merged.json')
+    .filter((f) => f.endsWith('.json') && !ORCHESTRATOR_FILES.has(f))
     .sort()
     .map((f) => {
       const angle = f.slice(0, -'.json'.length)

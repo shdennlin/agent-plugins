@@ -137,3 +137,11 @@ test('report_review reads manifest.mode: a spec run rejects coverage and accepts
   const res = handleReportReview(bad)
   assert.equal(res.isError, true); assert.match(res.content[0].text, /coverage: not allowed in spec mode/)
 })
+
+test('report_review refuses the orchestrator-owned names merged and outcomes as angles', () => {
+  const run = mkRun()
+  for (const angle of ['merged', 'outcomes', 'manifest']) {
+    const res = handleReportReview({ ...validReport(run), angle })
+    assert.equal(res.isError, true, angle); assert.match(res.content[0].text, /angle/)
+  }
+})

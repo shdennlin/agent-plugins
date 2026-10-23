@@ -542,3 +542,17 @@ test('CLI --outcomes <file> maps the logged rows\' outcome; rows without a match
   for (const x of rows.filter((x) => x.title !== first.title)) assert.equal(x.outcome, 'open')
   assert.equal(rows[0].v, 3)
 })
+
+// --- batch F final review fixes
+test('outcomes.json in the run dir is orchestrator state, not an angle report', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(runDir, 'outcomes.json'), JSON.stringify([{ title: 'x', location: 'a.py:f', outcome: 'fixed' }]))
+  const before = spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' })
+  const m = JSON.parse(before.stdout)
+  assert.ok(!m.invalid_reports.some((r) => r.angle === 'outcomes'), JSON.stringify(m.invalid_reports))
+  assert.ok(!Object.keys(m.via).includes('outcomes'))
+  const again = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
+  assert.deepEqual(again.issues, m.issues, 're-running the merge is stable')
+})
