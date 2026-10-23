@@ -328,8 +328,11 @@ test('merge: pattern on one angle only at the same location+title gives one issu
 test('real superproject manifest: every file is prefixed by one of four sub-repos; merge accepts it with no reports', () => {
   const man = require('./fixtures/submodule-manifest.json')
   const subs = new Set(man.files.map((f) => f.split('/')[0]))
-  assert.deepEqual([...subs].sort(), ['api-contract', 'central', 'core-api', 'frontend'])
+  assert.deepEqual([...subs].sort(), ['sub-a', 'sub-b', 'sub-c', 'sub-d'])
   assert.equal(man.files.length, 194)
+  assert.equal(new Set(man.files).size, 194, 'paths are unique')
+  assert.ok(man.files.every((f) => !/onelegion|\/src\//.test(f)), 'no project paths in the fixture')
+  assert.ok(!/shdennlin|onelegion/.test(JSON.stringify(man)), 'no user or project names in the fixture')
   const m = merge(man, [], '', { expect: ['coverage'] })
   assert.equal(m.complete, false)
   assert.equal(m.files.length, 194)
