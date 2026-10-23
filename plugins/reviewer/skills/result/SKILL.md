@@ -31,7 +31,7 @@ With iterative auto-fix (`--fix all` also auto-fixes critical/high instead of as
 ```
 $result docs/plan/ --fix
 $result docs/plan/ --fix all --base main -n 5
-$result docs/plan/ --fix --angles security,coverage
+$result docs/plan/ --fix --angles robustness,coverage
 ```
 
 With a second, spec-blind engine merged into the same report:

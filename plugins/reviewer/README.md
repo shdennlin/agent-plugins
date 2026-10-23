@@ -222,7 +222,7 @@ The spec fix loop:
 /reviewer:result docs/plan/ --fix --base main
 
 # Result: custom angles
-/reviewer:result docs/plan/ --fix --angles security,coverage
+/reviewer:result docs/plan/ --fix --angles robustness,coverage
 ```
 
 #### Spec Flags

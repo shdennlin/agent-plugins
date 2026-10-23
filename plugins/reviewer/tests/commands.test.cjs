@@ -55,3 +55,16 @@ test('spec.md default-angle sentence lists every spec angle except composition',
 test('spec.md explorer step has the Explore fallback spec-dual has', () => {
   assert.match(body('spec.md'), /built-in `Explore` agent/)
 })
+
+const resultAngleKeys = () => angleKeys('result')
+
+test('no doc advertises an angle the template lacks', () => {
+  const keys = new Set([...specAngleKeys(), ...resultAngleKeys()])
+  const docs = [...CMDS.map((c) => 'commands/' + c), 'skills/result/SKILL.md', 'skills/spec/SKILL.md', 'README.md']
+  for (const f of docs) {
+    // only example lists (two or more comma-joined keys); prose like `--angles flag` or `--angles list` is not an example
+    for (const m of read(f).matchAll(/--angles ([a-z-]+(?:,[a-z-]+)+)/g)) {
+      for (const k of m[1].split(',')) assert.ok(keys.has(k), `${f} advertises --angles ${k}`)
+    }
+  }
+})

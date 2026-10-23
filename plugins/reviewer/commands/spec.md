@@ -37,7 +37,7 @@ From `$ARGUMENTS`, extract:
 2. **paths**: collect all positional arguments (not flags or flag values)
 3. **fix_enabled**: true if `--fix` is present
 4. **no_explore**: true if `--no-explore` is present
-5. **angles**: value after `--angles` (comma-separated string), or "default" if not provided
+5. **angles**: value after `--angles` (comma-separated string), or "default" if not provided. Validate it: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/check-angles.cjs" --section spec --angles <value>`; on exit 1 print its stderr line and stop; pass the `angles` array it prints to the orchestrator as `angles` (joined with commas; "default" stays "default" so the orchestrator may add composition)
 6. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 
 ### Help Output

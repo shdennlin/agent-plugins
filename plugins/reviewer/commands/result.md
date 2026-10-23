@@ -40,7 +40,7 @@ From `$ARGUMENTS`, extract:
 3. **base**: value after `--base` or `-b` (if provided)
 4. **fix**: true if `--fix` is present
 5. **fix_all**: true if the token right after `--fix` is exactly `all` (consume it); any other token after `--fix` is not consumed
-6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided
+6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided. Validate it: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/check-angles.cjs" --section result --angles <value>`; on exit 1 print its stderr line and stop; pass the `angles` array it prints to the orchestrator as `angles` (joined with commas)
 7. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 8. **engine**: the token after `-c` or `--with-code-review`.
    - If it is one of `low`, `medium`, `high`, `xhigh`, `max`: `engine = code-review`, `level = <token>`.
@@ -114,7 +114,7 @@ Examples:
   /reviewer:result docs/plan/ --fix --base main --angles coverage -n 5
 
   # Fix every severity without asking
-  /reviewer:result docs/plan/ --fix all --angles security,coverage
+  /reviewer:result docs/plan/ --fix all --angles robustness,coverage
 ```
 
 ### Step 2: Resolve Paths
@@ -271,7 +271,7 @@ Report the agent's findings back to the user.
 /reviewer:result docs/plan/ --fix
 
 # With base branch, custom angles, fix every severity, max 5 rounds
-/reviewer:result docs/plan/ --fix all -b main --angles security,coverage -n 5
+/reviewer:result docs/plan/ --fix all -b main --angles robustness,coverage -n 5
 
 # Spec review + /code-review (medium) as a second engine, one merged report and one log entry
 /reviewer:result openspec/changes/my-change/ --base develop -c medium
