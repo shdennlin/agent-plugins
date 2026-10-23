@@ -1,4 +1,4 @@
-// Stub harness for workflows/two-engine-spec-review.workflow.js — the plugin's only regression
+// Stub harness for workflows/spec-dual.workflow.js — the plugin's only regression
 // test. Replaces agent()/parallel()/log()/phase()/args with scripted responses and evals the
 // script, then asserts per scenario. No network, no Claude.
 //
@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 const HERE = dirname(fileURLToPath(import.meta.url))
-const scriptPath = join(HERE, '..', 'workflows', 'two-engine-spec-review.workflow.js')
+const scriptPath = join(HERE, '..', 'workflows', 'spec-dual.workflow.js')
 const scenario = process.argv[2]
 const ALL = ['reject', 'reraise', 'delivery', 'legit', 'drift', 'finalreview', 'gate', 'lowgate', 'fixerdown', 'failverdict', 'reraisecodex', 'fixerledger', 'gateunblamed', 'gatenotrun', 'badindex', 'fanout', 'angledown', 'anglecollapse', 'noangles', 'badangles', 'composition', 'rules', 'badrules', 'angledownclean']
 if (!scenario) {

@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'two-engine-spec-review',
+  name: 'spec-dual',
   description: 'Claude + Codex dual-engine spec review; each round fixes all fresh union blockers in ONE coherent session-model pass, escalating findings it cannot resolve, then clears LOW.',
   phases: [
     { title: 'Review', detail: 'Claude and Codex review the same change in parallel' },
@@ -15,13 +15,13 @@ let A
 if (typeof args === 'string') {
   try { A = args.trim() ? JSON.parse(args) : {} }
   catch {
-    throw new Error('two-engine-spec-review: args arrived as a non-JSON string; expected an object (or JSON-encoded object) with a `change` field')
+    throw new Error('spec-dual: args arrived as a non-JSON string; expected an object (or JSON-encoded object) with a `change` field')
   }
 } else {
   A = args || {}
 }
 if (!A.change) {
-  throw new Error('two-engine-spec-review: args.change (path to the change, relative to git root) is required')
+  throw new Error('spec-dual: args.change (path to the change, relative to git root) is required')
 }
 const CHANGE = A.change
 const MAX_ROUNDS = Number(A.maxRounds) > 0 ? Number(A.maxRounds) : 3
@@ -49,7 +49,7 @@ const GATES = Array.isArray(A.gateCommands)
 // passed as args.angles = [{ key, label, focus }]. Absent/malformed -> legacy single-agent path.
 function normalizeAngles(v) {
   if (v === undefined || v === null) return []
-  if (!Array.isArray(v)) { log('two-engine-spec-review: args.angles ignored (expected an array of {key,label,focus})'); return [] }
+  if (!Array.isArray(v)) { log('spec-dual: args.angles ignored (expected an array of {key,label,focus})'); return [] }
   return v.filter(a => a && typeof a.key === 'string' && a.key.trim())
           .map(a => ({ key: a.key.trim(), label: typeof a.label === 'string' && a.label.trim() ? a.label.trim() : a.key.trim(),
                        focus: typeof a.focus === 'string' ? a.focus.trim() : '' }))
@@ -74,7 +74,7 @@ function normalizeRules(v) {
   const empty = Object.fromEntries(RULE_AREAS.map(a => [a, []]))
   if (v === undefined || v === null) return empty
   if (typeof v !== 'object' || Array.isArray(v)) {
-    log('two-engine-spec-review: args.projectRules ignored (expected an object of string arrays keyed by proposal/specs/design/tasks)')
+    log('spec-dual: args.projectRules ignored (expected an object of string arrays keyed by proposal/specs/design/tasks)')
     return empty
   }
   for (const a of RULE_AREAS) empty[a] = Array.isArray(v[a]) ? v[a].filter(r => typeof r === 'string' && r.trim()).map(r => r.trim()) : []
