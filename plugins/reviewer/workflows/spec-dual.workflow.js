@@ -312,6 +312,8 @@ async function reviewRound(round) {
   const claudeDown = results.filter(r => !r.ok).map(r => (r.job.keys.length ? `claude:${r.job.label.split(':')[1]}` : 'claude'))
   const claude = ANGLE_LIST.length ? unionClaude(results.filter(r => r.ok), round) : results[0].res
   const x = liveness(codexRaw,  `codex:${round}`)
+  // Codex findings bypass unionClaude's per-angle category default; history rows need a non-empty category
+  x.res = { ...x.res, findings: x.res.findings.map(f => (f.category ? f : { ...f, category: 'cross-cutting' })) }
   // A dead engine (or any dead angle agent) must NOT count as a clean review — the *Ok flags gate `cleared`.
   return { claude, codex: x.res, claudeOk: results.every(r => r.ok), codexOk: x.ok,
            claudeAgents: jobs.map(j => j.label), claudeDown }

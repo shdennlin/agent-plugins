@@ -37,12 +37,31 @@ test('round must be numeric', () => {
   const r = run(CJS, ['--change', 'x', '--source', 'spec', '--round', 'two'], '[]', dir)
   assert.equal(r.status, 1); assert.match(r.stderr, /round/)
 })
-test('an invalid row rejects the whole batch (all-or-nothing) and names the row', () => {
+test('invalid rows are dropped and named; valid rows in the same batch are still appended', () => {
   const { dir, history } = repo()
-  const r = run(CJS, ['--change', 'x', '--source', 'result', '--round', '1'], JSON.stringify([good(), good({ engine: '' }), good({ engine: 'claude-result' })]), dir)
-  assert.equal(r.status, 1)
-  assert.match(r.stderr, /row 1 rejected: engine/); assert.match(r.stderr, /row 2 rejected: engine/)
-  assert.ok(!fs.existsSync(history), 'nothing appended when any row is invalid')
+  const r = run(CJS, ['--change', 'x', '--source', 'result', '--round', '1'], JSON.stringify([good(), good({ severity: 'BLOCKER' }), good({ title: '' })]), dir)
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr, /row 1 rejected: severity/); assert.match(r.stderr, /row 2 rejected: title/)
+  assert.match(r.stdout, /^logged 1 finding\(s\) to \.claude\/reviewer\/history\.jsonl \(2 rejected\)$/m)
+  assert.equal(rows(history).length, 1)
+})
+test('rows are normalized before validation: engine default, other: prefix, severity case, engines dedupe', () => {
+  const { dir, history } = repo()
+  const r = run(CJS, ['--change', 'x', '--source', 'result', '--round', '1'], JSON.stringify([
+    good({ engine: undefined }), good({ engine: 'pr-review-toolkit:Review-PR' }), good({ severity: 'high' }), good({ engine: 'codex', engines: ['claude', 'claude'] }), good({ engine: 'claude-result' }),
+  ]), dir)
+  assert.equal(r.status, 0, r.stderr)
+  const rs = rows(history); assert.equal(rs.length, 5)
+  assert.equal(rs[0].engine, 'claude', 'missing engine defaults to claude for spec/result sources')
+  assert.equal(rs[1].engine, 'other:pr-review-toolkit:review-pr'); assert.deepEqual(rs[1].engines, ['other:pr-review-toolkit:review-pr'])
+  assert.equal(rs[2].severity, 'HIGH')
+  assert.deepEqual(rs[3].engines, ['codex', 'claude'], 'engine itself is first and duplicates are dropped')
+  assert.equal(rs[4].engine, 'claude', 'the retired claude-result maps to claude')
+})
+test('a batch with no valid row exits 1 and appends nothing', () => {
+  const { dir, history } = repo()
+  const r = run(CJS, ['--change', 'x', '--source', 'result', '--round', '1'], JSON.stringify([good({ title: '' })]), dir)
+  assert.equal(r.status, 1); assert.ok(!fs.existsSync(history))
 })
 test('the .sh wrapper forwards to the .cjs with the same result', () => {
   const { dir, history } = repo()

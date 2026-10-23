@@ -35,13 +35,15 @@ OUT=".claude/reviewer/history.jsonl"
 jq -e 'select(.source=="result" and .change=="openspec/changes/demo" and .round==1 and .v==2)' "$OUT" >/dev/null \
   || fail "source/normalized change/integer round/v not persisted"
 
-# 2. A finding without an engine is rejected (v2 requires the vocabulary) and nothing is appended.
-if "$SCRIPT" --change "openspec/changes/demo" --source result --round 2 <<'JSON' >/dev/null 2>"$TMP/err.txt"
-[{"severity":"LOW","title":"no engine field","location":"x.py","category":"coverage"}]
+# 2. Rows are normalized (missing engine → claude for result/spec; lowercase severity upper-cased); an
+#    unfixable row (empty title) is dropped and named, the rest of the batch is still appended.
+"$SCRIPT" --change "openspec/changes/demo" --source result --round 2 <<'JSON' >"$TMP/out2.txt" 2>"$TMP/err.txt"
+[{"severity":"low","title":"no engine field","location":"x.py","category":"coverage"},{"severity":"LOW","title":"","location":"x.py","category":"coverage","engine":"claude"}]
 JSON
-then fail "a row without engine must be rejected"; fi
-grep -q "row 0 rejected: engine" "$TMP/err.txt" || fail "rejection names the row and field (got: $(cat "$TMP/err.txt"))"
-[[ "$(wc -l <"$OUT" | tr -d ' ')" == "3" ]] || fail "rejected batch must not append"
+grep -q "logged 1 finding(s) to .claude/reviewer/history.jsonl (1 rejected)" "$TMP/out2.txt" || fail "row-level logging summary (got: $(cat "$TMP/out2.txt"))"
+grep -q "row 1 rejected: title" "$TMP/err.txt" || fail "rejection names the row and field (got: $(cat "$TMP/err.txt"))"
+[[ "$(tail -1 "$OUT" | jq -r '.engine + " " + .severity')" == "claude LOW" ]] || fail "engine default and severity case"
+[[ "$(wc -l <"$OUT" | tr -d ' ')" == "4" ]] || fail "one row appended from the second batch"
 
 # 3. `locations` persists as an array; absent → [location]; bare string → [string]; pattern absent → null.
 "$SCRIPT" --change "openspec/changes/demo" --source result --round 3 <<'JSON' >/dev/null
@@ -62,4 +64,4 @@ if "$SCRIPT" --change c --source code-review <<<'[]' >/dev/null 2>&1; then
   fail "--source code-review should be rejected; engine, not source, carries the engine name"
 fi
 
-echo "ok: log-findings v2 rows via the wrapper (engine vocabulary, engines[], integer round, normalized change, locations/pattern defaults, all-or-nothing, source enum)"
+echo "ok: log-findings v2 rows via the wrapper (engine vocabulary + normalization, engines[], integer round, normalized change, locations/pattern defaults, row-level rejection, source enum)"

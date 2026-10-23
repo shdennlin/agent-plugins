@@ -164,3 +164,11 @@ test('spec-dual logs every round from the workflow history; spec rows name the e
   assert.match(sd, /history\[\]/); assert.match(sd, /--round <n>/); assert.match(sd, /engines/)
   assert.match(read('agents/spec-orchestrator.md'), /`engine` \(always `claude`\)/)
 })
+
+test('spec-dual retains history (not findings) for logging; result -c maps unknown engines to other:', () => {
+  const sd = read('commands/spec-dual.md')
+  assert.ok(!/Retain `findings` for Step 6/.test(sd), 'spec-dual Step 5 still retains findings for Step 6')
+  assert.match(sd, /Retain `history` for Step 6/)
+  assert.ok(!/jq missing/.test(sd))
+  assert.match(read("commands/result.md"), /other:<engine key>/)
+})

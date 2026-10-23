@@ -10,7 +10,7 @@
 const fs = require('fs')
 const path = require('path')
 const { execSync } = require('child_process')
-const { validateHistoryRow, normalizeChange } = require('../mcp/schema.cjs')
+const { validateHistoryRow, normalizeChange, ENGINES } = require('../mcp/schema.cjs')
 
 const SOURCES = ['spec', 'result', 'spec-dual']
 
@@ -19,7 +19,8 @@ function usage() {
   [ { "severity": "HIGH", "title": "...", "location": "path:fn", "category": "...", "engine": "claude",
       "engines": ["claude"], "locations": ["path:fn"], "pattern": "int(" } ]
 JSON
-engine: claude | codex | code-review | spectra-review | other:<skill>. Defaults: engines=[engine],
+engine: claude | codex | code-review | spectra-review | other:<skill> (unknown names become other:<name>;
+missing → claude for spec/result). Defaults: engines=[engine],
 locations=[location], pattern=null, run_id from --run-id (else the row's, else null).`
 }
 
@@ -30,16 +31,30 @@ function historyPath(root) {
   return fs.existsSync(path.join(root, 'openspec')) ? path.join(root, 'openspec', 'reviews', 'history.jsonl') : path.join(root, '.claude', 'reviewer', 'history.jsonl')
 }
 
-// Complete one partial row into a v2 row (no validation here).
+// Engine names as stored: the closed vocabulary, the retired aliases mapped, anything else → other:<lowercased>.
+const LEGACY = { 'claude-result': 'claude', '': null }
+function normalizeEngine(e, source) {
+  let v = typeof e === 'string' ? e.trim() : ''
+  if (v in LEGACY) v = LEGACY[v]
+  if (!v) return ['spec', 'result'].includes(source) ? 'claude' : ''   // spec-dual rows must say which engine
+  v = v.toLowerCase()
+  if (ENGINES.includes(v) || /^other:/.test(v)) return v
+  return `other:${v}`
+}
+
+// Complete one partial row into a v2 row (normalization only; validation happens afterwards).
 function completeRow(r, o, ts) {
   const row = r && typeof r === 'object' && !Array.isArray(r) ? r : {}
   const locs = row.locations === undefined || row.locations === null ? [row.location] : Array.isArray(row.locations) ? row.locations : [row.locations]
+  const engine = normalizeEngine(row.engine, o.source)
+  const rest = (Array.isArray(row.engines) ? row.engines : []).map((e) => normalizeEngine(e, o.source)).filter((e) => e && e !== engine)
   return {
     v: 2, ts, change: normalizeChange(o.change), source: o.source, round: o.round,
     run_id: o.runId !== null ? o.runId : (typeof row.run_id === 'string' ? row.run_id : null),
-    engine: row.engine === undefined ? '' : row.engine,
-    engines: Array.isArray(row.engines) && row.engines.length ? row.engines.map(String) : [row.engine === undefined ? '' : row.engine],
-    severity: row.severity, category: row.category, title: row.title, location: row.location,
+    engine,
+    engines: [engine, ...new Set(rest)].filter(Boolean),
+    severity: typeof row.severity === 'string' ? row.severity.toUpperCase() : row.severity,
+    category: row.category, title: row.title, location: row.location,
     locations: locs.map((l) => String(l)),
     pattern: typeof row.pattern === 'string' && row.pattern.trim() ? row.pattern : null,
   }
@@ -71,14 +86,21 @@ function main(argv) {
   if (!Array.isArray(arr)) { process.stderr.write('log-findings: stdin is not a JSON array\n'); return 1 }
   const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   const rows = arr.map((r) => completeRow(r, o, ts))
-  let bad = 0
-  rows.forEach((row, i) => { for (const v of validateHistoryRow(row)) { bad++; process.stderr.write(`log-findings: row ${i} rejected: ${v}\n`) } })
-  if (bad) { process.stderr.write(`log-findings: ${bad} violation(s); nothing appended\n`); return 1 }
+  // Row-level: a weak row is dropped and named, the rest of the batch is still appended, so one
+  // malformed finding never costs the run its history. A batch with rows and no valid one exits 1.
+  const kept = []
+  let rejected = 0
+  rows.forEach((row, i) => {
+    const v = validateHistoryRow(row)
+    if (v.length) { rejected++; process.stderr.write(`log-findings: row ${i} rejected: ${v.join('; ')}\n`); return }
+    kept.push(row)
+  })
+  if (rows.length && !kept.length) { process.stderr.write(`log-findings: every row rejected; nothing appended\n`); return 1 }
   const root = gitRoot(process.cwd())
   const out = historyPath(root)
   fs.mkdirSync(path.dirname(out), { recursive: true })
-  if (rows.length) fs.appendFileSync(out, rows.map((r) => JSON.stringify(r)).join('\n') + '\n')
-  process.stdout.write(`logged ${rows.length} finding(s) to ${path.relative(root, out)}\n`)
+  if (kept.length) fs.appendFileSync(out, kept.map((r) => JSON.stringify(r)).join('\n') + '\n')
+  process.stdout.write(`logged ${kept.length} finding(s) to ${path.relative(root, out)}${rejected ? ` (${rejected} rejected)` : ''}\n`)
   return 0
 }
 

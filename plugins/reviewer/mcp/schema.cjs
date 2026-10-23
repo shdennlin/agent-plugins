@@ -14,7 +14,7 @@ const ISSUE_SCHEMA = {
     severity: { type: 'string', enum: SEVERITIES },
     title: { type: 'string', minLength: 1 },
     location: { type: 'string', minLength: 1 },
-    category: str,
+    category: { type: 'string', minLength: 1 },
     pattern: str,
     expected: str,
     actual: str,

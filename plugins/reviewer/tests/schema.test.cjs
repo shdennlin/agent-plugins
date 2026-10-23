@@ -45,8 +45,8 @@ test('PASS with a CRITICAL or HIGH issue is rejected', () => { const r = good();
 test('FAIL with zero issues is rejected', () => { const r = good(); r.issues = []; r.files[0] = { path: 'src/a.py', verdict: 'clean', issue_count: 0 }; assert.match(validateReport(r, FILES).join('\n'), /verdict: FAIL but no issues/) })
 test('FAIL with only LOW issues is valid', () => { const r = good(); r.issues[0].severity = 'LOW'; assert.deepEqual(validateReport(r, FILES), []) })
 test('PASS with only MEDIUM issues is valid', () => { const r = good(); r.issues[0].severity = 'MEDIUM'; r.verdict = 'PASS'; assert.deepEqual(validateReport(r, FILES), []) })
-test('empty title, location or recommendation is rejected', () => {
-  for (const k of ['title', 'location', 'recommendation']) { const r = good(); r.issues[0][k] = ''; assert.match(validateReport(r, FILES).join('\n'), new RegExp(`issues\\[0\\]\\.${k}: must not be empty`)) }
+test('empty title, location, category or recommendation is rejected', () => {
+  for (const k of ['title', 'location', 'category', 'recommendation']) { const r = good(); r.issues[0][k] = ''; assert.match(validateReport(r, FILES).join('\n'), new RegExp(`issues\\[0\\]\\.${k}: must not be empty`)) }
 })
 test('run_dir with a .. segment is rejected', () => { const r = good(); r.run_dir = '/tmp/x/.claude/reviewer/runs/../../etc'; assert.match(validateReport(r, FILES).join('\n'), /run_dir: must not contain a \.\. segment/) })
 

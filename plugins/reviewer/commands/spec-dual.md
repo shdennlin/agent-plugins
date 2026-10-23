@@ -148,7 +148,7 @@ reported. Near-zero is normal for independent engines; report it so the user kno
 single-engine and the strict either-engine rule is doing the work. Each `history` row also carries
 `intersection`, `linked` (findings the reviewer tied to a prior-round id), `enginesDown`, and after a fix pass
 `gate`, `fixerDown`, `fixerReportMismatch` (and `lowGate` on the clearing row).
-Retain `findings` for Step 6 (history logging).
+Retain `history` for Step 6 (history logging).
 - If `ready: true`, report that both engines are MEDIUM-clean after `fixRounds` fix round(s) and `rounds` reviews, note
   `lowsFixed`, and summarize `history` (per-round `REVIEW_RESULT` counts).
 - If `ready: false`, report it is NOT ready, show `reason` and `history`, and point out
@@ -176,8 +176,8 @@ FINDINGS_JSON
 ```
 
 The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spectra repos,
-`.claude/reviewer/history.jsonl` otherwise). Logging is best-effort: if the script fails
-(e.g., jq missing), mention it in one line and continue — a logging failure MUST NOT fail
+`.claude/reviewer/history.jsonl` otherwise). Logging is best-effort: if the script fails,
+mention it in one line and continue — a logging failure MUST NOT fail
 or repeat the review.
 
 Findings include `category`, `engine` (`claude` or `codex`) and `engines` (both engines when both raised it) — pass them through
