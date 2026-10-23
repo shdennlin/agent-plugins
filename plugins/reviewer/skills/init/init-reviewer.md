@@ -16,18 +16,17 @@ All subsequent commands run from this directory.
 
 ### Step 1: Determine the Rules Target
 
-Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs" --paths` (Bash) from the git root; it prints
+Run `node "{plugin_root}/scripts/read-rules.cjs" --paths` (Bash) from the git root; it prints
 `{ git_root, rules_kind, rules_target, rules_exists, history_path }`. The target file is `rules_target`
 (`openspec/config.yaml` for an OpenSpec repo, the portable `.claude/reviewer/rules.yaml` otherwise; the
-dispatcher has already confirmed a portable target with the user). When `rules_exists` is false you
-will create it (including its parent directory) in Step 6, with the same artifact-keyed YAML shape as
-`openspec/config.yaml`'s `rules:` section: top-level keys `proposal`, `specs`, `design`, `tasks`, each a
-list of quoted rule strings.
+dispatcher has already confirmed a portable target with the user). When `rules_exists` is false the
+script in Step 3 creates it, including its parent directory, in the shape the kind needs (`rules:` block
+for openspec, top-level artifact keys for portable). `plugin_root` is given in the prompt.
 
 ### Step 2: Locate the Rules Template
 
 The prompt gives either `template_path` (a file; the default is
-`${CLAUDE_PLUGIN_ROOT}/templates/reviewer-rules.yaml`) or an inline `## Reviewer Rules Template`
+`{plugin_root}/templates/reviewer-rules.yaml`) or an inline `## Reviewer Rules Template`
 block (the `--from-history` candidates). For an inline block, write it verbatim to a temp file first:
 
 ```bash
@@ -39,7 +38,7 @@ RULES_YAML
 ### Step 3: Apply the Delta (the script does the YAML work)
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/apply-rules.cjs" --template "<template_path or $TEMPLATE>" --target "<rules_target>" --kind "<rules_kind>" [--dry-run]
+node "{plugin_root}/scripts/apply-rules.cjs" --template "<template_path or $TEMPLATE>" --target "<rules_target>" --kind "<rules_kind>" [--dry-run]
 ```
 
 Pass `--dry-run` when `dry_run` is true. The script appends, under each artifact key, only the

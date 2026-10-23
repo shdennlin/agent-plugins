@@ -83,14 +83,12 @@ function gitRoot() {
 
 function readRules(root = gitRoot()) {
   const result = { source: null, ...emptyRules() }
-  const config = path.join(root, CONFIG)
-  const fallback = path.join(root, FALLBACK)
-  let file = null, nested = false
-  if (fs.existsSync(config)) { file = config; nested = true; result.source = CONFIG }
-  else if (fs.existsSync(fallback)) { file = fallback; nested = false; result.source = FALLBACK }
-  if (!file) return result
+  const paths = resolvePaths(root)                       // the one precedence rule
+  if (!paths.rules_exists) return result
+  const nested = paths.rules_kind === 'openspec'
+  result.source = nested ? CONFIG : FALLBACK
   let text
-  try { text = fs.readFileSync(file, 'utf8') }
+  try { text = fs.readFileSync(paths.rules_target, 'utf8') }
   catch (e) { const err = new Error(`read-rules: cannot read ${result.source}: ${e.message}`); err.exitCode = 2; throw err }
   const parsed = parseRulesYaml(text, { nested })
   for (const w of parsed.warnings) process.stderr.write(`read-rules: ${result.source} ${w}\n`)
@@ -99,7 +97,7 @@ function readRules(root = gitRoot()) {
 }
 
 // Where this project's rules target and review history live. The ONE place that knows the
-// precedence rule (openspec/config.yaml when openspec/ exists, else the portable fallback).
+// precedence rule (openspec/config.yaml when the openspec/ directory exists, else the portable fallback).
 const HISTORY_OPENSPEC = 'openspec/reviews/history.jsonl'
 const HISTORY_PORTABLE = '.claude/reviewer/history.jsonl'
 function resolvePaths(root = gitRoot()) {

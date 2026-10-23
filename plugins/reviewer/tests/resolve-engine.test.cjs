@@ -39,13 +39,9 @@ test('an unknown skill uses _default with skill = token; change_name falls back 
   assert.deepEqual(r.never_pass, ['--fix', '--comment', '--apply', '--write'])
 })
 test('errors: level on a level-less engine, missing level, missing base without manifest', () => {
-  assert.throws(() => resolveEngine({ token: 'high', specPaths: ['x'], manifest: man('main...HEAD', 'main') }, YAML.replace(/levels: \[.*\]\n/, '')), /level 'high'.*no engine/)
+  assert.throws(() => resolveEngine({ token: 'high', specPaths: ['x'], manifest: man('main...HEAD', 'main') }, YAML.replace(/^    levels: \[.*\]\n/m, '')), /level 'high'.*no engine/)
   assert.throws(() => resolveEngine({ token: 'code-review', specPaths: ['x'], manifest: man('main...HEAD', 'main') }, YAML), /needs a level/)
   assert.throws(() => resolveEngine({ token: 'medium', specPaths: ['x'] }, YAML), /base.*--base|--manifest/)
-})
-test('WORKTREE manifest: base null, <base> becomes HEAD with a scope note', () => {
-  const r = resolveEngine({ token: 'medium', specPaths: ['x'], manifest: man('WORKTREE', '') }, YAML)
-  assert.deepEqual(r.base, { name: null, given: false }); assert.equal(r.args, 'medium HEAD --max-findings all'); assert.match(r.scope_note, /working tree/)
 })
 test('CLI prints the JSON and exits 1 with a reason on error', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 're-')); const mf = path.join(dir, 'manifest.json'); fs.writeFileSync(mf, JSON.stringify(man('develop...HEAD', 'develop')))
@@ -53,4 +49,27 @@ test('CLI prints the JSON and exits 1 with a reason on error', () => {
   assert.equal(ok.status, 0, ok.stderr); assert.equal(JSON.parse(ok.stdout).args, 'y')
   const bad = spawnSync('node', [SCRIPT, '--token', 'code-review', '--spec', 'x', '--manifest', mf], { encoding: 'utf8' })
   assert.equal(bad.status, 1); assert.match(bad.stderr, /^resolve-engine: /)
+})
+
+// --- batch D review fixes
+test('--check validates the token up front: charset, _default, and level-required engines', () => {
+  for (const bad of ['Medium', '_default', 'foo$(id)', 'code-review']) assert.throws(() => resolveEngine({ token: bad, check: true }, YAML), new RegExp(bad.replace(/[$()]/g, '\\$&')), bad)
+  assert.deepEqual(resolveEngine({ token: 'medium', check: true }, YAML), { engine: 'code-review', level: 'medium', ok: true })
+  assert.deepEqual(resolveEngine({ token: 'spectra-review', check: true }, YAML), { engine: 'spectra-review', level: null, ok: true })
+})
+test('WORKTREE with a base-scoped engine yields no args and a skip reason; self-scoped engines still run', () => {
+  const r = resolveEngine({ token: 'medium', specPaths: ['x'], manifest: man('WORKTREE', '') }, YAML)
+  assert.equal(r.args, null); assert.match(r.skip_reason, /HEAD is on the base branch/)
+  const s = resolveEngine({ token: 'spectra-review', specPaths: ['openspec/changes/x/'], manifest: man('WORKTREE', '') }, YAML)
+  assert.equal(s.args, 'x'); assert.equal(s.skip_reason, null)
+})
+test('a range strategy without base_name falls back to the strategy prefix', () => {
+  const r = resolveEngine({ token: 'medium', specPaths: ['x'], manifest: { diff_strategy: 'trunk...HEAD' } }, YAML)
+  assert.deepEqual(r.base, { name: 'trunk', given: false })
+})
+test('parser: entry keys with digits, missing required fields, unknown lines', () => {
+  const e = parseEngines(YAML + '\n  gpt5-review:\n    skill: gpt5-review\n    args: "<base>"\n    findings_from: x\n    severity_map:\n      high: high\n    notes: []\n    never_pass: []\n')
+  assert.equal(e['gpt5-review'].skill, 'gpt5-review'); assert.equal(e['spectra-review'].skill, 'spectra-review')
+  assert.throws(() => resolveEngine({ token: 'broken', specPaths: ['x'], base: 'main' }, YAML + '\n  broken:\n    args: "<base>"\n'), /broken.*lacks.*skill/)
+  assert.throws(() => parseEngines(YAML + '\n  weird:\n\tskill: tabbed\n'), /line .* not understood/)
 })

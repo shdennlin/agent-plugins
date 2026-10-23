@@ -34,12 +34,11 @@ You inject reviewer-aligned rules into a project's rules target (resolved by `re
 ## Behavior
 
 - Navigate to git repository root
-- Determine the target file with `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs" --paths`
-  (`rules_target`; create it, including parent directory, when `rules_exists` is false, with the
-  same artifact-keyed YAML shape: top-level keys `proposal`, `specs`, `design`, `tasks`, each a
-  list of quoted rule strings) (the dispatcher has already confirmed a portable target with the user)
+- Determine the target file with `node "{plugin_root}/scripts/read-rules.cjs" --paths` (`rules_target`,
+  `rules_kind`; the dispatcher has already confirmed a portable target with the user; a missing target is
+  created by apply-rules in the shape its kind needs)
 - Locate the rules template (`template_path`, or an inline block written to a temp file)
-- Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/apply-rules.cjs" --template … --target … --kind … [--dry-run]`;
+- Run `node "{plugin_root}/scripts/apply-rules.cjs" --template … --target … --kind … [--dry-run]`;
   it computes the append-only delta and writes the file, and prints `{ added, skipped, written, target }`
 - If `dry_run`, render `added` as the preview and stop; otherwise report what was added, what was
   skipped, and the totals

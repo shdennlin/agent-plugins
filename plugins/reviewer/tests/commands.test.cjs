@@ -198,3 +198,14 @@ test('the -c route resolves the engine through resolve-engine.cjs; level words l
   assert.ok(!t.includes('auto-detect exactly as the agent does'), 'result.md still re-derives the base in prose')
   assert.match(read('templates/review-engines.yaml'), /^    levels: \[low, medium, high, xhigh, max\]$/m)
 })
+
+test('batch D review fixes: -c is checked up front, init passes plugin_root, no stale Step 6', () => {
+  const r = read('commands/result.md')
+  assert.match(r, /resolve-engine\.cjs" --token "<token>" --check/)
+  assert.match(read('commands/init.md'), /plugin_root: /)
+  for (const f of ['agents/init-reviewer.md', 'skills/init/init-reviewer.md']) {
+    assert.ok(!read(f).includes('${CLAUDE_PLUGIN_ROOT}'), `${f} uses the env var inside an agent body; use {plugin_root}`)
+    assert.ok(!/in Step 6/.test(read(f)), `${f} still points at a Step 6`)
+  }
+  assert.ok(!read('commands/init.md').includes('Store the full content'), 'init.md Step 2 still stores the template inline')
+})

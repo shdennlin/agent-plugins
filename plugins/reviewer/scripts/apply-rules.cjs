@@ -15,14 +15,31 @@ const { parseRulesYaml, AREAS } = require('./read-rules.cjs')
 const quote = (s) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 const norm = (s) => s.trim()
 
+// Lines the editor understands, per kind. Anything else in the rules block is refused (exit 1) rather
+// than edited around: a line edit that guesses wrong produces YAML OpenSpec cannot load.
+function checkShape(lines, kind, blockStart, blockEnd, areaIndent, itemIndent, what) {
+  const area = new RegExp(`^${areaIndent}[A-Za-z0-9_-]+:\\s*(#.*)?$`)
+  const item = new RegExp(`^${itemIndent}- (.*)$`)
+  for (let i = blockStart; i < blockEnd; i++) {
+    const l = lines[i]
+    if (!l.trim() || /^\s*#/.test(l)) continue
+    if (area.test(l)) continue
+    const m = l.match(item)
+    if (m && !/^[>|]/.test(m[1].trim()) && !/^[\[{]/.test(m[1].trim())) continue
+    throw new Error(`${what} has a line apply-rules does not understand (line ${i + 1}: ${l.trim()}); edit it by hand`)
+  }
+}
+
 // Pure: returns the new target text and what was added/skipped.
 function applyRules({ templateText, targetText, kind }) {
   if (!['openspec', 'portable'].includes(kind)) throw new Error(`kind must be openspec or portable (got ${kind})`)
   const tpl = parseRulesYaml(templateText || '', { nested: false })
+  if (tpl.warnings.length) throw new Error(`template has lines apply-rules does not understand: ${tpl.warnings.join('; ')}`)
   const wanted = Object.fromEntries(AREAS.map((a) => [a, tpl[a] || []]))
   if (!AREAS.some((a) => wanted[a].length)) throw new Error('template holds no rules')
   const text = targetText || ''
   const existing = parseRulesYaml(text, { nested: kind === 'openspec' })
+  if (existing.warnings.length) throw new Error(`target has lines apply-rules does not understand: ${existing.warnings.join('; ')}; edit it by hand`)
   const added = Object.fromEntries(AREAS.map((a) => [a, []]))
   let skipped = 0
   for (const a of AREAS) {
@@ -37,12 +54,12 @@ function applyRules({ templateText, targetText, kind }) {
   const areaLine = (a) => `${areaIndent}${a}:`
   const itemLines = (rs) => rs.map((r) => `${itemIndent}- ${quote(r)}`)
 
-  // locate the block that holds the areas: [start, end) line indexes
+  // the block that holds the areas: [blockStart, blockEnd)
   let blockStart = 0, blockEnd = lines.length
   if (kind === 'openspec') {
+    if (lines.some((l) => /^rules:\s*\S/.test(l) && !/^rules:\s*#/.test(l))) throw new Error('target has an inline `rules:` value apply-rules does not understand; edit it by hand')
     const ri = lines.findIndex((l) => /^rules:\s*(#.*)?$/.test(l))
     if (ri === -1) {
-      // no rules: section → append one at EOF with every added area
       const out = [...lines]
       if (out.length && out[out.length - 1].trim() !== '') out.push('')
       out.push('rules:')
@@ -53,31 +70,31 @@ function applyRules({ templateText, targetText, kind }) {
     blockEnd = lines.findIndex((l, i) => i > ri && /^\S/.test(l))
     if (blockEnd === -1) blockEnd = lines.length
   }
-  // trailing blank lines inside the block belong after our insertions
+  checkShape(lines, kind, blockStart, blockEnd, areaIndent, itemIndent, 'target')
   let insertEnd = blockEnd
   while (insertEnd > blockStart && lines[insertEnd - 1].trim() === '') insertEnd--
 
   const out = [...lines]
-  let shift = 0
+  let end = insertEnd   // end of the block in `out`, moves with every insertion
   for (const a of AREAS) {
     if (!added[a].length) continue
     const re = new RegExp(`^${areaIndent}${a}:\\s*(#.*)?$`)
-    const ai = out.findIndex((l, i) => i >= blockStart + shift && i < insertEnd + shift && re.test(l))
+    let ai = -1
+    for (let i = blockStart; i < end; i++) if (re.test(out[i])) { ai = i; break }   // the whole block, every time
     if (ai === -1) {
-      out.splice(insertEnd + shift, 0, areaLine(a), ...itemLines(added[a]))
-      shift += 1 + added[a].length
+      out.splice(end, 0, areaLine(a), ...itemLines(added[a]))
+      end += 1 + added[a].length
       continue
     }
-    // last list item of this area: items are lines starting with itemIndent + '- ' until the next area/key
     let last = ai
-    for (let i = ai + 1; i < insertEnd + shift; i++) {
+    for (let i = ai + 1; i < end; i++) {
       const l = out[i]
       if (l.startsWith(`${itemIndent}- `)) { last = i; continue }
-      if (l.trim() === '' || l.startsWith(`${itemIndent} `)) continue   // continuation / blank inside the list
+      if (l.trim() === '' || /^\s*#/.test(l)) continue
       break
     }
     out.splice(last + 1, 0, ...itemLines(added[a]))
-    shift += added[a].length
+    end += added[a].length
   }
   return { text: out.join('\n') + '\n', added, skipped }
 }

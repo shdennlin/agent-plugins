@@ -68,7 +68,7 @@ Examples:
 Read the reviewer rules template from the plugin:
 `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-rules.yaml`
 
-Store the full content — it will be passed to the agent.
+Note its path — the agent receives it as `template_path` and reads it itself (only `--from-history` passes an inline block).
 
 ### Step 2b: From-History Mode (only when --from-history)
 
@@ -128,6 +128,7 @@ Task tool:
     - dry_run: <true or false>
 
     Working directory: <current directory>
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
     - template_path: ${CLAUDE_PLUGIN_ROOT}/templates/reviewer-rules.yaml   (omit this line and append the block below only in --from-history mode)
 
     ## Reviewer Rules Template   (only in --from-history mode)

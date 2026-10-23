@@ -63,3 +63,34 @@ test('CLI: a template with no rules is an error', () => {
   const r = spawnSync('node', [SCRIPT, '--template', tpl, '--target', path.join(dir, 'x.yaml'), '--kind', 'portable'], { encoding: 'utf8' })
   assert.equal(r.status, 1); assert.match(r.stderr, /no rules/)
 })
+
+// --- batch D review fixes
+const countKey = (text, re) => text.split('\n').filter((l) => re.test(l)).length
+test('a missing area in the middle never duplicates the areas after it (OpenSpec rejects duplicate keys)', () => {
+  const target = 'name: demo\nrules:\n  proposal:\n    - "P existing"\n  tasks:\n    - "T existing"\n'
+  const { text, added } = applyRules({ templateText: 'specs:\n  - "S new"\ndesign:\n  - "D new"\ntasks:\n  - "T new"\n', targetText: target, kind: 'openspec' })
+  assert.equal(countKey(text, /^  tasks:$/), 1, 'tasks: written once\n' + text)
+  assert.equal(countKey(text, /^  proposal:$/), 1)
+  assert.deepEqual(added.tasks, ['T new'])
+  assert.deepEqual(parseRulesYaml(text, { nested: true }).tasks, ['T existing', 'T new'])
+  assert.deepEqual(parseRulesYaml(text, { nested: true }).warnings, [])
+})
+test('areas out of template order with additions in both never duplicate keys', () => {
+  const target = 'rules:\n  tasks:\n    - "T1"\n  proposal:\n    - "P1"\n'
+  const { text } = applyRules({ templateText: 'proposal:\n  - "P2"\ntasks:\n  - "T2"\n', targetText: target, kind: 'openspec' })
+  assert.equal(countKey(text, /^  tasks:$/), 1); assert.equal(countKey(text, /^  proposal:$/), 1)
+  assert.deepEqual(parseRulesYaml(text, { nested: true }).tasks, ['T1', 'T2'])
+})
+test('shapes the line editor does not understand are refused, not corrupted', () => {
+  const tpl = 'proposal:\n  - "P new"\n'
+  for (const [name, target, kind] of [
+    ['4-space areas', 'rules:\n    proposal:\n      - "P1"\n', 'openspec'],
+    ['sequence at key indent', 'rules:\n  proposal:\n  - "P1"\n', 'openspec'],
+    ['folded last item', 'rules:\n  proposal:\n    - >\n      long rule\n', 'openspec'],
+    ['flow rules', 'rules: {}\n', 'openspec'],
+    ['portable column-0 items', 'proposal:\n- "P1"\n', 'portable'],
+  ]) assert.throws(() => applyRules({ templateText: tpl, targetText: target, kind }), /does not understand/, name)
+})
+test('a template with lines the parser skips is refused (from-history templates are LLM-written)', () => {
+  assert.throws(() => applyRules({ templateText: 'proposal:\n    - "four spaces"\nspecs:\n  - >\n    folded\n', targetText: '', kind: 'portable' }), /template.*does not understand/)
+})

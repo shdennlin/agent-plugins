@@ -42,7 +42,7 @@ From `$ARGUMENTS`, extract:
 5. **fix_all**: true if the token right after `--fix` is exactly `all` (consume it); any other token after `--fix` is not consumed
 6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided. Validate it: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/check-angles.cjs" --section result --angles <value>`; on exit 1 print its stderr line and stop; pass the `angles` array it prints to the orchestrator as `angles` (joined with commas)
 7. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
-8. **engine**: the token after `-c` or `--with-code-review`. Keep the raw token for Step 3b; do not classify it yourself (the level words and the engine entries live in `templates/review-engines.yaml`, read by `scripts/resolve-engine.cjs`). If the token is missing or looks like a flag, print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
+8. **engine**: the token after `-c` or `--with-code-review`. Validate it now, before any review runs: `node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-engine.cjs" --token "<token>" --check` (Bash); on exit 1 print its stderr line and stop (a level-required engine without a level, a level no engine accepts, a bad character, `_default`). Keep the raw token for Step 3b; the level words and the engine entries live in `templates/review-engines.yaml`. If the token is missing or looks like a flag, print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
    ```
    -c needs an engine: a /code-review level (low | medium | high | xhigh | max; medium recommended) or a review skill name (e.g. spectra-review)
    ```
@@ -171,10 +171,10 @@ The second engine is a spec-blind review whose recipe this plugin does not contr
 
 1. Resolve the engine with the script (Bash), from the git root:
    ```bash
-   node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-engine.cjs" --token "<token from Step 1>" --spec <spec paths…> [--base <branch, only if --base was given>] --manifest "<run_dir>/manifest.json"
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-engine.cjs" --token "<token from Step 1>" --spec "<spec path 1>" "<spec path 2>" … [--base "<branch, only if --base was given>"] --manifest "<run_dir>/manifest.json"
    ```
-   `<run_dir>` is the `Run dir:` line of the orchestrator's report. On exit 1 print its stderr line and stop (an unknown level, a level on a level-less engine, or a level-required engine without one). It prints `{ engine, level, skill, args, never_pass, findings_from, severity_map, notes, scope, scope_note, base: { name, given }, change_name }` with every placeholder in `args` already resolved from `templates/review-engines.yaml` and the base the spec review diffed against (`base.name`; `null` when the spec review used the working tree).
-2. If `base.name` is `null` (HEAD is on the base branch itself) and `scope` is `base`, the engine has no range to review: print `<engine> engine skipped: HEAD is on the base branch` and go to Step 3c with the spec findings alone. If `scope` is `self` (spectra-review resolves its own diff through `spectra scope`), say so in the scope note rather than forcing a base on it; `args` already carries `--base` only when the user passed one.
+   `<run_dir>` is the `Run dir:` line of the orchestrator's report. On exit 1 print its stderr line and stop (an unknown level, a level on a level-less engine, or a level-required engine without one). It prints `{ engine, level, skill, args, skip_reason, never_pass, findings_from, severity_map, notes, scope, base: { name, given }, change_name }` with every placeholder in `args` already resolved from `templates/review-engines.yaml` and the base the spec review diffed against (`base.name`; `null` when the spec review used the working tree).
+2. If `skip_reason` is not null (`args` is null: HEAD is on the base branch and the engine is base-scoped), print that line verbatim and go to Step 3c with the spec findings alone. If `scope` is `self` (spectra-review resolves its own diff through `spectra scope`), say so in the scope note rather than forcing a base on it; `args` already carries `--base` only when the user passed one.
 3. Invoke it through the Skill tool:
    ```
    Skill tool:

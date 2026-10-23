@@ -39,11 +39,12 @@ test('config.yaml rules section wins when the file exists', () => {
   assert.deepEqual(r.tasks, [])
 })
 
-test('openspec dir without config.yaml falls back to rules.yaml', () => {
+test('openspec dir without config.yaml: the target is config.yaml (same rule as --paths), so nothing is read yet', () => {
   const root = mk({ 'openspec/changes/.keep': '', '.claude/reviewer/rules.yaml': 'tasks:\n  - "T1"\n' })
   const r = readRules(root)
-  assert.equal(r.source, '.claude/reviewer/rules.yaml')
-  assert.deepEqual(r.tasks, ['T1'])
+  assert.equal(r.source, null, 'readRules and resolvePaths must name the same file')
+  assert.deepEqual(r.tasks, [])
+  assert.equal(resolvePaths(root).rules_kind, 'openspec')
 })
 
 test('neither file: empty shape, source null', () => {
