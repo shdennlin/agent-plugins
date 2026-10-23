@@ -39,3 +39,13 @@ test('validateReport matches ./-prefixed report paths to manifest paths', () => 
 test('normalizePath matches the pinned table (shared with the setup script)', () => {
   for (const [input, expected] of NORMALIZE_CASES) assert.equal(normalizePath(input), expected, input)
 })
+
+// --- verdict/issue consistency, non-empty strings, run_dir traversal (refactor batch A)
+test('PASS with a CRITICAL or HIGH issue is rejected', () => { const r = good(); r.verdict = 'PASS'; assert.match(validateReport(r, FILES).join('\n'), /verdict: PASS but 1 CRITICAL\/HIGH/) })
+test('FAIL with zero issues is rejected', () => { const r = good(); r.issues = []; r.files[0] = { path: 'src/a.py', verdict: 'clean', issue_count: 0 }; assert.match(validateReport(r, FILES).join('\n'), /verdict: FAIL but no issues/) })
+test('FAIL with only LOW issues is valid', () => { const r = good(); r.issues[0].severity = 'LOW'; assert.deepEqual(validateReport(r, FILES), []) })
+test('PASS with only MEDIUM issues is valid', () => { const r = good(); r.issues[0].severity = 'MEDIUM'; r.verdict = 'PASS'; assert.deepEqual(validateReport(r, FILES), []) })
+test('empty title, location or recommendation is rejected', () => {
+  for (const k of ['title', 'location', 'recommendation']) { const r = good(); r.issues[0][k] = ''; assert.match(validateReport(r, FILES).join('\n'), new RegExp(`issues\\[0\\]\\.${k}: must not be empty`)) }
+})
+test('run_dir with a .. segment is rejected', () => { const r = good(); r.run_dir = '/tmp/x/.claude/reviewer/runs/../../etc'; assert.match(validateReport(r, FILES).join('\n'), /run_dir: must not contain a \.\. segment/) })

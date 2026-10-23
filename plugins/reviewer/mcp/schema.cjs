@@ -12,14 +12,14 @@ const ISSUE_SCHEMA = {
   type: 'object',
   properties: {
     severity: { type: 'string', enum: SEVERITIES },
-    title: str,
-    location: str,
+    title: { type: 'string', minLength: 1 },
+    location: { type: 'string', minLength: 1 },
     category: str,
     pattern: str,
     expected: str,
     actual: str,
     impact: str,
-    recommendation: str,
+    recommendation: { type: 'string', minLength: 1 },
   },
   required: ['severity', 'title', 'location', 'category', 'expected', 'actual', 'impact', 'recommendation'],
   additionalProperties: false,
@@ -85,6 +85,9 @@ function checkShape(value, schema, path, out) {
   if (schema.minimum !== undefined && value < schema.minimum) {
     out.push(`${path}: must be >= ${schema.minimum}`)
   }
+  if (schema.minLength !== undefined && typeof value === 'string' && value.length < schema.minLength) {
+    out.push(schema.minLength === 1 ? `${path}: must not be empty` : `${path}: must be at least ${schema.minLength} characters`)
+  }
   if (schema.type === 'array' && schema.items) {
     value.forEach((v, i) => checkShape(v, schema.items, `${path}[${i}]`, out))
   }
@@ -135,7 +138,15 @@ function validateReport(report, manifestFiles) {
   if (typeof report.run_dir === 'string' && !(report.run_dir.startsWith('/') && RUNS_SEGMENT.test(report.run_dir + '/'))) {
     out.push('run_dir: must be an absolute path inside a /reviews/runs/ or /reviewer/runs/ directory')
   }
+  if (typeof report.run_dir === 'string' && /(^|\/)\.\.(\/|$)/.test(report.run_dir)) {
+    out.push('run_dir: must not contain a .. segment')
+  }
   if (!shapeOk) return out
+
+  // verdict must agree with the issues: PASS cannot carry a CRITICAL/HIGH issue, FAIL needs at least one issue
+  const blocking = report.issues.filter((i) => i.severity === 'CRITICAL' || i.severity === 'HIGH').length
+  if (report.verdict === 'PASS' && blocking > 0) out.push(`verdict: PASS but ${blocking} CRITICAL/HIGH issue(s) reported`)
+  if (report.verdict === 'FAIL' && report.issues.length === 0) out.push('verdict: FAIL but no issues reported')
 
   const manifest = new Set(manifestFiles.map(normalizePath))
   const reported = new Set(report.files.map((f) => normalizePath(f.path)))
