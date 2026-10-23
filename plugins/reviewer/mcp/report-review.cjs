@@ -26,7 +26,7 @@ function handle(args) {
     return fail(`report_review rejected: ${manifestPath} has no "files" array`)
   }
 
-  const violations = validateReport(args, manifest.files)
+  const violations = validateReport(args, manifest.files, { mode: manifest.mode })
   if (violations.length > 0) {
     return fail(`report_review rejected (${violations.length} violation(s)), fix and call again:\n${violations.join('\n')}`)
   }

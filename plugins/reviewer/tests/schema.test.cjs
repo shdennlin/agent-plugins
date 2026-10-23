@@ -78,3 +78,29 @@ test('normalizeChange strips ./, trailing slashes and doubled slashes', () => {
   assert.equal(normalizeChange(' openspec//changes/x '), 'openspec/changes/x')
   assert.equal(normalizeChange('docs/spec.md'), 'docs/spec.md')
 })
+
+// --- batch F: spec mode (manifest.mode === 'spec')
+const SPEC_FILES = ['proposal.md', 'design.md', 'specs/a/spec.md']
+const specGood = () => ({
+  run_dir: '/tmp/x/openspec/reviews/runs/r', angle: 'clarity', verdict: 'FAIL',
+  files: [{ path: 'proposal.md', verdict: 'clean', issue_count: 0 }, { path: 'design.md', verdict: 'issues', issue_count: 1 }, { path: 'specs/a/spec.md', verdict: 'issues', issue_count: 1 }],
+  issues: [
+    { severity: 'HIGH', title: 'section 3 contradicts the proposal', location: 'design.md §3', category: 'consistency', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' },
+    { severity: 'MEDIUM', title: 'requirement without scenario', location: 'specs/a/spec.md:12', category: 'completeness', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' },
+  ],
+})
+test('spec mode: § section locations and :line locations count toward their file; pattern is optional', () => {
+  assert.deepEqual(validateReport(specGood(), SPEC_FILES, { mode: 'spec' }), [])
+})
+test('spec mode: coverage is not allowed', () => {
+  const r = specGood(); r.coverage = [{ requirement: 'R1', status: 'implemented' }]
+  assert.match(validateReport(r, SPEC_FILES, { mode: 'spec' }).join('\n'), /coverage: not allowed in spec mode/)
+})
+test('spec mode: issue_count still has to match the issues under the file', () => {
+  const r = specGood(); r.files[1].issue_count = 2
+  assert.match(validateReport(r, SPEC_FILES, { mode: 'spec' }).join('\n'), /design\.md issue_count 2 but 1 issue/)
+})
+test('result mode (default) does not treat § as a path separator', () => {
+  const r = good(); r.issues[0].location = 'src/a.py §3'
+  assert.match(validateReport(r, FILES).join('\n'), /src\/a\.py issue_count 1 but 0 issue/)
+})

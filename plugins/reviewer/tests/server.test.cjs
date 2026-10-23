@@ -126,3 +126,14 @@ test('report_review refuses reserved/unsafe angles and symlinked targets', () =>
   assert.equal(res.isError, true)
   assert.equal(fs.readFileSync(victim, 'utf8'), 'keep')
 })
+
+test('report_review reads manifest.mode: a spec run rejects coverage and accepts § locations', () => {
+  const run = mkRun()
+  fs.writeFileSync(path.join(run, 'manifest.json'), JSON.stringify({ mode: 'spec', files: ['design.md'] }))
+  const rep = { run_dir: run, angle: 'clarity', verdict: 'FAIL', files: [{ path: 'design.md', verdict: 'issues', issue_count: 1 }],
+    issues: [{ severity: 'HIGH', title: 't', location: 'design.md §2', category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] }
+  assert.notEqual(handleReportReview(rep).isError, true)
+  const bad = { ...rep, coverage: [{ requirement: 'R1', status: 'missing' }] }
+  const res = handleReportReview(bad)
+  assert.equal(res.isError, true); assert.match(res.content[0].text, /coverage: not allowed in spec mode/)
+})
