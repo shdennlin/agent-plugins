@@ -69,14 +69,18 @@ const foldKey = (p) => (typeof p === 'string' && p.trim().length >= MIN_PATTERN 
 // The construct a pattern names, independent of the statement around it: `return int(s)`, `x = int(raw)`
 // and `int(` all have the head `int(`. Operator/expression patterns are kept whole. Bare identifiers and
 // keywords give null (a head sweep on them would spray locations).
-const KEYWORDS = new Set(['self', 'none', 'if', 'for', 'return', 'true', 'false', 'null', 'nil', 'this', 'await', 'else', 'while', 'def', 'func', 'var', 'let', 'const'])
+const KEYWORDS = new Set(['self', 'none', 'if', 'for', 'return', 'true', 'false', 'null', 'nil', 'this', 'await', 'else', 'while', 'def', 'func', 'var', 'let', 'const', 'elif', 'switch', 'catch', 'with', 'except', 'unless', 'until', 'foreach'])
+// `x = …` / `x := …` is stripped as an assignment target; `x == …` is a comparison and stays whole
+const ASSIGN = /^[A-Za-z_][\w.]*\s*(:=|=(?!=)|\+=|-=)\s*/
+// the callee of `a.b.c(` is `c(`: the receiver is part of the statement, not the construct; a keyword callee (`if (`) is not a call
+const callee = (name) => { const last = name.split('.').pop(); return KEYWORDS.has(last.toLowerCase()) ? null : `${last}(` }
 function constructHead(pattern) {
   const key = foldKey(pattern)
   if (key === null) return null
-  let s = key.replace(/^(return|await|yield)\s+/, '').replace(/^[A-Za-z_][\w.]*\s*(:=|=|\+=|-=)\s*/, '').trim()
+  let s = key.replace(/^(return|await|yield)\s+/, '').replace(ASSIGN, '').trim()
   const call = s.match(/^([A-Za-z_][\w.]*)\s*\(/)
-  if (call) return `${call[1]}(`
-  if (/^[A-Za-z_]\w*$/.test(s)) return KEYWORDS.has(s.toLowerCase()) || s.length < MIN_PATTERN ? null : null
+  if (call) return callee(call[1])
+  if (/^[A-Za-z_]\w*$/.test(s)) return null
   return s.length >= MIN_PATTERN ? s : null
 }
 const HEAD_CAP = 5   // a head found in more files than this is too generic to join on
@@ -87,22 +91,34 @@ const HEAD_CAP = 5   // a head found in more files than this is too generic to j
 function normKey(pattern) {
   const key = foldKey(pattern)
   if (key === null) return null
-  let s = key.replace(/^(return|await|yield)\s+/, '').replace(/^[A-Za-z_][\w.]*\s*(:=|=|\+=|-=)\s*/, '').trim()
+  let s = key.replace(/^(return|await|yield)\s+/, '').replace(ASSIGN, '').trim()
   const call = s.match(/^([A-Za-z_][\w.]*)\s*\((?:[^()]|\([^()]*\))*\)$/)
-  if (call) return `${call[1]}(`
+  const head = call ? callee(call[1]) : null
+  if (head !== null) return head
   s = s.replace(/\s+/g, '').replace(/'/g, '"')
   return s.length >= MIN_PATTERN ? s : null
 }
 const recLines = (r) => String(r ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
-function foldByPattern(issues) {
+// A bare head (`len(`) that the patch adds in more than HEAD_CAP files names no particular defect:
+// such a key folds within a file only. `opts.genericHead(head)` answers that from the patch.
+const isBareHead = (k) => /^\w+\($/.test(k)
+const SEP = '\u0000'
+const baseKey = (k) => k.split(SEP)[0]
+// `int(` is contained in `int(s)` but not in `print(`: the shorter key must start at a word boundary
+const containsKey = (longK, shortK) => {
+  for (let at = longK.indexOf(shortK); at !== -1; at = longK.indexOf(shortK, at + 1)) if (at === 0 || !/\w/.test(longK[at - 1])) return true
+  return false
+}
+function foldByPattern(issues, opts = {}) {
   const groups = new Map()
   const out = []
   for (const i of issues) {
-    const k = normKey(i.pattern)
+    let k = normKey(i.pattern)
     if (k === null) {
       out.push({ ...i, folded: 0 })
       continue
     }
+    if (isBareHead(k) && opts.genericHead && opts.genericHead(k)) k = `${k}${SEP}${pathPart(i.location)}`
     if (!groups.has(k)) {
       groups.set(k, [])
       out.push(groups.get(k))
@@ -111,12 +127,12 @@ function foldByPattern(issues) {
   }
   // Same-file containment: a group whose key contains a shorter group's key joins it when the two
   // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone.
-  const keys = [...groups.keys()].sort((x, y) => x.length - y.length)
+  const keys = [...groups.keys()].sort((x, y) => baseKey(x).length - baseKey(y).length)
   for (const longK of keys) {
     const longG = groups.get(longK)
     if (!longG || !longG.length) continue
     for (const shortK of keys) {
-      if (shortK === longK || shortK.length >= longK.length || !longK.includes(shortK)) continue
+      if (shortK === longK || baseKey(shortK).length >= baseKey(longK).length || !containsKey(baseKey(longK), baseKey(shortK))) continue
       const shortG = groups.get(shortK)
       if (!shortG || !shortG.length) continue
       const shortFiles = new Set(shortG.map((i) => pathPart(i.location)))
@@ -310,7 +326,13 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     }
     return issue
   })
-  const folded = foldByPattern(issues).sort(byWorst)
+  const genericHead = (head) => {
+    const re = new RegExp(`(^|[^\\w.])${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    let n = 0
+    for (const [, lines] of added) if (lines.some((l) => re.test(l)) && ++n > HEAD_CAP) return true
+    return false
+  }
+  const folded = foldByPattern(issues, { genericHead }).sort(byWorst)
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)

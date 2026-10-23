@@ -386,7 +386,7 @@ const mkRep = (files, issue) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', an
 test('constructHead strips the statement around a call and keeps operator forms; keywords and bare identifiers give null', () => {
   assert.equal(constructHead('return int(s)'), 'int(')
   assert.equal(constructHead('x = int(raw)'), 'int(')
-  assert.equal(constructHead('y := strconv.Atoi(v)'), 'strconv.Atoi(')
+  assert.equal(constructHead('y := strconv.Atoi(v)'), 'Atoi(', 'receiver stripped: the callee names the construct')
   assert.equal(constructHead('await fetch(url)'), 'fetch(')
   assert.equal(constructHead('int('), 'int(')
   assert.equal(constructHead('size - 1'), 'size - 1')
@@ -436,4 +436,36 @@ test('a skipped submodule in the manifest makes the review incomplete with a not
   assert.equal(m.complete, false)
   const entry = m.files.find((f) => f.path.startsWith('libZ/'))
   assert.ok(entry, 'entry for the skipped submodule'); assert.equal(entry.verdict, 'not_reviewed'); assert.match(entry.path, /submodule not checked out/)
+})
+
+// --- batch E final review fixes
+test('keyword "calls" and == comparisons are not call heads or assignments; receivers are stripped', () => {
+  assert.equal(constructHead('if (user == null)'), null)
+  assert.equal(constructHead('while (ok)'), null)
+  assert.equal(constructHead('line.split(",")'), 'split(')
+  assert.equal(normKey('row.split(",")'), 'split(')
+  assert.notEqual(normKey('if (user == null)'), normKey('if (items.length > 0)'))
+  assert.notEqual(normKey('x == None'), normKey('cache == None'))
+  assert.equal(normKey('x == None'), 'x==None')
+  assert.equal(constructHead('count == len(items)'), 'count == len(items)')
+})
+test('containment folds only on a word boundary: print( does not contain int(', () => {
+  const man = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x' }
+  const rep = (pattern, title, sev, angle) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'a.py', verdict: 'issues', issue_count: 1 }],
+    issues: [{ severity: sev, title, location: 'a.py:f', category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const m = merge(man, [rep('int(raw)', 'unchecked cast', 'HIGH', 'correctness'), rep('print(token)', 'secret printed', 'CRITICAL', 'security')], '')
+  assert.equal(m.issues.length, 2)
+})
+test('a bare call head found in more than 5 patch files never folds across files', () => {
+  const six = ['a.py', 'b.py', 'c.py', 'd.py', 'e.py', 'f.py']
+  const man = { run_id: 'x', files: six, working_directory: '/tmp/x' }
+  const rep = (file, pattern, title) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: title, via: 'report_review', verdict: 'FAIL',
+    files: six.map((p) => ({ path: p, verdict: p === file ? 'issues' : 'clean', issue_count: p === file ? 1 : 0 })),
+    issues: [{ severity: 'HIGH', title, location: `${file}:f`, category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const patch = mkPatch(six.map((f) => [f, 'n = len(x)']))
+  const m = merge(man, [rep('a.py', 'len(items)', 'empty list'), rep('b.py', 'len(buf)', 'buffer overrun')], patch)
+  assert.equal(m.issues.length, 2, 'len( is in 6 files: generic, no cross-file fold')
+  const two = merge({ run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }, [rep('a.py', 'int(s)', 't1'), rep('b.py', 'int(raw)', 't2')], mkPatch([['a.py', 'int(s)'], ['b.py', 'int(raw)']]))
+  assert.equal(two.issues.length, 1, 'int( in 2 files still folds across files')
 })

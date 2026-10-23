@@ -49,5 +49,7 @@ test('the harness carries seven seeds: three cross-file, one buried in a large f
   const big = fs.readFileSync(path.join(repo, 'src/legacy_big.py'), 'utf8')
   assert.ok(big.split('\n').length >= 600, 'legacy_big.py is at least 600 lines')
   assert.ok(big.includes(buried.pattern))
+  const added = git(repo, 'diff', '--numstat', 'main...feat', '--', 'src/legacy_big.py').split('\t')[0]
+  assert.ok(Number(added) >= 500, `the buried seed must sit inside a large hunk, not an 8-line diff (added ${added})`)
   fs.rmSync(tmp, { recursive: true, force: true })
 })

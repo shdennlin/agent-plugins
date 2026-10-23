@@ -233,7 +233,9 @@ grep -q '^+merged = int(x)$' "$run/diff.patch" || fail "bump-to-tip hunk present
 [[ "$(jq -r '.submodules[]|select(.path=="subF")|.strategy' "$run/manifest.json")" == "empty-tree" ]] || fail "dir→submodule strategy"
 [[ ",$files," == *",sub[A-Z],"* ]] || fail "a plain file named like a glob is kept (got $files)"
 [[ ",$files," != *",subH,"* ]] || fail "removed submodule dropped from files"
-grep -q "submodule subH: removed in this change, skipped" "$S/err.txt" || fail "removed submodule noted (got: $(cat "$S/err.txt"))"
+grep -q "submodule subH: removed in this change" "$S/err.txt" || fail "removed submodule noted (got: $(cat "$S/err.txt"))"
+[[ "$(jq -c '[.skipped_submodules[]?|select(.path=="subH")]' "$run/manifest.json")" == "[]" ]] || fail "a removed submodule is a note, not a skip (nothing left to review)"
+[[ "$(jq -r '.notes[]|select(.path=="subH")|.note' "$run/manifest.json")" == "removed in this change" ]] || fail "removed submodule recorded in notes (got $(jq -c .notes "$run/manifest.json"))"
 [[ "$(jq -r '.submodules|length' "$run/manifest.json")" == "2" ]] || fail "subE + subF recorded (got $(jq -c .submodules "$run/manifest.json"))"
 # user-level ignore config must not switch the feature off either
 out2="$(git -C "$S/super" config diff.ignoreSubmodules all; "$SCRIPT" --working-dir "$S/super" --base develop 2>/dev/null)" || fail "ignoreSubmodules=all run failed"

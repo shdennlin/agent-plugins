@@ -152,7 +152,7 @@ while IFS= read -r p; do
   entry="$(base_entry "$p")"; old_mode="${entry%% *}"
   old_ptr=""; [[ "$old_mode" == "160000" ]] && old_ptr="$(awk '{print $3}' <<<"$entry")"
   if ! is_gitlink "$p"; then
-    if [[ -n "$old_ptr" ]]; then skip_sub "$p" "removed in this change"; continue; fi
+    if [[ -n "$old_ptr" ]]; then note_sub "$p" "removed in this change"; continue; fi
     EXPANDED+="$p"$'\n'; continue
   fi
   if [[ ! -e "$TOP/$p/.git" ]]; then skip_sub "$p" "not checked out"; continue; fi

@@ -44,7 +44,8 @@ const SPEC = `# Spec: order amounts, pagination and reporting
 `
 
 const FILLER = Array.from({ length: 189 }, (_, k) => `def helper_${String(k + 1).padStart(3, '0')}(x):\n    """legacy helper ${k + 1}: unchanged for years"""\n    return x + ${k + 1}\n`).join('\n')
-const BASE_BIG = `def last_n_ids(n):\n    raise NotImplementedError\n\n\n` + FILLER + '\n'
+// the filler lands in the FEATURE commit: the seed is buried inside a ~600-line hunk, not an 8-line diff
+const BASE_BIG = `def last_n_ids(n):\n    raise NotImplementedError\n`
 const FEAT_BIG = FILLER + `\n\ndef last_n_ids(n):\n    ids = list(range(1, 11))\n    return [ids[-i] for i in range(1, n)]\n`
 
 const BASE = {
