@@ -109,7 +109,12 @@ uncommitted edits are included) and creates a run directory — `openspec/review
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
 The slash commands are `commands/*.md`; `skills/*/SKILL.md` are Codex pointer stubs (see `.codex/INSTALL.md` for what works there).
-History rows (`history.jsonl`) are schema v2, written only by `scripts/log-findings.cjs`: `engine` is one of `claude`, `codex`, `code-review`, `spectra-review` or `other:<skill>` (never empty), `engines` lists every engine that raised the finding, `round` is an integer, `change` has no trailing slash, and `pattern`, `run_id` and `v: 2` travel with each row. Older rows migrate with `scripts/migrate-history.cjs --dry-run`.
+History rows (`history.jsonl`) are schema v2, written only by `scripts/log-findings.cjs`: `engine` is one of `claude`, `codex`, `code-review`, `spectra-review` or `other:<skill>` (never empty), `engines` lists every engine that raised the finding, `round` is an integer, `change` has no trailing slash, and `pattern`, `run_id` and `v: 2` travel with each row. Older rows migrate in place with `scripts/migrate-history.cjs`: run it with `--dry-run` first, read the summary (rows that cannot validate are kept verbatim and listed on stderr), then run it for real; it writes `<file>.v1.bak` before rewriting and refuses to run when that backup exists. Rows that recorded agreement with the retired both tag need `--second-engine <name>` to record which second engine agreed (otherwise `engines` is `[claude]`):
+
+```bash
+node "$PLUGIN/scripts/migrate-history.cjs" openspec/reviews/history.jsonl --dry-run --second-engine spectra-review
+node "$PLUGIN/scripts/migrate-history.cjs" openspec/reviews/history.jsonl --second-engine spectra-review
+```
 In a git superproject the setup script expands each changed, checked-out submodule into its own
 diff (paths prefixed `<sub>/`, recorded under `submodules` with the base commit and how it was
 chosen; uncommitted edits inside a sub count), so a review run from the superproject sees the
