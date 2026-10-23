@@ -469,3 +469,9 @@ test('a bare call head found in more than 5 patch files never folds across files
   const two = merge({ run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }, [rep('a.py', 'int(s)', 't1'), rep('b.py', 'int(raw)', 't2')], mkPatch([['a.py', 'int(s)'], ['b.py', 'int(raw)']]))
   assert.equal(two.issues.length, 1, 'int( in 2 files still folds across files')
 })
+test('head sweep matches the callee after a receiver: line.split( in a.py joins row.split( in b.py', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const m = merge(man, [mkRep(['a.py', 'b.py'], { pattern: 'line.split(",")' })], mkPatch([['a.py', 'cells = line.split(",")'], ['b.py', 'return row.split(",")']]))
+  assert.deepEqual(m.issues[0].locations, ['a.py:f', 'b.py'])
+  assert.deepEqual(m.issues[0].swept_by_head, ['b.py'])
+})

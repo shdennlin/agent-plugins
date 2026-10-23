@@ -310,12 +310,12 @@ function merge(manifest, reports, diffPatch, opts = {}) {
         if (file === own || issue.locations.includes(file)) continue
         if (lines.some((l) => l.includes(key))) issue.locations.push(file)
       }
-      // second pass on the construct head (`int(` for `return int(s)`), word-bounded on the left and
+      // second pass on the construct head (`int(` for `return int(s)`), word-bounded on the left (a `.` receiver is allowed: `row.split(` holds `split(`) and
       // capped: a head present in more than HEAD_CAP other files is too generic to be the same defect
       const head = constructHead(pattern)
       if (head !== null && head !== key) {
         const esc = head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const re = new RegExp(`(^|[^\\w.])${esc}`)
+        const re = new RegExp(`(^|[^\\w])${esc}`)
         const hits = []
         for (const [file, lines] of added) {
           if (file === own || issue.locations.includes(file)) continue
@@ -327,7 +327,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     return issue
   })
   const genericHead = (head) => {
-    const re = new RegExp(`(^|[^\\w.])${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    const re = new RegExp(`(^|[^\\w])${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
     let n = 0
     for (const [, lines] of added) if (lines.some((l) => re.test(l)) && ++n > HEAD_CAP) return true
     return false
