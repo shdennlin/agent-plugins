@@ -24,7 +24,7 @@ $result docs/plan/ --angles robustness,correctness
 $result docs/plan/ --angles coverage          # single reviewer, cheapest
 ```
 
-Large diffs are read in full, in batches of 10–15 files — no file is skipped as "unrelated to the spec". Removed flags: `--parallel` (1.12.0, now the default), `--fix-all` (1.12.0, now `--fix all`), `--no-parallel` (1.11.0, use `--angles coverage`).
+Each angle reports through the `report_review` MCP tool; every file in the diff must carry a verdict or the report is rejected; merge and logging are deterministic (`scripts/merge-findings.cjs`). Removed flags: `--parallel` (1.12.0, now the default), `--fix-all` (1.12.0, now `--fix all`), `--no-parallel` (1.11.0, use `--angles coverage`).
 
 With iterative auto-fix (`--fix all` also auto-fixes critical/high instead of asking):
 
@@ -43,6 +43,8 @@ $result openspec/changes/my-change/ --angles robustness,correctness -c spectra-r
 
 `-c <engine>` (long: `--with-code-review`) requires a value and cannot be combined with `--fix`. A `/code-review` level (`low|medium|high|xhigh|max`; `medium` recommended) selects the built-in `/code-review`; any other token is a review skill name invoked through the Skill tool. Each engine's invocation, findings location and label → severity mapping live in `templates/review-engines.yaml` (`code-review`: CONFIRMED → medium, PLAUSIBLE → low; `spectra-review`: Critical → high, Warning → medium, Suggestion → low; unknown skills use the `_default` table). The merge step never reads the engine's name: same file + same root cause → one entry tagged `engine: both`; a spec-sanctioned behaviour the engine flags becomes a `spec-conflict` entry for a human; the report shows both verdict lines and the merged list is logged once with `engine` per finding. The engine is never given `--fix`, `--comment` or any flag that edits or posts. If the skill is absent (`/code-review` under Codex, `spectra-review` outside a Spectra repo) the report says so in one line and the spec findings stand alone.
 
+Requires `node` and `jq` on PATH (the run setup and merge scripts).
+
 If no paths are given, ask which spec files to review against.
 
 ## Process
@@ -54,9 +56,9 @@ If no paths are given, ask which spec files to review against.
 
 ## Agent Dispatch
 
-Without `--fix`: dispatch `reviewer:result-fix-orchestrator` with `fix: false`, `max_iterations: 1`, angles, the review-angles template content and log_script_path (resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path; omit it when `-c` is set, the command logs the merged set); it runs one multi-angle round, merges, hands off, logs, and never fixes.
+Without `--fix`: dispatch `reviewer:result-fix-orchestrator` with `fix: false`, `max_iterations: 1`, angles, the review-angles template content, plugin_root (the absolute path of `${CLAUDE_PLUGIN_ROOT}`, which holds `scripts/setup-result-review.sh` and `scripts/merge-findings.cjs`) and log_script_path (resolve `${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh` to an absolute path; pass it as `none` when `-c` is set, the orchestrator then merges with `--no-log` and the command logs the two-engine merge once); it runs one multi-angle round, merges, hands off, logs, and never fixes.
 With `--fix`: the same orchestrator with `fix: true`, max_iterations and fix_all.
-The companion `result-reviewer.md` in this directory is the single-reviewer methodology each angle sub-agent follows; on a harness without sub-agent orchestration (Codex), use it directly as the review prompt.
+The companion `result-reviewer.md` in this directory is the single-reviewer methodology each angle sub-agent follows; on a harness without sub-agent orchestration (Codex), use it directly as the review prompt — it resolves the plugin's scripts from its own physical path and writes `<run_dir>/single.json` itself (see `.codex/INSTALL.md`).
 
 The agent will cd to the git root automatically. Provide it with:
 - The list of spec files/folders to review against

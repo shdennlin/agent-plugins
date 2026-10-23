@@ -1,0 +1,12 @@
+{
+  "run_id": "run-basic",
+  "run_dir": "/tmp/repo/.claude/reviewer/runs/run-basic",
+  "diff_strategy": "BRANCH",
+  "files": ["src/a.py", "src/b.py", "src/c.py", "lock.json"],
+  "file_count": 4,
+  "line_count": 9,
+  "created": "2026-10-21T00:00:00Z",
+  "working_directory": "/tmp/repo",
+  "staged_only": [],
+  "unstaged_only": []
+}

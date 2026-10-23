@@ -1,0 +1,22 @@
+{
+  "run_dir": "/tmp/repo/.claude/reviewer/runs/run-basic",
+  "angle": "robustness",
+  "verdict": "FAIL",
+  "files": [
+    {"path": "src/a.py", "verdict": "issues", "issue_count": 1},
+    {"path": "src/b.py", "verdict": "clean", "issue_count": 0},
+    {"path": "lock.json", "verdict": "skimmed", "issue_count": 0}
+  ],
+  "issues": [
+    {
+      "severity": "CRITICAL",
+      "title": "Unchecked int() conversion",
+      "location": "src/a.py:parse",
+      "category": "robustness",
+      "expected": "parse survives malformed input",
+      "actual": "ValueError propagates to the request handler",
+      "impact": "Service returns 500 on malformed input",
+      "recommendation": "Catch ValueError and return a 400"
+    }
+  ]
+}

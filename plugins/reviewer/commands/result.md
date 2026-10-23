@@ -18,7 +18,7 @@ Review implementation against a spec by analyzing git diffs and cross-referencin
 Parse the following from `$ARGUMENTS`:
 
 - `[path...]` — One or more spec file or folder paths (positional args)
-- `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`
+- `--base` or `-b` — Branch to compare against (e.g., `develop`, `main`). Uses `<base>...HEAD`, i.e. merge base to working tree (uncommitted edits included)
 - `--angles <list>` — Narrow the review to these angles (comma-separated). Default: all three built-in angles (coverage, robustness, correctness), one reviewer each in parallel, merged into one report. One angle gives a single-reviewer run.
 - `-c <engine>` or `--with-code-review <engine>` — After the spec review, also run a second, spec-blind engine on the same diff and merge its findings. `<engine>` is REQUIRED and is either:
   - a level `low | medium | high | xhigh | max` → the built-in `/code-review` at that level (`medium` recommended; `low` has a one-tool-call budget and cannot read a large diff), or
@@ -83,7 +83,8 @@ Options:
   -h, --help                    Show this help message
 
 Diff strategy:
-  With --base:                  git diff <base>...HEAD
+  With --base:                  git diff $(git merge-base <base> HEAD)  (shown as <base>...HEAD;
+                                committed + staged + unstaged changes)
   Without --base:               Auto-detect base branch, or use git diff + git diff --cached
                                 (-c always needs a branch base; see below)
   Large diffs are read in full, in batches — no file is skipped as "unrelated".
@@ -154,15 +155,16 @@ Task tool:
     - max_iterations: 1
     - angles: <value from --angles, or "default">
     - fix_all: false
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
     - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 
     ## Review Angle Templates (result section)
     <paste the result section content from review-angles.yaml>
 ```
 
-Wait for the orchestrator's own final report (merged report, Handoff, log line). Its per-angle sub-agents may surface their individual reports first; do NOT merge those yourself or report before the orchestrator returns — the orchestrator is the one that deduplicates and logs.
+Wait for the orchestrator's own final report (merged report, Handoff, log line). Its per-angle sub-agents may surface their individual reports first; do NOT merge those yourself or report before the orchestrator returns — its merge script (`merge-findings.cjs`) deduplicates the angle reports, and findings are logged once, after the orchestrator's loop ends (or, with `-c`, once by Step 3d).
 
-When `-c` is set, OMIT the `log_script_path` line from the prompt (the orchestrator then prints "findings not logged") — Step 3d logs the merged set once, so the spec review must not log its half separately. Keep the orchestrator's full report; Step 3c merges into it.
+When `-c` is set, pass `log_script_path` as `none`; the orchestrator then runs the merge with `--no-log` and Step 3d logs the two-engine merge once. Keep the orchestrator's full report; Step 3c merges into it.
 
 **If `-c` is set, continue with Steps 3b–3d after the orchestrator returns.**
 
@@ -197,14 +199,14 @@ This is LLM judgment; do it here, not in a script. Nothing below depends on whic
 3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry tagged `engine: both`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
 4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its engine tag. Replace the Verdict with two lines:
    ```
-   Spec review: PASS | FAIL (N critical, N high)
+   Spec review: PASS | FAIL (N critical, N high) | FAIL (review incomplete: <angles>)
    <engine>[ <level>]: N findings (N critical, N high, N medium, N low) — <scope note from Step 3b.4>
    ```
-   Keep the spec verdict's PASS/FAIL rule unchanged (critical/high only) so existing readers are not surprised, but a reader must see both lines together. Rebuild the Handoff directives from the merged list.
+   Keep the spec verdict's PASS/FAIL rule unchanged (critical/high only) so existing readers are not surprised, but a reader must see both lines together. When the orchestrator's verdict is `FAIL (review incomplete: <angles>)` (`complete: false` in `merged.json`), carry it over verbatim; it is never PASS. Rebuild the Handoff directives from the merged list.
 
 #### Step 3d: Log the merged findings (best-effort)
 
-Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's pattern-sweep list; an engine finding without one gets `[location]`) — and run, from the git root:
+Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`) — and run, from the git root:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 <<'FINDINGS_JSON'
@@ -233,6 +235,7 @@ Task tool:
     - max_iterations: <N, default 3>
     - angles: <value from --angles, or "default">
     - fix_all: <true if "--fix all", false otherwise>
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
     - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
 
     ## Review Angle Templates (result section)
