@@ -62,6 +62,29 @@ same brief instead. Capture its output as `CODEBASE_CONTEXT`. This is
 shared by BOTH engines, so exploration happens once, not twice. If `--no-explore`,
 set `CODEBASE_CONTEXT` to empty.
 
+### Step 3b: Load the review angles
+Read `${CLAUDE_PLUGIN_ROOT}/templates/review-angles.yaml`. From its `spec:` section take
+`scope`, `completeness`, `tasks`, `platform`, `design`, `consistency` in that order, each as
+`{ key, label, focus }` with `focus` as the full text of the block. Add `composition` only when
+the review scope holds multiple independent spec units.
+
+**Composition judgment** — read the paths and any quick file listing first, then decide whether composition adds value. Multiple independent units are indicated by signals like multiple folders, multiple spec-bearing subfolders or files inside one folder, multiple capability sections within a single file, or several files passed explicitly. Use your judgment — a single tightly scoped feature spec doesn't need composition; a batch of proposals or a multi-capability epic does.
+
+If the file cannot be read, pass no `angles` (the Workflow then runs one Claude reviewer per
+round) and say so in one line. With angles, the Claude engine runs one reviewer per angle in
+round 1 and three grouped reviewers (scope+design, completeness+consistency+composition,
+tasks+platform) in later rounds; the Codex engine keeps one reviewer per round and sees the
+same angle labels. This is the same angle source `/reviewer:spec` uses.
+
+### Step 3c: Load project rules
+Read `.claude/reviewer/rules.yaml` at the git root if it exists (harvested project rules from
+`reviewer:init`). It is a flat YAML map of `proposal`, `specs`, `design`, `tasks` to lists of
+quoted strings; convert it to a JSON object with those keys (array of strings each; omit keys
+that are absent) and pass it as `args.projectRules`. If the file is missing or unreadable, omit
+`projectRules`. The Workflow injects each area into the Claude reviewers whose angle maps to it
+(scope→proposal, completeness→specs, design→design, tasks→tasks) and all areas into the Codex
+prompt, so both engines review against the same rules `/reviewer:spec` applies.
+
 ### Step 4: Dispatch the Workflow
 Call the Workflow tool by plugin workflow name (do NOT use `scriptPath` — plugin-cache paths are outside the session's readable directories and get rejected):
 
@@ -71,7 +94,9 @@ Workflow({
   args: {
     change: "<change path string>",
     maxRounds: <max_rounds>,
-    codebaseContext: "<CODEBASE_CONTEXT, or empty>"
+    codebaseContext: "<CODEBASE_CONTEXT, or empty>",
+    angles: <the array from Step 3b, or omit the key>,
+    projectRules: <the object from Step 3c, or omit the key>
   }
 })
 ```
@@ -91,7 +116,10 @@ The Workflow returns `{ ready, enginesClean, reason?, change, rounds, fixRounds,
 that no MEDIUM+ item is waiting in `needsHuman` — an escalated blocker is still a blocker — so
 `ready: false` with `enginesClean: true` means "clean except for what the human must decide".
 `gateRan: false` means a fix pass could not run the project gates (tool missing); `null` = no gates.
-`rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
+Each `history` row carries `claudeAgents`: the Claude reviewer labels used that round
+(`claude:<angle>:1` per angle in round 1, `claude:<group>:N` for the three groups afterwards, or
+`['claude:N']` when no angles were passed); `enginesDown` may name a single angle (`claude:scope`),
+which degrades that round like a dead engine. `rounds` counts reviews (one per `history` row), `fixRounds` counts fix passes; `findings` always
 come from the LAST review, i.e. they describe the post-fix artifacts, never a pre-fix snapshot.
 `intersection` is `{ both, claudeOnly, codexOnly, anyRound, rounds }` — how many findings BOTH engines
 reported. Near-zero is normal for independent engines; report it so the user knows every blocker was

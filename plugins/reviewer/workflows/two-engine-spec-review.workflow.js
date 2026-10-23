@@ -45,6 +45,52 @@ const GATES = Array.isArray(A.gateCommands)
   ? A.gateCommands.filter(c => typeof c === 'string' && c.trim())
   : (changeName ? [`spectra analyze ${changeName} --json`, `spectra validate ${changeName} --json`] : [])
 
+// Review angles for the Claude engine, read from templates/review-angles.yaml by the skill and
+// passed as args.angles = [{ key, label, focus }]. Absent/malformed -> legacy single-agent path.
+function normalizeAngles(v) {
+  if (v === undefined || v === null) return []
+  if (!Array.isArray(v)) { log('two-engine-spec-review: args.angles ignored (expected an array of {key,label,focus})'); return [] }
+  return v.filter(a => a && typeof a.key === 'string' && a.key.trim())
+          .map(a => ({ key: a.key.trim(), label: typeof a.label === 'string' && a.label.trim() ? a.label.trim() : a.key.trim(),
+                       focus: typeof a.focus === 'string' ? a.focus.trim() : '' }))
+}
+const ANGLE_LIST = normalizeAngles(A.angles)
+// Rounds >= 2 review in three fixed groups (table order); keys the table does not know join the last group.
+const GROUPS = [['scope', 'design'], ['completeness', 'consistency', 'composition'], ['tasks', 'platform']]
+function groupsFor(angles) {
+  const known = new Set(GROUPS.flat())
+  const groups = GROUPS.map(keys => ({ keys, angles: keys.map(k => angles.find(a => a.key === k)).filter(Boolean) }))
+  for (const a of angles) if (!known.has(a.key)) groups[groups.length - 1].angles.push(a)
+  return groups.filter(g => g.angles.length).map(g => ({ name: g.angles.map(a => a.key).join('+'), angles: g.angles }))
+}
+const categoryOf = key => (key === 'composition' ? 'cross-cutting' : key)
+
+// Harvested project rules (reviewer:init -> .claude/reviewer/rules.yaml), parsed to JSON by the skill
+// and passed as args.projectRules = { proposal?, specs?, design?, tasks? } (string[] each).
+// Angle -> artifact area, same table as agents/spec-orchestrator.md; other angles get no rules.
+const RULE_AREAS = ['proposal', 'specs', 'design', 'tasks']
+const RULE_AREA = { scope: 'proposal', completeness: 'specs', design: 'design', tasks: 'tasks' }
+function normalizeRules(v) {
+  const empty = Object.fromEntries(RULE_AREAS.map(a => [a, []]))
+  if (v === undefined || v === null) return empty
+  if (typeof v !== 'object' || Array.isArray(v)) {
+    log('two-engine-spec-review: args.projectRules ignored (expected an object of string arrays keyed by proposal/specs/design/tasks)')
+    return empty
+  }
+  for (const a of RULE_AREAS) empty[a] = Array.isArray(v[a]) ? v[a].filter(r => typeof r === 'string' && r.trim()).map(r => r.trim()) : []
+  return empty
+}
+const RULES = normalizeRules(A.projectRules)
+// Rules section for the given areas (in the order given); '' when none of them has a rule.
+function rulesBlock(areas) {
+  const present = areas.filter(a => RULES[a] && RULES[a].length)
+  if (!present.length) return ''
+  const body = present.length === 1
+    ? RULES[present[0]].map(r => `- ${r}`).join('\n')
+    : present.map(a => `### ${a}\n` + RULES[a].map(r => `- ${r}`).join('\n')).join('\n')
+  return `\n\n## Project Rules (additional criteria — treat violations as findings)\n${body}\n`
+}
+
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
 // Both engines return this shape → union / dedup / blocker-count are pure code
@@ -160,15 +206,34 @@ const ledgerBlock = (forFixer) => {
       `but still link them if you re-raise them.\n${lines}\n`
 }
 
-const reviewPrompt = engine =>
+const ANGLES_SENTENCE = ANGLE_LIST.length ? ANGLE_LIST.map(a => a.label).join(', ') : ANGLES
+const promptHead = () =>
   `Review the spec/proposal/design under "${CHANGE}" (relative to git root). ` +
-  `Do NOT modify any files — report findings only. ` +
-  `Cover these angles: ${ANGLES}. Assign each finding a severity ` +
-  `(CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick. ` +
-  `Also assign each finding a category: scope, completeness, design, tasks, platform, consistency, or cross-cutting. ` +
+  `Do NOT modify any files — report findings only. `
+const promptTail = engine =>
   (CONTEXT ? `\n\n## Codebase context\n${CONTEXT}\n` : '') +
   ledgerBlock(false) +
   `\n(Engine: ${engine}.)`
+// Codex engine and the legacy single-agent Claude path: every angle in one prompt.
+const reviewPrompt = engine =>
+  promptHead() +
+  `Cover these angles: ${ANGLES_SENTENCE}. Assign each finding a severity ` +
+  `(CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick. ` +
+  `Also assign each finding a category: scope, completeness, design, tasks, platform, consistency, or cross-cutting. ` +
+  rulesBlock(RULE_AREAS) +
+  promptTail(engine)
+// Fan-out Claude path: one angle (round 1) or one group of angles (later rounds) per agent.
+const anglePrompt = (angles, engine) => {
+  const cats = angles.map(a => categoryOf(a.key))
+  const section = angles.length === 1
+    ? `\n\n## Your review angle: ${angles[0].label}\n${angles[0].focus}\nReview ONLY through this angle. Set category to "${cats[0]}".`
+    : `\n\n## Your review angles\n` + angles.map(a => `### ${a.label}\n${a.focus}`).join('\n') +
+      `\nReview ONLY through these angles. Set category to one of: ${cats.join(', ')}.`
+  const areas = [...new Set(angles.map(a => RULE_AREA[a.key]).filter(Boolean))]
+  return promptHead() +
+    `Assign each finding a severity (CRITICAL/HIGH/MEDIUM/LOW). Treat MEDIUM as a real blocker, not a nitpick.` +
+    section + rulesBlock(areas) + promptTail(engine)
+}
 
 // One full dual-engine round. The barrier is real: both engines' findings must
 // be in hand to build the union, categorize, and count blockers.
@@ -199,10 +264,41 @@ function liveness(res, name) {
   return { res: { ...res, findings: real }, ok: !(statusBad || onlyPlaceholders) }
 }
 
+// Claude-side union across angle agents: live findings concatenated, equal keyOf collapsed to the
+// worse severity (first non-empty priorId kept), missing/unknown category set from the agent's angle.
+function unionClaude(results, round) {
+  const known = new Set(ANGLE_LIST.map(a => categoryOf(a.key)))
+  const map = new Map(), count = new Map()
+  for (const { job, res } of results) {
+    for (const f0 of res.findings) {
+      const f = { ...f0 }
+      if (!f.category || (known.size && !known.has(f.category))) f.category = categoryOf(job.keys[0])
+      const k = keyOf(f)
+      if (map.has(k)) {
+        const m = map.get(k)
+        m.severity = worseSeverity(m.severity, f.severity)
+        if (!m.priorId && f.priorId) m.priorId = f.priorId
+        count.set(k, count.get(k) + 1)
+      } else { map.set(k, f); count.set(k, 1) }
+    }
+  }
+  for (const [k, n] of count) if (n > 1) { const m = map.get(k); log(`claude:${round}: "${m.title}" at ${m.location} reported by ${n} angles — collapsed`) }
+  const findings = [...map.values()]
+  return { verdict: findings.some(f => isBlocker(f.severity)) || results.some(r => r.res.verdict === 'FAIL') ? 'FAIL' : 'PASS', findings }
+}
+
+function claudeJobs(round) {
+  if (!ANGLE_LIST.length) return [{ label: `claude:${round}`, keys: [], prompt: reviewPrompt('Claude') }]
+  const units = round === 1
+    ? ANGLE_LIST.map(a => ({ name: a.key, angles: [a] }))
+    : groupsFor(ANGLE_LIST)
+  return units.map(u => ({ label: `claude:${u.name}:${round}`, keys: u.angles.map(a => a.key), prompt: anglePrompt(u.angles, 'Claude') }))
+}
+
 async function reviewRound(round) {
-  const [claudeRaw, codexRaw] = await parallel([
-    () => agent(reviewPrompt('Claude'),
-      { label: `claude:${round}`, phase: 'Review', schema: FINDINGS }),
+  const jobs = claudeJobs(round)
+  const raws = await parallel([
+    ...jobs.map(j => () => agent(j.prompt, { label: j.label, phase: 'Review', schema: FINDINGS })),
     () => agent(
       `On the Codex side, run /reviewer:spec for the change under "${CHANGE}". ` +
       `Do NOT pass --fix or --fix-all. Report findings only.\n` +
@@ -211,10 +307,14 @@ async function reviewRound(round) {
       `Set engineStatus "ok" when the findings are genuinely Codex's.\n` + reviewPrompt('Codex'),
       { label: `codex:${round}`, phase: 'Review', agentType: 'codex:codex-rescue', schema: FINDINGS }),
   ])
-  const c = liveness(claudeRaw, `claude:${round}`)
+  const codexRaw = raws[raws.length - 1]
+  const results = jobs.map((job, i) => { const l = liveness(raws[i], job.label); return { job, res: l.res, ok: l.ok } })
+  const claudeDown = results.filter(r => !r.ok).map(r => (r.job.keys.length ? `claude:${r.job.label.split(':')[1]}` : 'claude'))
+  const claude = ANGLE_LIST.length ? unionClaude(results.filter(r => r.ok), round) : results[0].res
   const x = liveness(codexRaw,  `codex:${round}`)
-  // A dead engine must NOT count as a clean review — the *Ok flags gate `cleared`.
-  return { claude: c.res, codex: x.res, claudeOk: c.ok, codexOk: x.ok }
+  // A dead engine (or any dead angle agent) must NOT count as a clean review — the *Ok flags gate `cleared`.
+  return { claude, codex: x.res, claudeOk: results.every(r => r.ok), codexOk: x.ok,
+           claudeAgents: jobs.map(j => j.label), claudeDown }
 }
 
 // Pure-code categorization. BLOCKER rule: MEDIUM+ in EITHER engine counts;
@@ -422,7 +522,7 @@ while (round <= MAX_ROUNDS + 1) {
   for (const [name, res] of [['claude', r.claude], ['codex', r.codex]])
     if (res.verdict === 'FAIL' && !res.findings.some(f => isBlocker(f.severity)))
       log(`${name}:${round} said FAIL but reported no MEDIUM+ finding — verdict ignored, blockers rule`)
-  const down = [!r.claudeOk && 'claude', !r.codexOk && 'codex'].filter(Boolean)
+  const down = [...r.claudeDown, !r.codexOk && 'codex'].filter(Boolean)
 
   // Track persistence of each blocker NOT already escalated. A blocker still
   // present after STALE consecutive rounds is one the fixer can't resolve.
@@ -456,7 +556,7 @@ while (round <= MAX_ROUNDS + 1) {
                  // engines and means every blocker is single-engine; surfaced so the consumer can weigh it.
                  intersection: cat.both.length, claudeOnly: cat.onlyClaude.length, codexOnly: cat.onlyCodex.length,
                  fresh: fresh.length, linked, escalated: escalated.size, degraded: down.length > 0,
-                 enginesDown: down })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
+                 enginesDown: down, claudeAgents: r.claudeAgents })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
 
   // Clear only when both engines ran and NO blockers remain (verdict strings are not consulted).
   if (enginesOk && cat.blockers.length === 0) { cleared = cat; break }
