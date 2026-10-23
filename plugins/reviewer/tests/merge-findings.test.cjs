@@ -428,3 +428,12 @@ test('same-file issues whose keys contain one another fold; cross-file containme
   const cross = merge(man, [issue('a.py', 'int(', 'unchecked cast', 'correctness'), issue('b.py', 'int(raw) + 1', 'off by one after cast', 'robustness')], '')
   assert.equal(cross.issues.length, 2, 'different files, one key a substring of the other: not folded')
 })
+
+test('a skipped submodule in the manifest makes the review incomplete with a not_reviewed entry naming it', () => {
+  const man = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x', skipped_submodules: [{ path: 'libZ', reason: 'not checked out' }] }
+  const rep = { run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: 'coverage', via: 'report_review', verdict: 'PASS', files: [{ path: 'a.py', verdict: 'clean', issue_count: 0 }], issues: [] }
+  const m = merge(man, [rep], '')
+  assert.equal(m.complete, false)
+  const entry = m.files.find((f) => f.path.startsWith('libZ/'))
+  assert.ok(entry, 'entry for the skipped submodule'); assert.equal(entry.verdict, 'not_reviewed'); assert.match(entry.path, /submodule not checked out/)
+})

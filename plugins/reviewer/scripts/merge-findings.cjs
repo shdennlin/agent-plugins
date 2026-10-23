@@ -324,6 +324,10 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     else if (reported.length && reported.every((f) => f.verdict === 'skimmed')) verdict = 'skimmed'
     return { path: p, verdict, issue_count: issueCount, not_reviewed_by: notReviewedBy }
   })
+  // submodules the setup script could not expand are not reviewed, whatever the angles say
+  for (const sk of arr(manifest && manifest.skipped_submodules)) {
+    if (sk && typeof sk.path === 'string') files.push({ path: `${sk.path}/ (submodule ${sk.reason || 'skipped'})`, verdict: 'not_reviewed', issue_count: 0, not_reviewed_by: ['setup'] })
+  }
 
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]))
   for (const i of folded) if (i.severity in counts) counts[i.severity]++

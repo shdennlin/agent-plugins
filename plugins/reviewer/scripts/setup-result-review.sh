@@ -136,6 +136,10 @@ DEL="$({ grep -oE '[0-9]+ deletion' <<<"$STAT" || true; } | awk '{s+=$1} END{pri
 #                    WORKTREE), which also covers uncommitted edits inside a sub whose pointer did not move
 EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 SUBS_JSON="[]"
+SKIPPED_JSON="[]"
+NOTES_JSON="[]"
+skip_sub() { echo "setup-result-review: submodule $1: $2, skipped" >&2; SKIPPED_JSON="$(jq -c --arg p "$1" --arg r "$2" '. + [{path:$p, reason:$r}]' <<<"$SKIPPED_JSON")"; }
+note_sub() { echo "setup-result-review: submodule $1: $2" >&2; NOTES_JSON="$(jq -c --arg p "$1" --arg r "$2" '. + [{path:$p, note:$r}]' <<<"$NOTES_JSON")"; }
 PTR_TREE="HEAD"; [[ -n "$DIFF_BASE" ]] && PTR_TREE="$DIFF_BASE"
 # gitlinks of the current index, collected once (no per-path pathspec: a plain file named like a glob must not match)
 GITLINKS="$(g ls-files -s -z | tr '\0' '\n' | awk -F'\t' '$1 ~ /^160000 /{print $2}')"
@@ -148,10 +152,10 @@ while IFS= read -r p; do
   entry="$(base_entry "$p")"; old_mode="${entry%% *}"
   old_ptr=""; [[ "$old_mode" == "160000" ]] && old_ptr="$(awk '{print $3}' <<<"$entry")"
   if ! is_gitlink "$p"; then
-    if [[ -n "$old_ptr" ]]; then echo "setup-result-review: submodule $p: removed in this change, skipped" >&2; continue; fi
+    if [[ -n "$old_ptr" ]]; then skip_sub "$p" "removed in this change"; continue; fi
     EXPANDED+="$p"$'\n'; continue
   fi
-  if [[ ! -e "$TOP/$p/.git" ]]; then echo "setup-result-review: submodule $p: not checked out, skipped" >&2; continue; fi
+  if [[ ! -e "$TOP/$p/.git" ]]; then skip_sub "$p" "not checked out"; continue; fi
   gs() { git -C "$TOP/$p" -c core.quotePath=false -c diff.noprefix=false -c diff.mnemonicPrefix=false "$@"; }
   gsd() { gs diff --no-ext-diff --no-color "$@"; }
   new_ptr="$(gs rev-parse HEAD 2>/dev/null || true)"
@@ -171,7 +175,7 @@ while IFS= read -r p; do
     gs cat-file -e "$sub_base^{commit}" 2>/dev/null \
       || die2 "submodule $p: base commit $sub_base is not in its clone (shallow or stale checkout): fetch it or use --base"
   fi
-  if [[ -n "$(gs submodule status 2>/dev/null)" ]]; then echo "setup-result-review: submodule $p: nested submodules not expanded" >&2; fi
+  if [[ -n "$(gs submodule status 2>/dev/null)" ]]; then note_sub "$p" "nested submodules not expanded"; fi
   # prefix as data, never inside a sed/awk program: the path is attacker-controlled repo content
   sub_files="$(gsd --name-only "$sub_base" | norm_lines | while IFS= read -r l; do printf '%s/%s\n' "$p" "$l"; done)"
   [[ -n "$sub_files" ]] && EXPANDED+="$sub_files"$'\n'
@@ -191,6 +195,10 @@ if (( FILE_COUNT >= 20 || LINE_COUNT >= 500 )); then SIZE="large"; fi
 
 if [[ -d "$TOP/openspec" ]]; then ROOT="$TOP/openspec/reviews/runs"; else ROOT="$TOP/.claude/reviewer/runs"; fi
 mkdir -p "$ROOT"
+# Retention: keep the newest KEEP_RUNS run directories (by name = timestamp); files in runs/ are never touched.
+KEEP_RUNS="${REVIEWER_KEEP_RUNS:-10}"
+find "$ROOT" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-*' \
+  | LC_ALL=C sort | awk -v k="$KEEP_RUNS" '{a[NR]=$0} END{for(i=1;i<=NR-k;i++) print a[i]}' | while IFS= read -r old; do rm -rf "$old"; done
 [[ -f "$ROOT/.gitignore" ]] || printf '*\n' >"$ROOT/.gitignore"
 
 # mktemp guarantees a fresh directory even when two runs start in the same second
@@ -207,8 +215,8 @@ BASEOBJ="$(jq -n --arg run_id "$RUN_ID" --arg run_dir "$RUN_DIR" --arg s "$STRAT
 
 jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg wd "$TOP" \
    --argjson so "$(lines_json "$STAGED_ONLY")" --argjson uo "$(lines_json "$UNSTAGED_ONLY")" \
-   --arg db "$DIFF_BASE" --argjson subs "$SUBS_JSON" \
-   '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo, submodules:$subs}
+   --arg db "$DIFF_BASE" --argjson subs "$SUBS_JSON" --argjson skipped "$SKIPPED_JSON" --argjson notes "$NOTES_JSON" \
+   '. + {created:$created, working_directory:$wd, staged_only:$so, unstaged_only:$uo, submodules:$subs, skipped_submodules:$skipped, notes:$notes}
     + (if $db == "" then {} else {diff_base:$db} end)' \
    <<<"$BASEOBJ" >"$RUN_DIR/manifest.json"
 

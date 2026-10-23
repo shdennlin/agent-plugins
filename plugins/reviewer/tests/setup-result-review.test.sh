@@ -285,4 +285,24 @@ d1="$("$SCRIPT" --working-dir "$R/c" --base trunk | jq -r .run_dir)"; d2="$("$SC
 [[ "$(basename "$d1")" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$ ]] || fail "run id format (got $(basename "$d1"))"
 rm -rf "$R"
 
+# 10. runs/ retention (newest 10 kept) and skipped submodules recorded in the manifest.
+Q="$(mktemp -d)"
+mkrepo "$Q/libZ"; printf 'z\n' >"$Q/libZ/z.txt"; gc "$Q/libZ" add -A; gc "$Q/libZ" commit -q -m base
+mkrepo "$Q/super" develop; gc "$Q/super" submodule add -q "$Q/libZ" libZ; printf 'p\n' >"$Q/super/plain.txt"
+gc "$Q/super" add -A; gc "$Q/super" commit -q -m base; gc "$Q/super" branch -f develop
+gc "$Q/super" switch -q -c feat; printf 'z2\n' >"$Q/libZ/z.txt"; gc "$Q/libZ" commit -q -am z2
+gc "$Q/super/libZ" fetch -q origin && gc "$Q/super/libZ" checkout -q "$(git -C "$Q/libZ" rev-parse HEAD)"
+printf 'p2\n' >"$Q/super/plain.txt"; gc "$Q/super" add -A; gc "$Q/super" commit -q -m "bump libZ, edit plain"
+rm -rf "$Q/super/libZ"; mkdir "$Q/super/libZ"   # gitlink present, checkout gone
+RUNS="$Q/super/.claude/reviewer/runs"; mkdir -p "$RUNS"; printf '*\n' >"$RUNS/.gitignore"; printf 'x\n' >"$RUNS/stray.txt"
+for i in 01 02 03 04 05 06 07 08 09 10 11 12; do mkdir "$RUNS/202601${i}T000000Z-aaaaaa"; done
+outq="$("$SCRIPT" --working-dir "$Q/super" --base develop 2>"$Q/err.txt")" || fail "section 10 setup failed: $(cat "$Q/err.txt")"
+[[ "$(find "$RUNS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" == "11" ]] || fail "retention keeps 10 old dirs + the new one (got $(find "$RUNS" -mindepth 1 -maxdepth 1 -type d | wc -l))"
+[[ ! -d "$RUNS/20260101T000000Z-aaaaaa" && ! -d "$RUNS/20260102T000000Z-aaaaaa" && -d "$RUNS/20260103T000000Z-aaaaaa" ]] || fail "the two oldest dirs are pruned"
+[[ -f "$RUNS/stray.txt" && -f "$RUNS/.gitignore" ]] || fail "files in runs/ are never pruned"
+runq="$(jq -r .run_dir <<<"$outq")"
+[[ "$(jq -c '.skipped_submodules' "$runq/manifest.json")" == '[{"path":"libZ","reason":"not checked out"}]' ]] || fail "skipped submodule recorded (got $(jq -c .skipped_submodules "$runq/manifest.json"))"
+[[ "$(jq -r '.files|join(",")' <<<"$outq")" == "plain.txt" ]] || fail "skipped submodule contributes no files"
+rm -rf "$Q"
+
 echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, submodules, $n normalize cases"

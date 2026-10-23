@@ -118,7 +118,7 @@ node "$PLUGIN/scripts/migrate-history.cjs" openspec/reviews/history.jsonl --seco
 In a git superproject the setup script expands each changed, checked-out submodule into its own
 diff (paths prefixed `<sub>/`, recorded under `submodules` with the base commit and how it was
 chosen; uncommitted edits inside a sub count), so a review run from the superproject sees the
-code, not the pointers. Removed or un-checked-out submodules are skipped with a note on stderr.
+code, not the pointers. Removed or un-checked-out submodules are listed in `manifest.skipped_submodules` and make the review `complete: false` (a `not_reviewed` entry names them). `runs/` keeps the newest 10 run directories (`REVIEWER_KEEP_RUNS` overrides); files in it are never touched.
 Each angle reports through the `report_review` tool of the plugin's stdio MCP server
 (`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
 verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges
