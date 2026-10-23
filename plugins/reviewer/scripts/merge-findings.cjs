@@ -65,6 +65,21 @@ function unionLocations(lists) {
 // MIN_PATTERN characters are too generic to identify a construct and never fold.
 const MIN_PATTERN = 3
 const foldKey = (p) => (typeof p === 'string' && p.trim().length >= MIN_PATTERN ? p.trim() : null)
+
+// The construct a pattern names, independent of the statement around it: `return int(s)`, `x = int(raw)`
+// and `int(` all have the head `int(`. Operator/expression patterns are kept whole. Bare identifiers and
+// keywords give null (a head sweep on them would spray locations).
+const KEYWORDS = new Set(['self', 'none', 'if', 'for', 'return', 'true', 'false', 'null', 'nil', 'this', 'await', 'else', 'while', 'def', 'func', 'var', 'let', 'const'])
+function constructHead(pattern) {
+  const key = foldKey(pattern)
+  if (key === null) return null
+  let s = key.replace(/^(return|await|yield)\s+/, '').replace(/^[A-Za-z_][\w.]*\s*(:=|=|\+=|-=)\s*/, '').trim()
+  const call = s.match(/^([A-Za-z_][\w.]*)\s*\(/)
+  if (call) return `${call[1]}(`
+  if (/^[A-Za-z_]\w*$/.test(s)) return KEYWORDS.has(s.toLowerCase()) || s.length < MIN_PATTERN ? null : null
+  return s.length >= MIN_PATTERN ? s : null
+}
+const HEAD_CAP = 5   // a head found in more files than this is too generic to join on
 const recLines = (r) => String(r ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
 function foldByPattern(issues) {
   const groups = new Map()
@@ -250,6 +265,19 @@ function merge(manifest, reports, diffPatch, opts = {}) {
         if (file === own || issue.locations.includes(file)) continue
         if (lines.some((l) => l.includes(key))) issue.locations.push(file)
       }
+      // second pass on the construct head (`int(` for `return int(s)`), word-bounded on the left and
+      // capped: a head present in more than HEAD_CAP other files is too generic to be the same defect
+      const head = constructHead(pattern)
+      if (head !== null && head !== key) {
+        const esc = head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const re = new RegExp(`(^|[^\\w.])${esc}`)
+        const hits = []
+        for (const [file, lines] of added) {
+          if (file === own || issue.locations.includes(file)) continue
+          if (lines.some((l) => re.test(l))) hits.push(file)
+        }
+        if (hits.length && hits.length <= HEAD_CAP) { issue.locations.push(...hits); issue.swept_by_head = hits }
+      }
     }
     return issue
   })
@@ -385,4 +413,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports, foldByPattern }
+module.exports = { merge, loadReports, foldByPattern, constructHead }

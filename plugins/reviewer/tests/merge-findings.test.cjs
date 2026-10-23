@@ -376,3 +376,34 @@ test('merge: a file-written report whose verdict contradicts its issues is not i
   assert.equal(out.complete, true)
   assert.equal(out.verdict, 'FAIL')
 })
+
+// --- batch E: construct-head sweep
+const { constructHead } = require('../scripts/merge-findings.cjs')
+const mkPatch = (files) => files.map(([f, line]) => [`diff --git a/${f} b/${f}`, `+++ b/${f}`, '@@ -0,0 +1 @@', `+${line}`].join('\n')).join('\n')
+const mkRep = (files, issue) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: 'correctness', via: 'report_review', verdict: 'FAIL',
+  files: files.map((f, i) => ({ path: f, verdict: i === 0 ? 'issues' : 'clean', issue_count: i === 0 ? 1 : 0 })),
+  issues: [{ severity: 'HIGH', title: 't', location: `${files[0]}:f`, category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r', ...issue }] })
+test('constructHead strips the statement around a call and keeps operator forms; keywords and bare identifiers give null', () => {
+  assert.equal(constructHead('return int(s)'), 'int(')
+  assert.equal(constructHead('x = int(raw)'), 'int(')
+  assert.equal(constructHead('y := strconv.Atoi(v)'), 'strconv.Atoi(')
+  assert.equal(constructHead('await fetch(url)'), 'fetch(')
+  assert.equal(constructHead('int('), 'int(')
+  assert.equal(constructHead('size - 1'), 'size - 1')
+  assert.equal(constructHead('items[start:start + size - 1]'), 'items[start:start + size - 1]')
+  for (const k of ['self', 'None', 'if', 'return', 'true', 'nil', 'this', 'x', 'ab']) assert.equal(constructHead(k), null, k)
+})
+test('head sweep joins a file whose added lines hold the call head even when the pattern carries different arguments', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const m = merge(man, [mkRep(['a.py', 'b.py'], { pattern: 'return int(s)' })], mkPatch([['a.py', 'return int(s)'], ['b.py', 'y = int(raw)']]))
+  assert.deepEqual(m.issues[0].locations, ['a.py:f', 'b.py'])
+  assert.deepEqual(m.issues[0].swept_by_head, ['b.py'])
+})
+test('head sweep is capped at 5 files and word-bounded on the left', () => {
+  const six = ['a.py', 'b.py', 'c.py', 'd.py', 'e.py', 'f.py', 'g.py']
+  const man = { run_id: 'x', files: six, working_directory: '/tmp/x' }
+  const spray = merge(man, [mkRep(six, { pattern: 'v = get(key)' })], mkPatch(six.map((f) => [f, 'z = get(other)'])))
+  assert.deepEqual(spray.issues[0].locations, ['a.py:f'], 'get( appears in 6 other files: none added')
+  const bound = merge({ run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }, [mkRep(['a.py', 'b.py'], { pattern: 'x = print(a)' })], mkPatch([['a.py', 'x = print(a)'], ['b.py', 'sprint(b)']]))
+  assert.deepEqual(bound.issues[0].locations, ['a.py:f'], 'sprint( does not match print(')
+})
