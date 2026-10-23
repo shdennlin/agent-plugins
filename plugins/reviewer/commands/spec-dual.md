@@ -102,11 +102,11 @@ tasks+platform) in later rounds; the Codex engine keeps one reviewer per round a
 same angle labels. This is the same angle source `/reviewer:spec` uses.
 
 ### Step 3c: Load project rules
-Read `.claude/reviewer/rules.yaml` at the git root if it exists (harvested project rules from
-`reviewer:init`). It is a flat YAML map of `proposal`, `specs`, `design`, `tasks` to lists of
-quoted strings; convert it to a JSON object with those keys (array of strings each; omit keys
-that are absent) and pass it as `args.projectRules`. If the file is missing or unreadable, omit
-`projectRules`. The Workflow injects each area into the Claude reviewers whose angle maps to it
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs"` from the git root; it resolves the rules
+file the same way `reviewer:init` writes it (`openspec/config.yaml` `rules:` section, else
+`.claude/reviewer/rules.yaml`) and prints `{ source, proposal, specs, design, tasks }`. Pass the
+object (minus `source`) as `args.projectRules`; omit the key when every array is empty. The
+Workflow injects each area into the Claude reviewers whose angle maps to it
 (scope→proposal, completeness→specs, design→design, tasks→tasks) and all areas into the Codex
 prompt, so both engines review against the same rules `/reviewer:spec` applies.
 
