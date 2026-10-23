@@ -72,6 +72,18 @@ After applying all fixes, output a summary:
 - <any side effects or things the reviewer should check in the next round>
 ```
 
+Then, as the very last thing you print, this block exactly (one line per directive, `<location>`
+copied from the directive, the reason after an em dash for skipped ones; counts must match the lines):
+
+```
+FIXER-RESULT
+APPLIED: <n>
+- <title> @ <location>
+SKIPPED: <n>
+- <title> @ <location> — <reason>
+END
+```
+
 ## Constraints
 
 - Only modify source code files — NEVER modify spec/design documents

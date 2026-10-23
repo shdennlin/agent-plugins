@@ -237,3 +237,16 @@ test('spec-orchestrator runs setup, dispatches typed spec-reviewers with the tem
   assert.match(c, /log-findings\.cjs/)
   assert.ok(!c.includes('log-findings.sh'))
 })
+test('both fixers end with the FIXER-RESULT block; the spec fix loop runs on merged.json', () => {
+  for (const f of ['agents/spec-fixer.md', 'agents/result-fixer.md']) {
+    const t = read(f)
+    assert.match(t, /FIXER-RESULT/, f); assert.match(t, /APPLIED: <n>/, f); assert.match(t, /SKIPPED: <n>/, f)
+    assert.match(t, /@ <location>/, f)
+  }
+  const o = read('agents/spec-orchestrator.md')
+  assert.match(o, /merged\.verdict/); assert.match(o, /merged\.complete/)
+  assert.match(o, /--parse-fixer/)
+  assert.match(o, /`locations`/)
+  assert.ok(!o.includes('For each issue in the merged report, decide'), 'triage reads merged.issues')
+  assert.match(read('agents/result-fix-orchestrator.md'), /--parse-fixer/)
+})

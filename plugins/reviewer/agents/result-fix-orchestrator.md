@@ -193,7 +193,11 @@ Agent tool:
     Report what was changed and what was skipped.
 ```
 
-After the fixer completes, output a brief summary of what was fixed.
+After the fixer completes, paste its `FIXER-RESULT … END` block into
+`node "{plugin_root}/scripts/merge-findings.cjs" --parse-fixer` (stdin), keep the JSON it prints as this
+round's fixer result (`applied[]`, `skipped[]`; `mismatch: true` means the fixer's counts disagree
+with its lines — say so), and output a brief summary of what was fixed. Directives escalated to the
+user and declined are not sent to the fixer; keep them as this round's `escalated[]` list.
 
 ### Step 7: Next Round
 

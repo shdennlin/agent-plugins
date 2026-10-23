@@ -501,3 +501,27 @@ test('CLI logs --source spec for a spec run', (t) => {
   assert.ok(rows.length >= 1)
   for (const row of rows) assert.equal(row.source, 'spec')
 })
+
+// --- batch F: fixer report parsing (both orchestrators paste the fixer's block)
+const { parseFixerReport } = require('../scripts/merge-findings.cjs')
+test('parseFixerReport reads the fixed APPLIED/SKIPPED block and keeps title + location per directive', () => {
+  const text = `## Fixes Applied\n1. stuff\n\nFIXER-RESULT\nAPPLIED: 2\n- Missing non-goals section @ proposal.md §Non-goals\n- Rate limit undefined @ design.md:40\nSKIPPED: 1\n- Queue semantics @ design.md §3 — new-mechanism: needs a product decision\nEND\n`
+  const r = parseFixerReport(text)
+  assert.deepEqual(r.applied, [{ title: 'Missing non-goals section', location: 'proposal.md §Non-goals' }, { title: 'Rate limit undefined', location: 'design.md:40' }])
+  assert.deepEqual(r.skipped, [{ title: 'Queue semantics', location: 'design.md §3', reason: 'new-mechanism: needs a product decision' }])
+  assert.equal(r.mismatch, false)
+})
+test('parseFixerReport: zero applied, declared counts that disagree with the lines are flagged, missing block is null', () => {
+  const zero = parseFixerReport('FIXER-RESULT\nAPPLIED: 0\nSKIPPED: 1\n- X @ a.md — bogus\nEND')
+  assert.equal(zero.applied.length, 0); assert.equal(zero.skipped.length, 1); assert.equal(zero.mismatch, false)
+  const bad = parseFixerReport('FIXER-RESULT\nAPPLIED: 3\n- X @ a.md\nSKIPPED: 0\nEND')
+  assert.equal(bad.applied.length, 1); assert.equal(bad.mismatch, true)
+  assert.equal(parseFixerReport('no block here'), null)
+})
+test('CLI --parse-fixer reads the block on stdin and prints the JSON', () => {
+  const r = spawnSync('node', [SCRIPT, '--parse-fixer'], { input: 'FIXER-RESULT\nAPPLIED: 1\n- T @ a.md:3\nSKIPPED: 0\nEND\n', encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  assert.deepEqual(JSON.parse(r.stdout).applied, [{ title: 'T', location: 'a.md:3' }])
+  const none = spawnSync('node', [SCRIPT, '--parse-fixer'], { input: 'nothing', encoding: 'utf8' })
+  assert.equal(none.status, 1)
+})

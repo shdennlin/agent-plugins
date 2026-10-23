@@ -2,6 +2,7 @@
 'use strict'
 // Deterministic merge of per-angle review reports in a result-review run directory.
 //   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>]
+//   node merge-findings.cjs --parse-fixer   (stdin: a fixer report; stdout: {applied[], skipped[], mismatch})
 //                           [--expect <angle1,angle2,...>]
 // --expect names the angles that must have reported; one with no <angle>.json is recorded as an
 // invalid report ("no report written") and marks every file not_reviewed.
@@ -412,7 +413,52 @@ function parseArgs(argv) {
   return o
 }
 
+// The fixers end their output with a fixed block the orchestrators paste back through
+// `--parse-fixer`; the parsed list feeds history outcomes (applied → fixed, skipped → open).
+//   FIXER-RESULT
+//   APPLIED: <n>
+//   - <title> @ <location>
+//   SKIPPED: <n>
+//   - <title> @ <location> — <reason>
+//   END
+function parseFixerReport(text) {
+  const lines = String(text ?? '').split('\n').map((l) => l.trim())
+  const start = lines.indexOf('FIXER-RESULT')
+  if (start === -1) return null
+  const out = { applied: [], skipped: [], declared: { applied: null, skipped: null }, mismatch: false }
+  let section = null
+  for (const line of lines.slice(start + 1)) {
+    if (line === 'END') break
+    let m
+    if ((m = line.match(/^APPLIED:\s*(\d+)/))) { section = 'applied'; out.declared.applied = Number(m[1]); continue }
+    if ((m = line.match(/^SKIPPED:\s*(\d+)/))) { section = 'skipped'; out.declared.skipped = Number(m[1]); continue }
+    if (!section || !line.startsWith('- ')) continue
+    const body = line.slice(2)
+    const at = body.lastIndexOf(' @ ')
+    if (at === -1) continue
+    const title = body.slice(0, at).trim()
+    let rest = body.slice(at + 3)
+    let reason
+    if (section === 'skipped') {
+      const dash = rest.indexOf(' — ')
+      if (dash !== -1) { reason = rest.slice(dash + 3).trim(); rest = rest.slice(0, dash) }
+    }
+    const entry = { title, location: rest.trim() }
+    if (section === 'skipped') entry.reason = reason ?? ''
+    out[section].push(entry)
+  }
+  out.mismatch = (out.declared.applied !== null && out.declared.applied !== out.applied.length) ||
+    (out.declared.skipped !== null && out.declared.skipped !== out.skipped.length)
+  return out
+}
+
 function main(argv) {
+  if (argv[0] === '--parse-fixer') {
+    const parsed = parseFixerReport(fs.readFileSync(0, 'utf8'))
+    if (parsed === null) { process.stderr.write('merge-findings: no FIXER-RESULT block on stdin\n'); process.exit(1) }
+    process.stdout.write(JSON.stringify(parsed) + '\n')
+    return
+  }
   const die = (msg) => {
     process.stderr.write(`merge-findings: ${msg}\n`)
     process.exit(2)
@@ -472,4 +518,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports, foldByPattern, constructHead, normKey }
+module.exports = { merge, loadReports, foldByPattern, constructHead, normKey, parseFixerReport }

@@ -88,6 +88,18 @@ Report every directive exactly once. If the caller requested structured output, 
 - <directive> — **<disposition>**: <one-line reason>
 ```
 
+Then, as the very last thing you print, this block exactly (one line per directive, `<location>`
+copied from the directive, the reason after an em dash for rejected ones (the disposition first); counts must match the lines):
+
+```
+FIXER-RESULT
+APPLIED: <n>
+- <title> @ <location>
+SKIPPED: <n>
+- <title> @ <location> — <reason>
+END
+```
+
 ## Constraints
 
 - Only modify files within the paths provided in the prompt

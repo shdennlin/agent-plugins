@@ -127,14 +127,17 @@ Output the merged report.
 
 **If `fix_enabled` is false:** output the final report and the Handoff section (with all unresolved directives), then **stop the loop**. Skip Steps 5–7.
 
+The round verdict is `merged.verdict`, except that `merged.complete === false` is always FAIL (review incomplete).
+
 **If `fix_enabled` is true:**
+- If `merged.complete` is false: output "review incomplete, stopping" and **stop the loop** — do not triage, do not spawn the fixer. Final Output and Log Findings still run on this round.
 - If **PASS**: output the final report and the Handoff section (with empty Directives), then **stop the loop**.
 - If **FAIL**: continue to Step 5.
 - If this is the **last round** (round == max_iterations) and still FAIL: output the final report with remaining issues, then **stop the loop** with a message: "Reached maximum iterations ({max_iterations}). {N} issues remain."
 
 ### Step 5: Triage Issues (Agent-Judgment Escalation)
 
-For each issue in the merged report, decide on your own whether it is **safe to auto-fix** or **worth escalating to the user**. Severity is one signal, not the rule.
+For each entry of `merged.issues` (never the review-process issues), decide on your own whether it is **safe to auto-fix** or **worth escalating to the user**. Severity is one signal, not the rule. Each entry becomes one directive: `title`, `severity`, `locations` (every location, so the fixer edits every site), `expected` → what the spec should say, `actual` → what it says, `recommendation` → action.
 
 **Escalate when the fix involves genuine judgment the user owns:**
 - Multiple valid fix options exist and picking one changes product behavior, API shape, or scope
@@ -179,10 +182,10 @@ Agent tool:
     Apply the following fix directives to the spec documents.
 
     ## Directives
-    {list of directives to fix, each with severity, topic, and action}
+    {numbered list of directives to fix, each with severity, title, `locations` (every one), expected, actual, action}
 
-    ## Target Files/Folders
-    {paths list}
+    ## Target Files
+    {the manifest's files, one per line}
 
     These directives were already triaged in this round: escalated items were
     approved by the user, the rest are the orchestrator's own auto-fix judgment.
@@ -191,7 +194,12 @@ Agent tool:
     Report what was changed and what was skipped.
 ```
 
-After the fixer completes, output a brief summary of what was fixed.
+After the fixer completes, paste its `FIXER-RESULT … END` block into
+`node "{plugin_root}/scripts/merge-findings.cjs" --parse-fixer` (stdin), keep the JSON it prints as this
+round's fixer result (`applied[]`, `skipped[]`; `mismatch: true` means the fixer's counts disagree
+with its lines — say so), and output a brief summary of what was fixed. Directives escalated to the
+user and declined (`none`, or not in the chosen numbers) are not sent to the fixer; keep them as this
+round's `escalated[]` list.
 
 ### Step 7: Next Round
 
