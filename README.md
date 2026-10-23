@@ -20,7 +20,6 @@ Plugins are grouped by what they do. **Type** is how each one is built: *Command
 
 | Plugin | Description | Type | Entry points |
 |--------|-------------|------|--------------|
-| [git-workflow](./plugins/git-workflow) | Git workflow automation with Conventional Commits support | Command + Agent + Skill | `/git-workflow:merge`, `/git-workflow:commit`, `/git-workflow:status`, `/git-workflow:sync` |
 | [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into structured cards, plus multi-project weekly recall digests | Command + Agent + Skill | `/digest:digest`, `/digest:release`, `/digest:weekly` |
 | [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent | `/mermaid-validator:check` |
 | [project-notes](./plugins/project-notes) | Capture sessions to a structured journal, then harvest ⭐ items into permanent-note drafts | Command + Agent | `/project-notes:log`, `/project-notes:harvest` |
@@ -62,7 +61,6 @@ Tell Codex to fetch and follow the install instructions for the plugin you want:
 | Plugin | Install command |
 |--------|----------------|
 | reviewer | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/reviewer/.codex/INSTALL.md` |
-| git-workflow | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/git-workflow/.codex/INSTALL.md` |
 | mermaid-validator | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/mermaid-validator/.codex/INSTALL.md` |
 | digest | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/digest/.codex/INSTALL.md` |
 | ralph-loop | `Fetch and follow instructions from https://raw.githubusercontent.com/shdennlin/agent-plugins/main/plugins/ralph-loop/.codex/INSTALL.md` |
