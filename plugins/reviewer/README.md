@@ -35,7 +35,7 @@ corroboration — the engines agree on almost nothing, so **a blocker needs only
 clearing needs both**. Fixes loop until both engines are MEDIUM-clean, then any remaining
 LOW issues are cleared. The Claude engine runs one reviewer per angle in round 1 and three
 grouped reviewers in later rounds, with the angle list taken from `templates/review-angles.yaml`
-and the harvested rules from `.claude/reviewer/rules.yaml` injected per angle (and into the Codex
+and the harvested rules (from `openspec/config.yaml`'s `rules:` section in Spectra/OpenSpec repos, else `.claude/reviewer/rules.yaml`) injected per angle (and into the Codex
 prompt), so editing the template or harvesting rules changes `/reviewer:spec` and
 `/reviewer:spec-dual` together.
 

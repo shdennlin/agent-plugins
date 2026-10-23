@@ -30,7 +30,7 @@ The prompt provides these parameters:
 - **codebase_context**: summary of relevant codebase architecture and patterns (optional, may be empty)
 - **review_angles**: the full content of review-angles.yaml (spec section)
 - **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
-- **project_rules**: content of the project's `.claude/reviewer/rules.yaml` (optional, may be empty) — artifact-keyed lists of extra review criteria
+- **project_rules**: JSON `{ source, proposal[], specs[], design[], tasks[] }` printed by `scripts/read-rules.cjs` (optional, may be empty) — artifact-keyed lists of extra review criteria
 
 ## Main Loop
 

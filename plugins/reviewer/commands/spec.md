@@ -129,9 +129,11 @@ Capture the code-explorer output as `CODEBASE_CONTEXT`.
 
 ### Step 4: Read Project Rules
 
-Read `.claude/reviewer/rules.yaml` at the git root if it exists (harvested project rules
-from `reviewer:init`). Capture its content as `PROJECT_RULES`. If the file does not exist,
-set `PROJECT_RULES` to empty.
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs"` from the git root. It prints one JSON
+object `{ source, proposal, specs, design, tasks }`, reading `openspec/config.yaml`'s `rules:`
+section when that file exists and `.claude/reviewer/rules.yaml` otherwise (the same place
+`reviewer:init` writes). Capture the JSON as `PROJECT_RULES`; if every array is empty, set
+`PROJECT_RULES` to empty.
 
 ### Step 5: Delegate to Orchestrator
 
@@ -156,7 +158,7 @@ Task tool:
     - angles: <value from --angles flag, or "default">
     - working_directory: <current directory>
     - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
-    - project_rules: <content of .claude/reviewer/rules.yaml at git root, or empty>
+    - project_rules: <the JSON from Step 4, or empty>
 
     ## Codebase Context (from code-explorer)
     <CODEBASE_CONTEXT, or "No codebase context available." if empty>

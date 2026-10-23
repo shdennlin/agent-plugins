@@ -43,7 +43,7 @@ If no paths are given, ask which files to review.
 
 1. Read the spec files provided
 2. Explore the codebase for relevant context (code-explorer agent, unless `--no-explore`)
-3. Read `.claude/reviewer/rules.yaml` at the git root if it exists (harvested project rules); pass its content as `project_rules` (empty if absent)
+3. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs"` from the git root (it reads `openspec/config.yaml`'s `rules:` section when that file exists, else `.claude/reviewer/rules.yaml`, the same place `reviewer:init` writes) and pass its JSON as `project_rules` (empty if every array is empty)
 4. Dispatch the spec-orchestrator agent with codebase context and `fix_enabled` derived from `--fix`
 5. Report findings back
 
