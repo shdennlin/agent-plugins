@@ -475,3 +475,29 @@ test('head sweep matches the callee after a receiver: line.split( in a.py joins 
   assert.deepEqual(m.issues[0].locations, ['a.py:f', 'b.py'])
   assert.deepEqual(m.issues[0].swept_by_head, ['b.py'])
 })
+
+// --- batch F: spec runs (manifest.mode === 'spec')
+test('spec mode: § locations count toward their file and the merge reads manifest.mode', () => {
+  const man = { run_id: 'x', mode: 'spec', files: ['design.md', 'tasks.md'], working_directory: '/tmp/x' }
+  const rep = (angle, location, title) => ({ run_dir: '/tmp/x/openspec/reviews/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'design.md', verdict: 'issues', issue_count: 1 }, { path: 'tasks.md', verdict: 'clean', issue_count: 0 }],
+    issues: [{ severity: 'HIGH', title, location, category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const m = merge(man, [rep('design', 'design.md §3', 'section 3 contradicts the proposal'), rep('consistency', 'design.md §3', 'Section 3 contradicts the proposal')], '')
+  assert.equal(m.invalid_reports.length, 0, JSON.stringify(m.invalid_reports))
+  assert.equal(m.issues.length, 1, 'same location+title across angles dedupes')
+  assert.equal(m.files.find((f) => f.path === 'design.md').verdict, 'issues')
+  assert.equal(m.complete, true)
+})
+test('CLI logs --source spec for a spec run', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir, history } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const mf = path.join(runDir, 'manifest.json')
+  fs.writeFileSync(mf, JSON.stringify({ ...readJson(mf), mode: 'spec' }, null, 2))
+  fs.rmSync(path.join(runDir, 'diff.patch'), { force: true })
+  const r = spawnSync('node', [SCRIPT, runDir, '--change', 'openspec/changes/demo', '--round', '1', '--log-script', LOG_SCRIPT], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.ok(rows.length >= 1)
+  for (const row of rows) assert.equal(row.source, 'spec')
+})

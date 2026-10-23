@@ -162,7 +162,7 @@ test('no prompt or doc uses the legacy engine names claude-result / both', () =>
 test('spec-dual logs every round from the workflow history; spec rows name the engine', () => {
   const sd = read('commands/spec-dual.md')
   assert.match(sd, /history\[\]/); assert.match(sd, /--round <n>/); assert.match(sd, /engines/)
-  assert.match(read('agents/spec-orchestrator.md'), /`engine` \(always `claude`\)/)
+  assert.match(read('agents/spec-orchestrator.md'), /`source: spec`, `engine: claude`/)
 })
 
 test('spec-dual retains history (not findings) for logging; result -c maps unknown engines to other:', () => {
@@ -208,4 +208,32 @@ test('batch D review fixes: -c is checked up front, init passes plugin_root, no 
     assert.ok(!/in Step 6/.test(read(f)), `${f} still points at a Step 6`)
   }
   assert.ok(!read('commands/init.md').includes('Store the full content'), 'init.md Step 2 still stores the template inline')
+})
+
+// --- batch F: spec on the structured pipeline
+test('the spec angle brief is a template with the shared sentences once; spec-reviewer is a typed brief-receiver', () => {
+  const t = read('templates/spec-angle-prompt.md')
+  for (const ph of ['{angle_label}', '{angle_focus}', '{angle_key}', '{run_dir}', '{file_list}', '{working_directory}', '{codebase_context}', '{project_rules}']) assert.ok(t.includes(ph), `template lacks ${ph}`)
+  assert.match(t, /mcp__plugin_reviewer_review__report_review/)
+  assert.match(t, /§/)
+  assert.ok(!t.includes('`coverage`'), 'spec brief must not ask for a coverage field')
+  const a = read('agents/spec-reviewer.md')
+  assert.match(a, /Not directly invocable/)
+  assert.match(a, /^tools:\n(?:  - .*\n)*  - mcp__plugin_reviewer_review__\*\n/m)
+  assert.match(a, /templates\/spec-angle-prompt\.md/)
+})
+test('spec-orchestrator runs setup, dispatches typed spec-reviewers with the template, and merges with merge-findings.cjs', () => {
+  const o = read('agents/spec-orchestrator.md')
+  assert.match(o, /setup-spec-review\.sh/)
+  assert.match(o, /subagent_type: "reviewer:spec-reviewer"/)
+  assert.match(o, /templates\/spec-angle-prompt\.md/)
+  assert.match(o, /merge-findings\.cjs/)
+  assert.match(o, /--no-log/)
+  assert.ok(!o.includes('Deduplicate — if two issues have the same topic'), 'LLM dedup prose must be gone')
+  assert.ok(!o.includes('Output EXACTLY this structure'), 'inline brief must be gone')
+  assert.ok(!o.includes('log-findings.sh'))
+  const c = body('spec.md')
+  assert.match(c, /plugin_root/)
+  assert.match(c, /log-findings\.cjs/)
+  assert.ok(!c.includes('log-findings.sh'))
 })

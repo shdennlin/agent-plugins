@@ -160,7 +160,8 @@ Task tool:
     - max_iterations: <N, default 3>
     - angles: <value from --angles flag, or "default">
     - working_directory: <current directory>
-    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs>
     - project_rules: <the JSON from Step 4, or empty>
 
     ## Codebase Context (from code-explorer)

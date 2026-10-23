@@ -29,8 +29,10 @@ The prompt provides these parameters:
 - **angles**: comma-separated list of angle names, or "default" for built-in angles
 - **codebase_context**: summary of relevant codebase architecture and patterns (optional, may be empty)
 - **review_angles**: the full content of review-angles.yaml (spec section)
-- **log_script_path**: absolute path to the findings-logging script (optional; skip logging if absent)
+- **plugin_root**: absolute path of the reviewer plugin (holds `scripts/`, `templates/`)
+- **log_script_path**: absolute path to `scripts/log-findings.cjs` (optional; skip logging if absent)
 - **project_rules**: JSON `{ source, proposal[], specs[], design[], tasks[] }` printed by `scripts/read-rules.cjs` (optional, may be empty) — artifact-keyed lists of extra review criteria
+- **working_directory**: the directory the command runs in (inside the repository)
 
 ## Main Loop
 
@@ -48,6 +50,16 @@ Output:
 
 When `fix_enabled` is false, output `## Review` instead.
 
+### Step 1b: Set Up the Run
+
+Every round (the fixer may have edited the files), run the setup script from the working directory:
+
+```bash
+"{plugin_root}/scripts/setup-spec-review.sh" --working-dir "{working_directory}" <each path>
+```
+
+It prints one JSON line `{run_id, run_dir, mode: "spec", files, file_count}` and writes `{run_dir}/manifest.json`. Keep `run_dir` and `files` for this round. Any non-zero exit (1: usage, 2: a path does not exist or the repo is unusable) → print its stderr line and stop.
+
 ### Step 2: Review
 
 Determine which angles to use:
@@ -58,83 +70,56 @@ Determine which angles to use:
 
 For each angle name, look up the matching key under the `spec:` section of `review_angles` and extract its `label:` and `focus:` fields. Use these to construct the sub-agent prompt.
 
-For each angle, spawn an Agent **in parallel** (include all Agent calls in a single response):
+For each angle, spawn an Agent **in parallel** (include all Agent calls in a single response). Never review the angles yourself and never collapse several angles into one sub-agent; if the Agent tool is unavailable, say so in one line and stop.
 
 ```
 Agent tool:
+  subagent_type: "reviewer:spec-reviewer"
   description: "Spec review — {angle label}"
-  prompt: |
-    You are a senior software engineer reviewing a spec for implementation readiness.
-
-    ## Your Review Angle: {angle label}
-    {angle focus text}
-
-    ## Project Rules (additional criteria — treat violations as findings)
-    {rules from project_rules matching this angle's artifact area: scope→proposal,
-    completeness→specs, design→design, tasks→tasks; omit this section entirely
-    when project_rules is empty or has no matching key}
-
-    ## Instructions
-
-    ### Read the Spec
-    Read all files/folders listed below. If a folder is given, use Glob to find .md, .txt, .yaml, .json files.
-    If no relevant files are found, report this and stop.
-
-    ### Analyze
-    Review the spec ONLY through your assigned angle. For each issue found:
-    - **Title** | Category: scope/design/spec/tasks/codebase/cross-cutting | Severity: critical/high/medium/low
-    - **What's missing or unclear:** describe the gap
-    - **Why it matters:** impact if not addressed
-    - **Suggested clarification:** what to add or change
-
-    ### Output Format
-    Output EXACTLY this structure:
-
-    ## Issues
-    (list issues or "No issues found.")
-
-    ## Verdict
-    PASS or FAIL (N critical, N high remaining)
-
-    ## Directives
-    (for each issue:)
-    1. **[SEVERITY]** <topic>
-       - **Action:** <what to fix>
-
-    ## Codebase Context
-    {codebase_context, or "No codebase context available." if empty}
-
-    If codebase context is provided, cross-reference spec claims against actual
-    codebase structure. Flag misalignments as issues with category `codebase`.
-
-    ## Files/folders to review:
-    {paths list}
+  prompt: <the brief: read `{plugin_root}/templates/spec-angle-prompt.md`, replace every `{placeholder}` — {angle_label}, {angle_focus} (the angle's `focus:` text), {angle_key} (lowercase key, what the sub-agent reports as `angle`), {run_dir}, {file_list} (the manifest's files, one path per line), {working_directory}, {codebase_context} ("No codebase context available." when empty), {project_rules} (the rules matching this angle's artifact area: scope→proposal, completeness→specs, design→design, tasks→tasks, as a bulleted list; "None." when project_rules is empty or has no matching key) — and pass the result verbatim>
 ```
+
+The orchestrator never parses the sub-agents' summaries; the reports live in `{run_dir}`.
 
 ### Step 3: Merge Reports
 
-After all review agents complete, merge their outputs:
+After all review agents complete, run the merge script:
 
-1. **Collect** all issues from all angle reports
-2. **Deduplicate** — if two issues have the same topic and location, keep one with the higher severity
-3. **Compile** the unified report following the standard format:
+```bash
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>" --round {N} --expect {angle keys} --no-log
+```
+
+- `<change id>`: the change directory if reviewing one, else the primary spec path, RELATIVE to the git root (never an absolute path) — keep it consistent across runs and review sources for the same change.
+- `{angle keys}`: the comma-separated angle keys you spawned in Step 2. An expected angle with no report file shows up in `invalid_reports` (`no report written`) and in every file's `not_reviewed_by`, so a missing angle is never silently PASS.
+- Always pass `--no-log` here, every round; findings are logged once, after the loop (see Log Findings).
+- Any non-zero exit → print the script's stderr line and stop.
+
+It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `via`, `invalid_reports`, `verdict`, `complete`, `counts`). The script already deduplicates same-location same-title issues across angles and folds issues sharing a `pattern`. Read `merged.json`; what is left for you:
+
+1. **Semantic fold** — same-location issues whose wording differs but describe one gap: merge them (worst severity, union `locations`, note the fold). Folds are report-only; the log already reflects the script's merge.
+2. **Process findings** — for each entry in `invalid_reports`, add one issue: severity MEDIUM, category `review-process`, title `<angle> report failed validation`, listing its violations. For each angle whose `via` is `file`, add one line to section D: "angle <angle> reported via fallback file, schema enforcement did not apply".
+3. **Compile** the unified report from `merged.json`:
 
 ```
 ## Merged Review Report — Round {N}
+Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces})
 
 ### A) Readiness
 ✅ Ready / ⚠️ Needs clarification / ❌ Not ready
-(justify based on merged issues)
+(justify from `verdict`, `counts` and `complete`)
 
 ### B) Issues
-(merged, deduplicated issues list with severities)
+(from `issues`, worst first, each with severity, location, expected/actual/impact/recommendation and a `locations:` line; when `rationale` is present add an indented `also reported as:` line)
 
 ### C) Open Questions
-(questions from any angle that must be answered)
+(issues whose recommendation needs a product decision — see Step 5)
 
 ### D) Verdict
-PASS or FAIL (N critical, N high remaining)
+PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
+— when `complete` is false: FAIL (review incomplete: <angles>), never PASS
 ```
+
+`complete` is false when any report is invalid or any file is `not_reviewed`. Review-process issues stay report-only: they are never fixer directives.
 
 Output the merged report.
 
@@ -240,29 +225,25 @@ BEFORE printing the Final Summary. Then output:
 
 ## Log Findings (REQUIRED — run before the Final Summary)
 
-This is a mandatory step of every run, not an optional postscript: your run is
-INCOMPLETE if it ends without either running this command or printing a
-"findings not logged: <reason>" line. If `log_script_path` was provided, persist the
-FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
-per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
-name), `category`, `engine` (always `claude`) — then run:
+This is a mandatory step of every run, not an optional postscript: your run is INCOMPLETE if it
+ends without either running this command or printing a "findings not logged: <reason>" line.
+If `log_script_path` was provided, re-run the merge on the FINAL round's run dir without `--no-log`:
 
 ```bash
-"<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source spec --round <final round number> <<'FINDINGS_JSON'
-<the JSON array>
-FINDINGS_JSON
+node "{plugin_root}/scripts/merge-findings.cjs" {final run_dir} --change "<the same change id as Step 3>" --round <final round number> --expect {angle keys} --log-script "{log_script_path}"
 ```
 
-If the command fails or `log_script_path` is missing, add one line to your output
-("findings not logged: <reason>") and continue — logging failure MUST NOT change
-your verdict or output format.
+The merge writes the rows itself (`source: spec`, `engine: claude`, `pattern`, `run_id`), one per
+merged issue; you never hand-build rows. If the command fails or `log_script_path` is missing, add
+one line to your output ("findings not logged: <reason>") and continue — logging failure MUST NOT
+change your verdict or output format.
 
 ## Constraints
 
-- Do NOT modify files yourself — always delegate to the fixer agent
+- Do NOT modify spec files yourself — always delegate to the fixer agent (running the setup and merge scripts is yours)
 - Do NOT auto-fix issues you flagged for escalation; wait for the user's decision
 - Do NOT exceed max_iterations
 - Do NOT enter Steps 5–7 when fix_enabled is false
 - Keep merged reports concise — summarize, don't repeat full sub-agent outputs
-- The round verdict is PASS only if all review sub-agents return PASS. If any sub-agent returns FAIL, the round is FAIL
+- The round verdict is `merged.verdict`, and FAIL whenever `merged.complete` is false
 - Logging is best-effort — never retry it more than once, never let it affect the verdict

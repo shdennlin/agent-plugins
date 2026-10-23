@@ -29,17 +29,20 @@ const sevRank = (s) => {
   return i === -1 ? SEVERITIES.length : i
 }
 const arr = (v) => (Array.isArray(v) ? v : [])
-const pathPart = (location) => {
-  const s = String(location ?? '')
+// A location is `<path>`, `<path>:<detail>` or (spec runs) `<path> §<section>`; the path part is normalized.
+const locPath = (location) => {
+  let s = String(location ?? '')
+  const j = s.indexOf(' §')
+  if (j !== -1) s = s.slice(0, j)
   const i = s.indexOf(':')
-  return normalizePath(i === -1 ? s : s.slice(0, i))
+  return i === -1 ? s : s.slice(0, i)
 }
+const pathPart = (location) => normalizePath(locPath(location))
 const normTitle = (t) => String(t ?? '').trim().toLowerCase()
 const dedupKey = (location, title) => {
   const s = String(location ?? '')
-  const i = s.indexOf(':')
-  const loc = i === -1 ? normalizePath(s) : normalizePath(s.slice(0, i)) + s.slice(i)
-  return JSON.stringify([loc, normTitle(title)])
+  const p = locPath(s)
+  return JSON.stringify([normalizePath(p) + s.slice(p.length), normTitle(title)])
 }
 const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 const byWorst = (a, b) => sevRank(a.severity) - sevRank(b.severity) || cmpStr(String(a.location), String(b.location))
@@ -251,7 +254,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       invalid.push({ angle, violations: [r[PARSE_ERROR]] })
       continue
     }
-    const violations = validateReport(r, manifestFiles, { verdictRule: false })
+    const violations = validateReport(r, manifestFiles, { verdictRule: false, mode: manifest.mode })
     if (violations.length) invalid.push({ angle, violations })
     if (!r || typeof r !== 'object') continue
 
@@ -440,7 +443,7 @@ function main(argv) {
   process.stdout.write(json + '\n')
   if (!o.log) return
 
-  // v2 rows: the merge is always the Claude engine's result review; pattern and run_id travel along
+  // v2 rows: the merge is always the Claude engine's review (result, or spec when manifest.mode is spec)
   const rows = merged.issues.map((i) => ({
     severity: i.severity,
     title: i.title,
@@ -452,7 +455,8 @@ function main(argv) {
     pattern: typeof i.pattern === 'string' && i.pattern.trim() ? i.pattern : null,
   }))
   const isNode = /\.c?js$/.test(o.logScript)
-  const logArgs = ['--change', o.change, '--source', 'result', '--round', String(o.round), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
+  const source = manifest.mode === 'spec' ? 'spec' : 'result'
+  const logArgs = ['--change', o.change, '--source', source, '--round', String(o.round), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
   const r = spawnSync(isNode ? process.execPath : o.logScript, isNode ? [o.logScript, ...logArgs] : logArgs, {
     input: JSON.stringify(rows),
     cwd: manifest.working_directory || runDir,
