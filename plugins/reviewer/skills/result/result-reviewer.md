@@ -70,7 +70,7 @@ The full diff is `{run_dir}/diff.patch` — the single source of the diff; do no
 - Test files are in scope — read them, do not triage them by grep
 - Generated files (lockfiles, protos, snapshots) may be skimmed, but open them
 - When a hunk changes behaviour, open enough surrounding context (`git show HEAD:<path>`) to judge it, including callers in other files
-- If `manifest.json` lists `submodules`, a path that starts with one of their `path` values belongs to that sub-repository: run the git command inside `<working_directory>/<path>` with the rest of the file path (`git -C <working_directory>/central show HEAD:src/x.py`)
+- If `manifest.json` lists `submodules`, a path that starts with one of their `path` values plus `/` belongs to that sub-repository: run the git command inside `<working_directory>/<path>` with the rest of the file path (`git -C <working_directory>/central show HEAD:src/x.py`)
 
 Identify:
 - Which files were modified, added, or deleted
@@ -124,7 +124,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ### Step 6: Produce Report
 
-Output the following sections exactly, rendered from `merged.json`, under the heading `## Merged Review Report — Round {N}` followed by one line `Run dir: {run_dir} (angles: {angle keys, comma-separated})` so the command layer can re-run the merge for logging:
+Output the following sections exactly, rendered from `merged.json`, under the heading `## Merged Review Report — Round {N}` followed by one line `Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces})` so the command layer can re-run the merge for logging:
 
 ## A) Intent Summary
 

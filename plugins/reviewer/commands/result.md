@@ -209,7 +209,7 @@ This is LLM judgment; do it here, not in a script. Nothing below depends on whic
 If Step 3b ended with `<engine> engine skipped` or the engine returned 0 findings, log from the merge script, not by hand: read the `Run dir: <run_dir> (angles: <keys>)` line under the orchestrator's report heading and run, from the git root,
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/merge-findings.cjs" <run_dir> --change "<change dir or primary spec path, relative to the git root>" --round 1 --expect <angle keys from the Run dir line>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/merge-findings.cjs" <run_dir> --change "<change dir or primary spec path, relative to the git root>" --round 1 --expect "<angle keys from the Run dir line, comma-separated, no spaces>"
 ```
 
 (no `--no-log`; the orchestrator's own run used `--no-log`). Repeat its `logged N finding(s)` or `findings not logged: …` line and skip the rest of this step — `merged.json` already holds every finding and location, and re-typing them loses function names and drops locations.

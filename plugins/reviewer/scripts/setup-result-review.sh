@@ -59,7 +59,7 @@ command -v jq >/dev/null 2>&1 || { echo "setup-result-review: jq is required but
 [[ -d "$WD" ]] || die2 "working directory does not exist: $WD"
 # User config must not change the patch shape: merge-findings.cjs reads `+++ b/<path>` headers.
 g() { git -C "$WD" -c core.quotePath=false -c diff.noprefix=false -c diff.mnemonicPrefix=false "$@"; }
-gd() { g diff --no-ext-diff --no-color "$@"; }
+gd() { g diff --no-ext-diff --no-color --ignore-submodules=none "$@"; }
 g rev-parse --git-dir >/dev/null 2>&1 || die2 "not a git repository: $WD"
 TOP="$(g rev-parse --show-toplevel)"
 
@@ -107,38 +107,49 @@ DEL="$({ grep -oE '[0-9]+ deletion' <<<"$STAT" || true; } | awk '{s+=$1} END{pri
 
 # --- Submodules: a changed gitlink is replaced by that sub-repository's own diff, paths prefixed
 # "<sub>/" and patch headers written by git (--src-prefix/--dst-prefix), so merge-findings.cjs reads
-# them unchanged. One level only. Range: merge-base(<base>, HEAD) of the sub when it has that branch,
-# else the pointer the superproject recorded at the diff base (HEAD under WORKTREE); a submodule
-# added in this change diffs from the empty tree. Always two-dot to the sub's working tree.
+# them unchanged. One level only. Range, always two-dot to the sub's working tree:
+#   empty-tree       the path was not a submodule at the diff base (added, or a directory converted)
+#   merge-base(b,H)  the sub has the base branch (locally or as origin/<b>) and the merge base is not
+#                    the sub's HEAD itself (a pointer bumped to the tip of its base branch would
+#                    otherwise diff to nothing)
+#   recorded-pointer otherwise: the pointer the superproject recorded at the diff base (HEAD under
+#                    WORKTREE), which also covers uncommitted edits inside a sub whose pointer did not move
 EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 SUBS_JSON="[]"
 PTR_TREE="HEAD"; [[ -n "$DIFF_BASE" ]] && PTR_TREE="$DIFF_BASE"
+# gitlinks of the current index, collected once (no per-path pathspec: a plain file named like a glob must not match)
+GITLINKS="$(g ls-files -s -z | tr '\0' '\n' | awk -F'\t' '$1 ~ /^160000 /{print $2}')"
+is_gitlink() { grep -qxF -- "$1" <<<"$GITLINKS"; }
+# mode and object of a path in the base tree ("" when absent); ls-tree takes paths literally
+base_entry() { g ls-tree "$PTR_TREE" -- "$1" 2>/dev/null | awk -F'\t' -v want="$1" '$2==want{print $1; exit}'; }
 EXPANDED=""
 while IFS= read -r p; do
   [[ -n "$p" ]] || continue
-  mode="$(g ls-files -s -- "$p" 2>/dev/null | awk 'NR==1{print $1}')"
-  if [[ "$mode" != "160000" ]]; then EXPANDED+="$p"$'\n'; continue; fi
+  entry="$(base_entry "$p")"; old_mode="${entry%% *}"
+  old_ptr=""; [[ "$old_mode" == "160000" ]] && old_ptr="$(awk '{print $3}' <<<"$entry")"
+  if ! is_gitlink "$p"; then
+    if [[ -n "$old_ptr" ]]; then echo "setup-result-review: submodule $p: removed in this change, skipped" >&2; continue; fi
+    EXPANDED+="$p"$'\n'; continue
+  fi
   if [[ ! -e "$TOP/$p/.git" ]]; then echo "setup-result-review: submodule $p: not checked out, skipped" >&2; continue; fi
   gs() { git -C "$TOP/$p" -c core.quotePath=false -c diff.noprefix=false -c diff.mnemonicPrefix=false "$@"; }
   gsd() { gs diff --no-ext-diff --no-color "$@"; }
-  old_ptr="$(g rev-parse -q --verify "$PTR_TREE:$p" 2>/dev/null || true)"
   new_ptr="$(gs rev-parse HEAD 2>/dev/null || true)"
-  if [[ -n "$old_ptr" && "$old_ptr" == "$new_ptr" ]]; then
-    # pointer unchanged: the superproject lists it only because the sub's worktree is dirty
-    if [[ -n "$(gs status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
-      echo "setup-result-review: submodule $p: pointer unchanged, dirty worktree ignored" >&2
-    fi
-    continue
-  fi
   if [[ -z "$old_ptr" ]]; then
     sub_base="$EMPTY_TREE"; sub_strategy="empty-tree"
-  elif [[ -n "$BASE_REF" ]] && { gs rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1 || gs rev-parse --verify -q "origin/$BASE_REF" >/dev/null 2>&1; }; then
-    # the sub may carry the base only as a remote-tracking branch (a fresh submodule clone)
-    sub_ref="$BASE_REF"; gs rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1 || sub_ref="origin/$BASE_REF"
-    sub_base="$(gs merge-base "$sub_ref" HEAD 2>/dev/null || true)"; sub_strategy="merge-base($BASE_REF,HEAD)"
-    [[ -n "$sub_base" ]] || { sub_base="$old_ptr"; sub_strategy="recorded-pointer"; }
   else
     sub_base="$old_ptr"; sub_strategy="recorded-pointer"
+    if [[ "$old_ptr" != "$new_ptr" && -n "$BASE_REF" ]]; then
+      sub_ref=""
+      if gs rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1; then sub_ref="$BASE_REF"
+      elif gs rev-parse --verify -q "origin/$BASE_REF" >/dev/null 2>&1; then sub_ref="origin/$BASE_REF"; fi
+      if [[ -n "$sub_ref" ]]; then
+        mb="$(gs merge-base "$sub_ref" HEAD 2>/dev/null || true)"
+        if [[ -n "$mb" && "$mb" != "$new_ptr" ]]; then sub_base="$mb"; sub_strategy="merge-base($BASE_REF,HEAD)"; fi
+      fi
+    fi
+    gs cat-file -e "$sub_base^{commit}" 2>/dev/null \
+      || die2 "submodule $p: base commit $sub_base is not in its clone (shallow or stale checkout): fetch it or use --base"
   fi
   if [[ -n "$(gs submodule status 2>/dev/null)" ]]; then echo "setup-result-review: submodule $p: nested submodules not expanded" >&2; fi
   # prefix as data, never inside a sed/awk program: the path is attacker-controlled repo content
@@ -151,7 +162,7 @@ while IFS= read -r p; do
   SUBS_JSON="$(jq -c --arg path "$p" --arg base "$sub_base" --arg st "$sub_strategy" '. + [{path:$path, base:$base, strategy:$st}]' <<<"$SUBS_JSON")"
 done <<<"$FILES"
 FILES="$(printf '%s' "$EXPANDED" | grep -v '^$' | sorted_lines || true)"
-[[ -n "$FILES" ]] || die2 "empty diff for $STRATEGY: only unchanged submodule pointers"
+[[ -n "$FILES" ]] || die2 "empty diff for $STRATEGY: every changed path is a submodule with nothing to review (see notes above)"
 
 FILE_COUNT="$(grep -c '' <<<"$FILES")"
 LINE_COUNT=$((INS + DEL))

@@ -108,9 +108,10 @@ computes the diff once (for a branch strategy, from the merge base to the workin
 uncommitted edits are included) and creates a run directory — `openspec/reviews/runs/<run_id>/` when
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
-In a git superproject the setup script expands every changed submodule into its own diff (paths
-prefixed `<sub>/`, recorded under `submodules`), so a review run from the superproject sees the
-code, not the pointers.
+In a git superproject the setup script expands each changed, checked-out submodule into its own
+diff (paths prefixed `<sub>/`, recorded under `submodules` with the base commit and how it was
+chosen; uncommitted edits inside a sub count), so a review run from the superproject sees the
+code, not the pointers. Removed or un-checked-out submodules are skipped with a note on stderr.
 Each angle reports through the `report_review` tool of the plugin's stdio MCP server
 (`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
 verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges

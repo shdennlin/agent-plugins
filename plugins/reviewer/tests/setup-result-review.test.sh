@@ -180,24 +180,80 @@ out="$("$SCRIPT" --working-dir "$S/super" --base develop 2>"$S/err.txt")" || fai
 [[ ",$files," == *",lib|d.x/c.txt,"* ]] || fail "submodule path with sed metacharacters prefixed verbatim (got $files)"
 grep -q '^+++ b/lib|d.x/c.txt$' "$run/diff.patch" || fail "prefixed header for the metacharacter submodule"
 [[ ",$files," == *",libB2/m.txt,"* ]] || fail "sub without the base branch still expanded"
-[[ ",$files," != *",libB/"* ]] || fail "unchanged-pointer submodule not expanded"
+[[ ",$files," == *",libB/x.txt,"* ]] || fail "unchanged-pointer but dirty submodule expanded (uncommitted edits are review input)"
+[[ "$(jq -r '.submodules[]|select(.path=="libB")|.strategy' "$run/manifest.json")" == "recorded-pointer" ]] || fail "dirty libB uses the recorded pointer"
 [[ ",$files," == *",libA-docs/readme.md,"* ]] || fail "plain file sharing a submodule name prefix listed as-is"
 grep -q '^+++ b/libA/src/a.py$' "$run/diff.patch" || fail "prefixed +++ header for libA"
 grep -q '^diff --git a/libC/c.txt b/libC/c.txt$' "$run/diff.patch" || fail "prefixed diff header for the added submodule"
 grep -q '^+y = int(x)$' "$run/diff.patch" || fail "sub-repo added line present in diff.patch"
-[[ "$(jq -r '.submodules|length' "$run/manifest.json")" == "4" ]] || fail "four submodules recorded (got $(jq -c .submodules "$run/manifest.json"))"
+[[ "$(jq -r '.submodules|length' "$run/manifest.json")" == "5" ]] || fail "five submodules recorded (got $(jq -c .submodules "$run/manifest.json"))"
 [[ "$(jq -r '.submodules[]|select(.path=="libA")|.strategy' "$run/manifest.json")" == "merge-base(develop,HEAD)" ]] || fail "libA strategy"
 [[ "$(jq -r '.submodules[]|select(.path=="libB2")|.strategy' "$run/manifest.json")" == "recorded-pointer" ]] || fail "libB2 falls back to the recorded pointer"
 [[ "$(jq -r '.submodules[]|select(.path=="libC")|.strategy' "$run/manifest.json")" == "empty-tree" ]] || fail "libC strategy"
 [[ "$(jq -r '.submodules[]|select(.path=="libA")|.base' "$run/manifest.json")" == "$(git -C "$S/libA" rev-parse develop)" ]] || fail "libA base is its develop merge-base"
 [[ "$(jq -r '.submodules[]|.path' "$run/manifest.json" | grep -c 'libA-docs')" == "0" ]] || fail "libA-docs is not a submodule"
-grep -q "submodule libB: pointer unchanged, dirty worktree ignored" "$S/err.txt" || fail "dirty libB noted on stderr (got: $(cat "$S/err.txt"))"
+[[ -z "$(cat "$S/err.txt")" ]] || fail "no stderr notes expected (got: $(cat "$S/err.txt"))"
 (( $(jq -r .line_count <<<"$out") >= 4 )) || fail "line_count counts sub-repo lines (got $(jq -r .line_count <<<"$out"))"
 [[ "$(jq -r .file_count <<<"$out")" == "$(jq -r '.files|length' <<<"$out")" ]] || fail "file_count matches expanded files"
 # no-op guarantee: a plain repo (libA itself, on feat vs develop) records submodules: []
 plain="$("$SCRIPT" --working-dir "$S/libA" --base develop)"
 [[ "$(jq -r '.submodules|length' "$(jq -r .run_dir <<<"$plain")/manifest.json")" == "0" ]] || fail "plain repo: submodules []"
 [[ "$(jq -r '.files|join(",")' <<<"$plain")" == "src/a.py,src/b.py" ]] || fail "plain repo files unchanged by the expansion code"
+rm -rf "$S"
+
+# 8b. Submodule edge cases found in review: bump-to-tip, directory→submodule, ignore config, glob names,
+#     removed submodule, WORKTREE with a dirty sub, shallow clone lacking the base pointer.
+S="$(mktemp -d)"
+mkrepo "$S/subE" develop; printf 'e\n' >"$S/subE/e.txt"; gc "$S/subE" add -A; gc "$S/subE" commit -q -m base; gc "$S/subE" branch -f develop
+mkrepo "$S/subH"; printf 'h\n' >"$S/subH/h.txt"; gc "$S/subH" add -A; gc "$S/subH" commit -q -m base
+mkrepo "$S/subF"; printf 'f2\n' >"$S/subF/f.txt"; gc "$S/subF" add -A; gc "$S/subF" commit -q -m base
+mkrepo "$S/super" develop
+gc "$S/super" submodule add -q "$S/subE" subE && gc "$S/super" submodule add -q "$S/subH" subH
+mkdir -p "$S/super/subF" && printf 'f1\n' >"$S/super/subF/f.txt"   # plain directory at the base
+gc "$S/super" add -A && gc "$S/super" commit -q -m base && gc "$S/super" branch -f develop
+# subE: develop itself advances (the sub's PR merged), super bumps the pointer to that tip
+old_e="$(git -C "$S/subE" rev-parse HEAD)"
+printf 'e\nmerged = int(x)\n' >"$S/subE/e.txt"; gc "$S/subE" commit -q -am "merged to develop"; gc "$S/subE" branch -f develop
+gc "$S/super" switch -q -c feat
+gc "$S/super/subE" fetch -q origin && gc "$S/super/subE" checkout -q "$(git -C "$S/subE" rev-parse develop)"
+# subF: the directory becomes a submodule; subH: removed; sub[A-Z]: a plain file whose name is a glob matching subE
+gc "$S/super" rm -q -r subF && rm -rf "$S/super/subF" && gc "$S/super" submodule add -q "$S/subF" subF
+gc "$S/super" rm -q subH && rm -rf "$S/super/subH"
+printf 'glob\n' >"$S/super/sub[A-Z]"
+# ignore config in .gitmodules must not switch the feature off
+gc "$S/super" config -f .gitmodules submodule.subE.ignore all
+gc "$S/super" add -A && gc "$S/super" commit -q -m "feat: bump subE to tip, dir→submodule, remove subH"
+out="$("$SCRIPT" --working-dir "$S/super" --base develop 2>"$S/err.txt")" || fail "8b setup failed: $(cat "$S/err.txt")"
+run="$(jq -r .run_dir <<<"$out")"; files="$(jq -r '.files|join(",")' <<<"$out")"
+[[ ",$files," == *",subE/e.txt,"* ]] || fail "bump-to-tip: sub diffed from the recorded pointer, not from an empty merge-base (got $files)"
+[[ "$(jq -r '.submodules[]|select(.path=="subE")|.base' "$run/manifest.json")" == "$old_e" ]] || fail "bump-to-tip base is the old pointer"
+[[ "$(jq -r '.submodules[]|select(.path=="subE")|.strategy' "$run/manifest.json")" == "recorded-pointer" ]] || fail "bump-to-tip strategy"
+grep -q '^+merged = int(x)$' "$run/diff.patch" || fail "bump-to-tip hunk present"
+[[ ",$files," == *",subF/f.txt,"* ]] || fail "directory converted to a submodule expands from the empty tree (got $files)"
+[[ "$(jq -r '.submodules[]|select(.path=="subF")|.strategy' "$run/manifest.json")" == "empty-tree" ]] || fail "dir→submodule strategy"
+[[ ",$files," == *",sub[A-Z],"* ]] || fail "a plain file named like a glob is kept (got $files)"
+[[ ",$files," != *",subH,"* ]] || fail "removed submodule dropped from files"
+grep -q "submodule subH: removed in this change, skipped" "$S/err.txt" || fail "removed submodule noted (got: $(cat "$S/err.txt"))"
+[[ "$(jq -r '.submodules|length' "$run/manifest.json")" == "2" ]] || fail "subE + subF recorded (got $(jq -c .submodules "$run/manifest.json"))"
+# user-level ignore config must not switch the feature off either
+out2="$(git -C "$S/super" config diff.ignoreSubmodules all; "$SCRIPT" --working-dir "$S/super" --base develop 2>/dev/null)" || fail "ignoreSubmodules=all run failed"
+[[ "$(jq -r '.files|join(",")' <<<"$out2")" == *"subE/e.txt"* ]] || fail "diff.ignoreSubmodules=all in repo config is overridden"
+git -C "$S/super" config --unset diff.ignoreSubmodules
+# WORKTREE: on develop with uncommitted edits inside a sub whose pointer is unchanged → reviewed from the recorded pointer
+rm -rf "$S/super/subF"   # the sub checkout from feat would block the switch
+gc "$S/super" switch -q develop || fail "switch to develop failed"
+gc "$S/super" submodule update -q --init
+printf 'e\ndirty = size - 1\n' >"$S/super/subE/e.txt"
+out3="$("$SCRIPT" --working-dir "$S/super" --auto-detect 2>"$S/err3.txt")" || fail "WORKTREE dirty-sub run failed: $(cat "$S/err3.txt")"
+[[ "$(jq -r .diff_strategy <<<"$out3")" == "WORKTREE" ]] || fail "WORKTREE strategy"
+[[ "$(jq -r '.files|join(",")' <<<"$out3")" == "subE/e.txt" ]] || fail "WORKTREE: dirty sub's edits are the review input (got $(jq -r '.files|join(",")' <<<"$out3"))"
+grep -q '^+dirty = size - 1$' "$(jq -r .run_dir <<<"$out3")/diff.patch" || fail "WORKTREE dirty hunk present"
+# shallow sub clone lacking the recorded pointer: exit 2 with a message naming the sub
+gc "$S/super" switch -q feat
+rm -rf "$S/super/subE" && git clone -q --depth 1 "file://$S/subE" "$S/super/subE" 2>/dev/null
+rc=0; "$SCRIPT" --working-dir "$S/super" --base develop >/dev/null 2>"$S/err4.txt" || rc=$?
+[[ "$rc" == 2 ]] || fail "shallow sub: exit 2 expected, got $rc ($(cat "$S/err4.txt"))"
+grep -q "submodule subE: base commit $old_e is not in its clone" "$S/err4.txt" || fail "shallow sub: message names the sub and commit (got: $(cat "$S/err4.txt"))"
 rm -rf "$S"
 
 echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, submodules, $n normalize cases"
