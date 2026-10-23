@@ -42,10 +42,7 @@ From `$ARGUMENTS`, extract:
 5. **fix_all**: true if the token right after `--fix` is exactly `all` (consume it); any other token after `--fix` is not consumed
 6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided. Validate it: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/check-angles.cjs" --section result --angles <value>`; on exit 1 print its stderr line and stop; pass the `angles` array it prints to the orchestrator as `angles` (joined with commas)
 7. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
-8. **engine**: the token after `-c` or `--with-code-review`.
-   - If it is one of `low`, `medium`, `high`, `xhigh`, `max`: `engine = code-review`, `level = <token>`.
-   - Else if it is a bare skill name (matches `^[a-z0-9][a-z0-9:_-]*$`, not a flag): `engine = <token>`, `level = none`.
-   - If it is missing or anything else (including another flag), print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
+8. **engine**: the token after `-c` or `--with-code-review`. Keep the raw token for Step 3b; do not classify it yourself (the level words and the engine entries live in `templates/review-engines.yaml`, read by `scripts/resolve-engine.cjs`). If the token is missing or looks like a flag, print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
    ```
    -c needs an engine: a /code-review level (low | medium | high | xhigh | max; medium recommended) or a review skill name (e.g. spectra-review)
    ```
@@ -172,18 +169,17 @@ When `-c` is set, pass `log_script_path` as `none`; the orchestrator then runs t
 
 The second engine is a spec-blind review whose recipe this plugin does not control. It is invoked ONLY to review; it never fixes or posts. Everything engine-specific is data:
 
-1. Read `${CLAUDE_PLUGIN_ROOT}/templates/review-engines.yaml` and pick the entry under `engines:` whose key equals `engine` (from Step 1). If there is no such key, use the `_default` entry with `skill = engine`. Keep the entry's `skill`, `args`, `never_pass`, `findings_from`, `severity_map` and `notes` for the steps below.
-2. Resolve the placeholders in `args`:
-   - `<level>`: the level from Step 1 (only `code-review` needs one).
-   - `<base>`: the base from the `Run dir:` line of the orchestrator's report (`base: <name>`), the same base the spec review diffed against; only when `<base>` appears in `args`. If that line says `base: WORKTREE` (HEAD is on the base branch itself), the engine has no range to review: print `<engine> engine skipped: HEAD is on the base branch` and go to Step 3c with the spec findings alone.
-   - `<change-name>`: the basename of the first spec path of the form `openspec/changes/<name>/`, else the first spec path.
-   - `<spec-paths>`: all spec paths, space-separated.
-   The diff the engine reviews must be the same `<base>...HEAD` the spec review used; if the engine resolves its own scope (spectra-review does, through `spectra scope`), say so in the scope note rather than forcing a base on it.
+1. Resolve the engine with the script (Bash), from the git root:
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-engine.cjs" --token "<token from Step 1>" --spec <spec paths…> [--base <branch, only if --base was given>] --manifest "<run_dir>/manifest.json"
+   ```
+   `<run_dir>` is the `Run dir:` line of the orchestrator's report. On exit 1 print its stderr line and stop (an unknown level, a level on a level-less engine, or a level-required engine without one). It prints `{ engine, level, skill, args, never_pass, findings_from, severity_map, notes, scope, scope_note, base: { name, given }, change_name }` with every placeholder in `args` already resolved from `templates/review-engines.yaml` and the base the spec review diffed against (`base.name`; `null` when the spec review used the working tree).
+2. If `base.name` is `null` (HEAD is on the base branch itself) and `scope` is `base`, the engine has no range to review: print `<engine> engine skipped: HEAD is on the base branch` and go to Step 3c with the spec findings alone. If `scope` is `self` (spectra-review resolves its own diff through `spectra scope`), say so in the scope note rather than forcing a base on it; `args` already carries `--base` only when the user passed one.
 3. Invoke it through the Skill tool:
    ```
    Skill tool:
-   - skill: "<entry.skill>"
-   - args: "<entry.args with placeholders resolved>"
+   - skill: "<skill from the resolver>"
+   - args: "<args from the resolver>"
    ```
    Never append any flag listed in `never_pass`, and never add `--fix`, `--comment` or anything that edits files or posts externally, whatever the engine. `--fix` would edit the working tree outside this command's fix loop; `--comment` posts to GitHub.
 4. Capture its findings where `findings_from` says they are. Each should have a file (or artifact) reference, a one-sentence summary, a failure scenario when the engine gives one, and the engine's own label (verdict, severity or confidence). Note what the engine says about its scope (tests excluded, single pass, truncated at N, approximated scope) — carry that into the report as the scope note.

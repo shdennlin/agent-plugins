@@ -71,7 +71,7 @@ test('no doc advertises an angle the template lacks', () => {
 
 test('the -c route takes the base from the Run dir line, not a second auto-detect', () => {
   assert.ok(!read('commands/result.md').includes('git rev-parse --verify develop'), 'result.md still re-derives the base')
-  assert.match(read('commands/result.md'), /base from the `Run dir:` line/)
+  assert.match(read('commands/result.md'), /--manifest "<run_dir>\/manifest\.json"/, 'the -c route reads the base from the run manifest via resolve-engine')
   assert.match(read('agents/result-fix-orchestrator.md'), /Run dir: \{run_dir\} \(angles: [^)]*; base: /)
   assert.match(read('skills/result/result-reviewer.md'), /Run dir: \{run_dir\} \(angles: [^)]*; base: /)
 })
@@ -189,4 +189,12 @@ test('init prompts delegate the rules delta to apply-rules.cjs', () => {
     assert.ok(!/Compute Delta|exact string match\)/.test(t), `${f} still describes the delta computation`)
   }
   assert.match(read('commands/init.md'), /template_path/)
+})
+
+test('the -c route resolves the engine through resolve-engine.cjs; level words live in the YAML', () => {
+  const t = read('commands/result.md')
+  assert.match(t, /resolve-engine\.cjs/)
+  assert.ok(!t.includes('If it is one of `low`, `medium`, `high`, `xhigh`, `max`'), 'result.md still hardcodes the level words in the parse step')
+  assert.ok(!t.includes('auto-detect exactly as the agent does'), 'result.md still re-derives the base in prose')
+  assert.match(read('templates/review-engines.yaml'), /^    levels: \[low, medium, high, xhigh, max\]$/m)
 })

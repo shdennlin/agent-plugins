@@ -1,0 +1,56 @@
+// node --test plugins/reviewer/tests/resolve-engine.test.cjs — scripts/resolve-engine.cjs (the -c lookup, pure + CLI)
+'use strict'
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { spawnSync } = require('child_process')
+const { resolveEngine, parseEngines } = require('../scripts/resolve-engine.cjs')
+
+const YAML = fs.readFileSync(path.join(__dirname, '..', 'templates', 'review-engines.yaml'), 'utf8')
+const SCRIPT = path.join(__dirname, '..', 'scripts', 'resolve-engine.cjs')
+const man = (strategy, base_name) => ({ diff_strategy: strategy, base_name })
+
+test('parseEngines reads every entry with its fields, lists, maps and folded text', () => {
+  const e = parseEngines(YAML)
+  assert.deepEqual(Object.keys(e).sort(), ['_default', 'code-review', 'spectra-review'])
+  assert.deepEqual(e['code-review'].levels, ['low', 'medium', 'high', 'xhigh', 'max'])
+  assert.deepEqual(e['code-review'].never_pass, ['--fix', '--comment'])
+  assert.equal(e['code-review'].severity_map.CONFIRMED, 'medium')
+  assert.equal(e['spectra-review'].scope, 'self'); assert.equal(e['spectra-review'].base_arg, ' --base <base>')
+  assert.ok(e['spectra-review'].findings_from.includes('Findings'))
+  assert.ok(Array.isArray(e['code-review'].notes) && e['code-review'].notes.length === 2)
+})
+test('a level token selects code-review with that level and the manifest base', () => {
+  const r = resolveEngine({ token: 'medium', specPaths: ['openspec/changes/x/'], manifest: man('develop...HEAD', 'develop') }, YAML)
+  assert.equal(r.engine, 'code-review'); assert.equal(r.level, 'medium'); assert.equal(r.skill, 'code-review')
+  assert.equal(r.args, 'medium develop --max-findings all'); assert.deepEqual(r.base, { name: 'develop', given: false }); assert.equal(r.change_name, 'x'); assert.equal(r.scope, 'base')
+})
+test('spectra-review resolves its own scope; --base is appended only when given', () => {
+  const a = resolveEngine({ token: 'spectra-review', specPaths: ['openspec/changes/x/'], manifest: man('develop...HEAD', 'develop') }, YAML)
+  assert.equal(a.args, 'x'); assert.equal(a.scope, 'self'); assert.equal(a.level, null)
+  const b = resolveEngine({ token: 'spectra-review', specPaths: ['openspec/changes/x/'], base: 'develop', manifest: man('develop...HEAD', 'develop') }, YAML)
+  assert.equal(b.args, 'x --base develop'); assert.deepEqual(b.base, { name: 'develop', given: true })
+})
+test('an unknown skill uses _default with skill = token; change_name falls back to the first spec path', () => {
+  const r = resolveEngine({ token: 'pr-review-toolkit:review-pr', specPaths: ['docs/spec.md'], manifest: man('main...HEAD', 'main') }, YAML)
+  assert.equal(r.engine, 'pr-review-toolkit:review-pr'); assert.equal(r.skill, 'pr-review-toolkit:review-pr'); assert.equal(r.args, 'main'); assert.equal(r.change_name, 'docs/spec.md')
+  assert.deepEqual(r.never_pass, ['--fix', '--comment', '--apply', '--write'])
+})
+test('errors: level on a level-less engine, missing level, missing base without manifest', () => {
+  assert.throws(() => resolveEngine({ token: 'high', specPaths: ['x'], manifest: man('main...HEAD', 'main') }, YAML.replace(/levels: \[.*\]\n/, '')), /level 'high'.*no engine/)
+  assert.throws(() => resolveEngine({ token: 'code-review', specPaths: ['x'], manifest: man('main...HEAD', 'main') }, YAML), /needs a level/)
+  assert.throws(() => resolveEngine({ token: 'medium', specPaths: ['x'] }, YAML), /base.*--base|--manifest/)
+})
+test('WORKTREE manifest: base null, <base> becomes HEAD with a scope note', () => {
+  const r = resolveEngine({ token: 'medium', specPaths: ['x'], manifest: man('WORKTREE', '') }, YAML)
+  assert.deepEqual(r.base, { name: null, given: false }); assert.equal(r.args, 'medium HEAD --max-findings all'); assert.match(r.scope_note, /working tree/)
+})
+test('CLI prints the JSON and exits 1 with a reason on error', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 're-')); const mf = path.join(dir, 'manifest.json'); fs.writeFileSync(mf, JSON.stringify(man('develop...HEAD', 'develop')))
+  const ok = spawnSync('node', [SCRIPT, '--token', 'spectra-review', '--spec', 'openspec/changes/y/', '--manifest', mf], { encoding: 'utf8' })
+  assert.equal(ok.status, 0, ok.stderr); assert.equal(JSON.parse(ok.stdout).args, 'y')
+  const bad = spawnSync('node', [SCRIPT, '--token', 'code-review', '--spec', 'x', '--manifest', mf], { encoding: 'utf8' })
+  assert.equal(bad.status, 1); assert.match(bad.stderr, /^resolve-engine: /)
+})
