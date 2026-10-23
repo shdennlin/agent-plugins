@@ -121,6 +121,11 @@ Regression tests (no Claude, no network):
 `node --test plugins/reviewer/tests/schema.test.cjs plugins/reviewer/tests/server.test.cjs plugins/reviewer/tests/merge-findings.test.cjs`
 and `bash plugins/reviewer/tests/setup-result-review.test.sh`.
 
+Recall harness (calls Claude, costs tokens): `node plugins/reviewer/tests/recall/run.mjs --runs 3`
+builds a scratch repo with four seeded bugs (type, boundary, data flow, cross-file), runs
+`/reviewer:result` headlessly, and prints recall per run and per seed; unit tests for it:
+`node --test plugins/reviewer/tests/recall/*.test.cjs`.
+
 #### Why a second engine on result review
 
 The spec review asks "does the diff do what the spec says". It takes the spec as truth, so a
