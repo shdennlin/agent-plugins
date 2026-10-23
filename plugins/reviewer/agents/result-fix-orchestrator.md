@@ -108,7 +108,10 @@ Agent tool:
     files (lockfiles, protos, snapshots) may be skimmed but must be opened.
     When a hunk changes behaviour, open enough surrounding context
     (`cd {working_directory} && git show HEAD:<path>`) to judge it, including
-    callers in other files.
+    callers in other files. If `manifest.json` lists `submodules`, a path that
+    starts with one of their `path` values belongs to that sub-repository: run
+    the git command inside `{working_directory}/<path>` with the rest of the
+    file path (`git -C {working_directory}/central show HEAD:src/x.py`).
 
     ### Cross-Reference
     Review the diff ONLY through your assigned angle.
@@ -176,6 +179,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ```
 ## Merged Review Report — Round {N}
+Run dir: {run_dir} (angles: {angle keys, comma-separated})
 
 ### A) Intent Summary
 (from spec summary)

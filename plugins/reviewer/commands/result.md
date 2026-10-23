@@ -206,7 +206,15 @@ This is LLM judgment; do it here, not in a script. Nothing below depends on whic
 
 #### Step 3d: Log the merged findings (best-effort)
 
-Convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`) — and run, from the git root:
+If Step 3b ended with `<engine> engine skipped` or the engine returned 0 findings, log from the merge script, not by hand: read the `Run dir: <run_dir> (angles: <keys>)` line under the orchestrator's report heading and run, from the git root,
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/merge-findings.cjs" <run_dir> --change "<change dir or primary spec path, relative to the git root>" --round 1 --expect <angle keys from the Run dir line>
+```
+
+(no `--no-log`; the orchestrator's own run used `--no-log`). Repeat its `logged N finding(s)` or `findings not logged: …` line and skip the rest of this step — `merged.json` already holds every finding and location, and re-typing them loses function names and drops locations.
+
+Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`) — and run, from the git root:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 <<'FINDINGS_JSON'

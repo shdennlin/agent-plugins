@@ -108,6 +108,9 @@ computes the diff once (for a branch strategy, from the merge base to the workin
 uncommitted edits are included) and creates a run directory — `openspec/reviews/runs/<run_id>/` when
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
+In a git superproject the setup script expands every changed submodule into its own diff (paths
+prefixed `<sub>/`, recorded under `submodules`), so a review run from the superproject sees the
+code, not the pointers.
 Each angle reports through the `report_review` tool of the plugin's stdio MCP server
 (`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
 verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges
@@ -147,7 +150,9 @@ With `-c <engine>` (long `--with-code-review`):
   invocation, where its findings are, and its label → severity table (`code-review`:
   `CONFIRMED` → medium, `PLAUSIBLE` → low; `spectra-review`: Critical → high, Warning → medium,
   Suggestion → low; unknown skills get a generic `_default` table). Adding an engine is adding
-  an entry; the merge, report and log steps never read the engine's name;
+  an entry; the merge, report and log steps never read the engine's name; when the second
+  engine is skipped or returns nothing, the log comes from `merged.json` via the merge script,
+  not from a hand-built list;
 - the base branch is passed to `/code-review` as its target so both engines review the same
   `<base>...HEAD` diff (with no target it diffs against the default branch and may narrow a
   large diff to the last few commits); an engine that resolves its own scope (`spectra-review`
