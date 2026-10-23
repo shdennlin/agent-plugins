@@ -88,7 +88,12 @@ else
   BRANCH="$(g symbolic-ref --short -q HEAD || true)"
   [[ -n "$BRANCH" ]] || die2 "detached HEAD: cannot auto-detect a diff strategy (use --base)"
   BASE_NAME="$(default_base)" || die2 "cannot auto-detect a base branch (none of origin/HEAD, develop, main, master exist; use --base)"
-  if [[ "$BRANCH" == "$BASE_NAME" ]]; then STRATEGY="WORKTREE"; else BASE_REF="$(resolve_ref "$BASE_NAME")"; fi
+  # On the detected default or on any integration branch (develop/main/master) the review is the
+  # working tree: a gitflow repo on develop with origin/HEAD=main must not diff every unreleased commit.
+  case "$BRANCH" in
+    "$BASE_NAME"|develop|main|master) STRATEGY="WORKTREE"; BASE_NAME="" ;;
+    *) BASE_REF="$(resolve_ref "$BASE_NAME")" ;;
+  esac
 fi
 DIFF_BASE=""
 if [[ -n "$BASE_REF" ]]; then
@@ -196,9 +201,9 @@ printf '%s\n' "$PATCH" >"$RUN_DIR/diff.patch"
 lines_json() { printf '%s\n' "$1" | jq -R -s 'split("\n") | map(select(length>0))'; }
 FILES_JSON="$(lines_json "$FILES")"
 
-BASEOBJ="$(jq -n --arg run_id "$RUN_ID" --arg run_dir "$RUN_DIR" --arg s "$STRATEGY" \
+BASEOBJ="$(jq -n --arg run_id "$RUN_ID" --arg run_dir "$RUN_DIR" --arg s "$STRATEGY" --arg bn "$BASE_NAME" --arg br "$BASE_REF" \
   --argjson files "$FILES_JSON" --argjson fc "$FILE_COUNT" --argjson lc "$LINE_COUNT" \
-  '{run_id:$run_id, run_dir:$run_dir, diff_strategy:$s, files:$files, file_count:$fc, line_count:$lc}')"
+  '{run_id:$run_id, run_dir:$run_dir, diff_strategy:$s, base_name:$bn, base_ref:$br, files:$files, file_count:$fc, line_count:$lc}')"
 
 jq --arg created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg wd "$TOP" \
    --argjson so "$(lines_json "$STAGED_ONLY")" --argjson uo "$(lines_json "$UNSTAGED_ONLY")" \

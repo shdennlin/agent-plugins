@@ -68,3 +68,10 @@ test('no doc advertises an angle the template lacks', () => {
     }
   }
 })
+
+test('the -c route takes the base from the Run dir line, not a second auto-detect', () => {
+  assert.ok(!read('commands/result.md').includes('git rev-parse --verify develop'), 'result.md still re-derives the base')
+  assert.match(read('commands/result.md'), /base from the `Run dir:` line/)
+  assert.match(read('agents/result-fix-orchestrator.md'), /Run dir: \{run_dir\} \(angles: [^)]*; base: /)
+  assert.match(read('skills/result/result-reviewer.md'), /Run dir: \{run_dir\} \(angles: [^)]*; base: /)
+})

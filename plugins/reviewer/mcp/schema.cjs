@@ -129,7 +129,11 @@ const issueAt = (location, p) => {
   return normalizePath(i === -1 ? location : location.slice(0, i)) === p
 }
 
-function validateReport(report, manifestFiles) {
+// opts.verdictRule (default true): reject a verdict that contradicts the issues. The report_review
+// tool keeps it (the agent can retry); the merge turns it off because it recomputes the verdict from
+// the issues and a file-written report must not become "invalid" over a label.
+function validateReport(report, manifestFiles, opts = {}) {
+  const verdictRule = opts.verdictRule !== false
   const out = []
   if (!typeOk('object', report)) return [': report must be an object']
   checkShape(report, REPORT_SCHEMA, '', out)
@@ -145,8 +149,8 @@ function validateReport(report, manifestFiles) {
 
   // verdict must agree with the issues: PASS cannot carry a CRITICAL/HIGH issue, FAIL needs at least one issue
   const blocking = report.issues.filter((i) => i.severity === 'CRITICAL' || i.severity === 'HIGH').length
-  if (report.verdict === 'PASS' && blocking > 0) out.push(`verdict: PASS but ${blocking} CRITICAL/HIGH issue(s) reported`)
-  if (report.verdict === 'FAIL' && report.issues.length === 0) out.push('verdict: FAIL but no issues reported')
+  if (verdictRule && report.verdict === 'PASS' && blocking > 0) out.push(`verdict: PASS but ${blocking} CRITICAL/HIGH issue(s) reported`)
+  if (verdictRule && report.verdict === 'FAIL' && report.issues.length === 0) out.push('verdict: FAIL but no issues reported')
 
   const manifest = new Set(manifestFiles.map(normalizePath))
   const reported = new Set(report.files.map((f) => normalizePath(f.path)))

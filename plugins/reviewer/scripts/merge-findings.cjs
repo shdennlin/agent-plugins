@@ -191,7 +191,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       invalid.push({ angle, violations: [r[PARSE_ERROR]] })
       continue
     }
-    const violations = validateReport(r, manifestFiles)
+    const violations = validateReport(r, manifestFiles, { verdictRule: false })
     if (violations.length) invalid.push({ angle, violations })
     if (!r || typeof r !== 'object') continue
 

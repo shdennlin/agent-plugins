@@ -268,6 +268,15 @@ mkrepo "$R/o"; printf 'o\n' >"$R/o/o"; gc "$R/o" add -A; gc "$R/o" commit -q -m 
 git clone -q "$R/o" "$R/c"; git -C "$R/c" remote set-head origin trunk
 gc "$R/c" switch -q -c feat; printf 'z\n' >"$R/c/z"; gc "$R/c" add -A; gc "$R/c" commit -q -m z
 [[ "$("$SCRIPT" --working-dir "$R/c" --auto-detect | jq -r .diff_strategy)" == "trunk...HEAD" ]] || fail "origin/HEAD → trunk beats develop (got $("$SCRIPT" --working-dir "$R/c" --auto-detect | jq -r .diff_strategy))"
+out9="$("$SCRIPT" --working-dir "$R/c" --auto-detect)"
+[[ "$(jq -r .base_name <<<"$out9")" == "trunk" ]] || fail "stdout names the base (got $(jq -c . <<<"$out9"))"
+[[ "$(jq -r .base_name "$(jq -r .run_dir <<<"$out9")/manifest.json")" == "trunk" ]] || fail "manifest names the base"
+# an integration branch that is not the detected default still reviews its working tree (gitflow: on develop, origin/HEAD=trunk)
+gc "$R/c" switch -q develop 2>/dev/null || gc "$R/c" switch -q -c develop origin/develop; printf 'd\n' >>"$R/c/o"
+out9b="$("$SCRIPT" --working-dir "$R/c" --auto-detect)"
+[[ "$(jq -r .diff_strategy <<<"$out9b")" == "WORKTREE" ]] || fail "on develop → WORKTREE even when origin/HEAD is trunk (got $(jq -r .diff_strategy <<<"$out9b"))"
+[[ "$(jq -r .base_name <<<"$out9b")" == "" ]] || fail "WORKTREE has an empty base_name"
+gc "$R/c" checkout -q -- o; gc "$R/c" switch -q feat
 rc=0; "$SCRIPT" --working-dir "$R/c" --base nosuch >/dev/null 2>"$R/e.txt" || rc=$?
 [[ "$rc" == 2 ]] || fail "missing --base ref exits 2 (rc=$rc)"
 grep -q "base ref 'nosuch' does not exist" "$R/e.txt" || fail "missing --base ref names itself (got: $(cat "$R/e.txt"))"

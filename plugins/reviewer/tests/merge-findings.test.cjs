@@ -358,3 +358,13 @@ test('sweep matches on the trimmed pattern (trailing whitespace in pattern does 
     issues: [{ severity: 'HIGH', title: 't', location: 'a.py:f', category: 'c', pattern: 'int( ', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] }
   assert.deepEqual(merge(man, [rep], patch).issues[0].locations, ['a.py:f', 'b.py'])
 })
+
+test('merge: a file-written report whose verdict contradicts its issues is not invalid (the merge recomputes the verdict)', () => {
+  const man = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x' }
+  const rep = { run_dir: '/tmp/x/.claude/reviewer/runs/r1', angle: 'correctness', via: 'file', verdict: 'PASS', files: [{ path: 'a.py', verdict: 'issues', issue_count: 1 }],
+    issues: [{ severity: 'HIGH', title: 't', location: 'a.py:f', category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] }
+  const out = merge(man, [rep], '')
+  assert.deepEqual(out.invalid_reports, [])
+  assert.equal(out.complete, true)
+  assert.equal(out.verdict, 'FAIL')
+})

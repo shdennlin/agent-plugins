@@ -179,7 +179,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ```
 ## Merged Review Report — Round {N}
-Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces})
+Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces}; base: {manifest base_name, or WORKTREE when empty})
 
 ### A) Intent Summary
 (from spec summary)

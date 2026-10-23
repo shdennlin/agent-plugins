@@ -57,7 +57,7 @@ Run the setup script (`--base <branch>` when a base branch was given, `--auto-de
 "{plugin_root}/scripts/setup-result-review.sh" --working-dir "$(pwd)" --auto-detect
 ```
 
-It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` — the full diff, always including uncommitted work: for `WORKTREE` the staged and unstaged changes, for `<base>...HEAD` everything from the merge base (`diff_base` in the manifest) to the working tree. Auto-detect compares a feature branch against `develop` (if it exists) or `main`, and uses the working tree on `main` / `develop`. Any non-zero exit (1: usage error or `jq` missing; 2: not a git repository, detached HEAD, empty diff) → print the script's stderr line and stop; on detached HEAD, ask the user to specify `--base`.
+It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` — the full diff, always including uncommitted work: for `WORKTREE` the staged and unstaged changes, for `<base>...HEAD` everything from the merge base (`diff_base` in the manifest) to the working tree. Auto-detect compares a feature branch against the base the script detects (origin/HEAD, else `develop`, `main`, `master`; `base_name` in its JSON) and uses the working tree on `develop` / `main` / `master`. Any non-zero exit (1: usage error or `jq` missing; 2: not a git repository, detached HEAD, empty diff) → print the script's stderr line and stop; on detached HEAD, ask the user to specify `--base`.
 
 ### Step 4: Analyze the Diff
 
@@ -124,7 +124,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ### Step 6: Produce Report
 
-Output the following sections exactly, rendered from `merged.json`, under the heading `## Merged Review Report — Round {N}` followed by one line `Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces})` so the command layer can re-run the merge for logging:
+Output the following sections exactly, rendered from `merged.json`, under the heading `## Merged Review Report — Round {N}` followed by one line `Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces}; base: {manifest base_name, or WORKTREE when empty})` so the command layer can re-run the merge for logging:
 
 ## A) Intent Summary
 
