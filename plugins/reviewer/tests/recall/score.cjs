@@ -68,8 +68,23 @@ function scoreRun(merged, seeds) {
     }
   }
   const by = (k) => seeds.filter(s => status.get(s.id) === k).map(s => s.id)
+  // severity-match rate over hit seeds with an expectedSeverity: the worst severity among the issues
+  // that hit the seed is compared with the expected one (exact, or within one level)
+  const ORDER = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+  const severity = { exact: 0, within1: 0, n: 0 }
+  for (const seed of seeds) {
+    if (status.get(seed.id) !== 'hit' || !ORDER.includes(seed.expectedSeverity)) continue
+    const worst = issues.filter(i => matchedIssues.has(i) && (Array.isArray(seed.crossFile) ? crossMatch(seed, i) === 'hit' : plainMatch(seed, i)))
+      .map(i => ORDER.indexOf(String(i.severity || '').toUpperCase())).filter(x => x >= 0)
+    if (!worst.length) continue
+    const got = Math.max(...worst), want = ORDER.indexOf(seed.expectedSeverity)
+    severity.n++
+    if (got === want) severity.exact++
+    if (Math.abs(got - want) <= 1) severity.within1++
+  }
   return {
     hits: by('hit'),
+    severity,
     partial: by('partial'),
     misses: by('miss'),
     extra: issues.filter(i => !matchedIssues.has(i)).length,

@@ -10,7 +10,8 @@
       "\\bNone\\b",
       "non-string",
       "not a str"
-    ]
+    ],
+    "expectedSeverity": "HIGH"
   },
   {
     "id": "boundary-slice",
@@ -23,7 +24,8 @@
       "one (item|element|short|fewer)",
       "size - 1",
       "slice"
-    ]
+    ],
+    "expectedSeverity": "MEDIUM"
   },
   {
     "id": "dataflow-stale",
@@ -37,7 +39,8 @@
       "filtered",
       "excluded",
       "stale"
-    ]
+    ],
+    "expectedSeverity": "HIGH"
   },
   {
     "id": "crossfile-cast",
@@ -54,6 +57,7 @@
     "crossFile": [
       "src/parse.py",
       "src/importer.py"
-    ]
+    ],
+    "expectedSeverity": "HIGH"
   }
 ]

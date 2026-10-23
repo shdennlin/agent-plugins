@@ -92,6 +92,7 @@ export function summarize(runs, seeds) {
   return {
     seeds: seeds.length, runs, okRuns: ok.length,
     meanRecall: mean(ok.map(recall)), meanExtra: mean(ok.map(r => r.extra)), perSeed,
+    severity: ok.reduce((acc, r) => ({ exact: acc.exact + (r.severity?.exact || 0), within1: acc.within1 + (r.severity?.within1 || 0), n: acc.n + (r.severity?.n || 0) }), { exact: 0, within1: 0, n: 0 }),
   }
 }
 
@@ -105,6 +106,8 @@ function table(summary) {
   lines.push('', 'seed | kind | hits/outOf | partial | issues per hit')
   for (const [id, s] of Object.entries(summary.perSeed)) lines.push(`${id} | ${s.kind} | ${s.hits}/${s.outOf} | ${s.partial} | ${s.hits ? (s.matched / s.hits).toFixed(1) : '-'}`)
   lines.push('', `mean recall ${summary.meanRecall === null ? '-' : summary.meanRecall.toFixed(2)} over ${summary.okRuns} ok run(s); mean extra ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
+  const sv = summary.severity || { exact: 0, within1: 0, n: 0 }
+  lines.push(`severity match over ${sv.n} hit seed(s): exact ${sv.n ? (sv.exact / sv.n).toFixed(2) : '-'}, within one level ${sv.n ? (sv.within1 / sv.n).toFixed(2) : '-'}`)
   return lines.join('\n')
 }
 
