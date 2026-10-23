@@ -8,7 +8,7 @@ const os = require('os')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
-const { merge } = require('../scripts/merge-findings.cjs')
+const { merge, foldByPattern } = require('../scripts/merge-findings.cjs')
 
 const FIXTURES = path.join(__dirname, 'fixtures')
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'merge-findings.cjs')
@@ -245,4 +245,59 @@ test('CLI --no-log writes merged.json and no history file', (t) => {
   assert.ok(fs.existsSync(path.join(runDir, 'merged.json')))
   assert.equal(JSON.parse(r.stdout).verdict, 'FAIL')
   assert.ok(!fs.existsSync(history))
+})
+
+// ---- foldByPattern: one merged issue per construct, across titles and files ----
+const I = (sev, title, location, pattern, extra = {}) => ({ severity: sev, title, location, locations: [location], category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: `fix ${title}`, angles: ['x'], ...extra })
+
+test('same location + same pattern folds to the worst, other titles into rationale', () => {
+  const out = foldByPattern([
+    I('MEDIUM', 'page() returns size-1 items (off-by-one slice end)', 'src/paginate.py:page', 'size - 1', { angles: ['coverage'] }),
+    I('HIGH', 'Off-by-one: page returns size-1 items', 'src/paginate.py:page', 'size - 1', { angles: ['correctness'] }),
+    I('HIGH', 'page returns size-1 items (off-by-one)', 'src/paginate.py:page', 'size - 1', { angles: ['robustness'] }),
+  ])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].severity, 'HIGH')
+  assert.equal(out[0].title, 'Off-by-one: page returns size-1 items')
+  assert.equal(out[0].folded, 2)
+  assert.equal(out[0].rationale, '"page returns size-1 items (off-by-one)" (robustness)\n"page() returns size-1 items (off-by-one slice end)" (coverage)')
+  assert.deepEqual(out[0].angles, ['correctness', 'coverage', 'robustness'])
+  assert.equal(out[0].recommendation.split('\n').length, 3)
+})
+
+test('same pattern in two files with different titles joins locations with file:function entries', () => {
+  const out = foldByPattern([
+    I('HIGH', 'parse_amount(None) raises TypeError', 'src/parse.py:parse_amount', 'int(', { locations: ['src/parse.py:parse_amount', 'src/importer.py'] }),
+    I('HIGH', 'parse_row bypasses R1 rules', 'src/importer.py:parse_row', 'int(', { locations: ['src/importer.py:parse_row', 'src/parse.py'] }),
+  ])
+  assert.equal(out.length, 1)
+  // equal severity: the lowest location string wins the tie, so importer.py is the survivor
+  assert.equal(out[0].location, 'src/importer.py:parse_row')
+  assert.deepEqual(out[0].locations, ['src/importer.py:parse_row', 'src/parse.py:parse_amount'])
+})
+
+test('same location with different patterns stays separate', () => {
+  const out = foldByPattern([I('HIGH', 'a', 'src/parse.py:parse_amount', 'return int(s)'), I('MEDIUM', 'b', 'src/parse.py:parse_amount', 'isinstance(')])
+  assert.equal(out.length, 2)
+})
+
+test('issues without a pattern or with a pattern under 3 chars never fold', () => {
+  const out = foldByPattern([I('HIGH', 'a', 'x.py:f', undefined), I('HIGH', 'b', 'x.py:f', undefined), I('LOW', 'c', 'y.py:g', '('), I('LOW', 'd', 'z.py:h', '(')])
+  assert.equal(out.length, 4)
+  assert.ok(out.every((i) => i.folded === 0 && i.rationale === undefined))
+})
+
+test('identical titles are not repeated in rationale', () => {
+  const out = foldByPattern([I('HIGH', 'Same', 'a.py:f', 'int('), I('LOW', 'same', 'b.py:g', 'int(')])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].rationale, undefined)
+  assert.equal(out[0].folded, 1)
+})
+
+test('end to end: run-basic merge still yields one a.py:parse issue, sweep fills locations, folded is numeric', () => {
+  const m = merge(run.manifest, run.reports, run.diff)
+  const hit = m.issues.filter((i) => i.location === 'src/a.py:parse')
+  assert.equal(hit.length, 1)
+  assert.deepEqual(hit[0].locations, ['src/a.py:parse', 'src/b.py'])
+  assert.ok(m.issues.every((i) => typeof i.folded === 'number'))
 })

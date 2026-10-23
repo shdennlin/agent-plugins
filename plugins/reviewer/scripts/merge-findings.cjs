@@ -5,8 +5,9 @@
 //                           [--expect <angle1,angle2,...>]
 // --expect names the angles that must have reported; one with no <angle>.json is recorded as an
 // invalid report ("no report written") and marks every file not_reviewed.
-// Issues dedup on normalized location + lowercased trimmed title; after the pattern sweep, issues with
-// the same title and the same non-empty pattern fold into one (the same construct in several files).
+// Issues dedup on normalized location + lowercased trimmed title; after the pattern sweep, every issue
+// that shares a `pattern` (the construct at fault) folds into one, across titles and across files: the
+// worst-severity entry survives, the others' titles go into `rationale`, locations are joined.
 // merged.json `complete` is false when any report is invalid or any file is not_reviewed; `verdict`
 // stays the severity verdict, so a caller must check `complete` before treating PASS as a pass.
 // Writes <run_dir>/merged.json, prints it, then (unless --no-log) appends the merged issues to the
@@ -60,16 +61,20 @@ function unionLocations(lists) {
   return out
 }
 
-// One issue per (title, pattern) group; issues without a pattern never fold.
-function foldSameConstruct(issues) {
+// One issue per pattern (the construct at fault), whatever the titles or files. Patterns shorter than
+// MIN_PATTERN characters are too generic to identify a construct and never fold.
+const MIN_PATTERN = 3
+const foldKey = (p) => (typeof p === 'string' && p.trim().length >= MIN_PATTERN ? p.trim() : null)
+const recLines = (r) => String(r ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
+function foldByPattern(issues) {
   const groups = new Map()
   const out = []
   for (const i of issues) {
-    if (!hasPattern(i.pattern)) {
-      out.push(i)
+    const k = foldKey(i.pattern)
+    if (k === null) {
+      out.push({ ...i, folded: 0 })
       continue
     }
-    const k = JSON.stringify([normTitle(i.title), i.pattern])
     if (!groups.has(k)) {
       groups.set(k, [])
       out.push(groups.get(k))
@@ -78,12 +83,25 @@ function foldSameConstruct(issues) {
   }
   return out.map((g) => {
     if (!Array.isArray(g)) return g
-    if (g.length === 1) return g[0]
+    if (g.length === 1) return { ...g[0], folded: 0 }
     const sorted = [...g].sort(byWorst)
+    const [survivor, ...rest] = sorted
+    const seenTitles = new Set([normTitle(survivor.title)])
+    const rationale = []
+    for (const r of rest) {
+      if (seenTitles.has(normTitle(r.title))) continue
+      seenTitles.add(normTitle(r.title))
+      rationale.push(`"${r.title}" (${(r.angles || []).join(', ')})`)
+    }
+    const recs = []
+    for (const l of sorted.flatMap((i) => recLines(i.recommendation))) if (!recs.includes(l)) recs.push(l)
     return {
-      ...sorted[0],
+      ...survivor,
       locations: unionLocations(sorted.map((i) => i.locations)),
       angles: [...new Set(sorted.flatMap((i) => i.angles))].sort(),
+      recommendation: recs.join('\n'),
+      ...(rationale.length && { rationale: rationale.join('\n') }),
+      folded: rest.length,
     }
   })
 }
@@ -233,7 +251,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     }
     return issue
   })
-  const folded = foldSameConstruct(issues).sort(byWorst)
+  const folded = foldByPattern(issues).sort(byWorst)
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)
@@ -360,4 +378,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports }
+module.exports = { merge, loadReports, foldByPattern }
