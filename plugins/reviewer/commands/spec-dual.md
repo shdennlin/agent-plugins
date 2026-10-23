@@ -167,15 +167,14 @@ problems found and fixed in round 1 are the ones most worth turning into rules, 
 the post-fix residue would lose them. The Workflow result's `history[]` has one row per review
 round, each with `round` and `findings` (that round's union: `title`, `location`, `severity`,
 `category`, `engine`, `engines`, `pattern` when a reviewer gave one). For each row whose `findings`
-is non-empty, fold the union first (one entry per defect: two engines wording one issue at one
-location, or sharing a `pattern`, become one row with both engines), then log it with that row's round
-and its outcome: every round before the last was sent to the fixer in full, so its rows log with
-`--outcome fixed`; the last round's rows are what remained when the loop ended, `--outcome residual`.
-Before piping, set `"outcome": "escalated"` on every finding whose title is in the result's
-`needsHuman` list (a row's own outcome wins over the flag).
+is non-empty, fold the union first (one entry per defect: two engines naming one issue at one
+location, or sharing a `pattern`, become one row with both engines), then log it with that row's round.
+Every finding already carries its `outcome` from the workflow (`fixed`: the fixer applied it that
+round; `escalated`: rejected by the fixer or stale, in the human's hands; `residual`: still open when
+the loop ended; `open`: not sent to that round's fixer) — pass it through unchanged.
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/fold-findings.cjs" <<'FINDINGS_JSON' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(o.findings))' | node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change>" --source spec-dual --round <n> --outcome <fixed | residual>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/fold-findings.cjs" <<'FINDINGS_JSON' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(o.findings))' | node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change>" --source spec-dual --round <n>
 <history[n-1].findings as a JSON array>
 FINDINGS_JSON
 ```
@@ -185,5 +184,6 @@ The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spe
 mention it in one line and continue — a logging failure MUST NOT fail
 or repeat the review.
 
-Findings include `category`, `engine` (`claude` or `codex`), `engines` (both engines when both raised it) and
-`pattern` — pass them through unchanged; the fold unions `engines` and the logging script persists the rows.
+Findings include `category`, `engine` (`claude` or `codex`), `engines` (both engines when both raised it),
+`pattern` and `outcome` — pass them through unchanged; the fold unions `engines` (an escalated member keeps the
+row escalated) and the logging script persists the rows.

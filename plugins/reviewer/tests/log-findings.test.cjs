@@ -83,6 +83,9 @@ test('parseLocation turns the location forms into objects; the unparseable keep 
   assert.deepEqual(parseLocation('design.md §3 Rollback'), { path: 'design.md', section: '3 Rollback' })
   assert.deepEqual(parseLocation('design.md'), { path: 'design.md' })
   assert.deepEqual(parseLocation('a.py:12:5 weird'), { path: 'a.py:12:5 weird', raw: 'a.py:12:5 weird' })
+  assert.deepEqual(parseLocation('src/a.py:parse()'), { path: 'src/a.py', symbol: 'parse' })
+  assert.deepEqual(parseLocation('src/a.py:L12'), { path: 'src/a.py', line: 12 })
+  assert.deepEqual(parseLocation('src/a.py:Foo::bar'), { path: 'src/a.py', symbol: 'Foo::bar' })
 })
 test('outcome: default unknown, --outcome sets the batch default, a row\'s own outcome wins, --outcomes maps by title+location', () => {
   const { dir, history } = repo()

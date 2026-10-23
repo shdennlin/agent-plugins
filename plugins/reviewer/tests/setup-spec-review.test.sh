@@ -55,4 +55,11 @@ P="$(mktemp -d)"; git -C "$P" init -q -b main; P="$(git -C "$P" rev-parse --show
 out5="$("$SCRIPT" --working-dir "$P" spec.md)" || fail "portable run failed"
 [[ "$(jq -r .run_dir <<<"$out5")" == "$P/.claude/reviewer/runs/"* ]] || fail "portable root"
 rm -rf "$P"
+# 6. `..`, `.` and the repository root itself resolve to clean repo-relative paths
+out6="$("$SCRIPT" --working-dir "$TMP/openspec/changes/add-x/specs" ..)" || fail ".. run failed"
+[[ "$(jq -r '.files|join(",")' <<<"$out6")" == "openspec/changes/add-x/design.md,openspec/changes/add-x/proposal.md,openspec/changes/add-x/specs/a/spec.md,openspec/changes/add-x/specs/b/spec.md" ]] || fail ".. resolves cleanly (got $(jq -c .files <<<"$out6"))"
+out7="$("$SCRIPT" --working-dir "$TMP/openspec/changes/add-x" . ./proposal.md)" || fail ". run failed"
+[[ "$(jq -r .file_count <<<"$out7")" == "4" ]] || fail ". and ./file dedupe against the directory (got $(jq -c .files <<<"$out7"))"
+out8="$("$SCRIPT" --working-dir "$TMP" "$TMP")" || fail "repo root run failed"
+[[ "$(jq -r .file_count <<<"$out8")" == "4" ]] || fail "the repository root is a valid spec path (got $(jq -c .files <<<"$out8"))"
 echo "ok: setup-spec-review (dir discovery, single file, dedupe, missing path, usage, portable root)"

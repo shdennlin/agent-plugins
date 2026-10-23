@@ -259,7 +259,7 @@ test('history v3: orchestrators write outcomes.json from the fixer result and lo
     const t = read(f); assert.match(t, /outcomes\.json/, f); assert.match(t, /--outcomes/, f); assert.match(t, /escalated/, f)
   }
   assert.match(body('result.md'), /`outcome`/)
-  const sd = body('spec-dual.md'); assert.match(sd, /--outcome residual/); assert.match(sd, /--outcome fixed/); assert.match(sd, /escalated/)
+  const sd = body('spec-dual.md'); assert.match(sd, /`outcome`/); assert.ok(!sd.includes('--outcome '), 'spec-dual rows carry their own outcome from the workflow'); assert.match(sd, /escalated/)
   assert.match(read('README.md'), /schema v3/)
 })
 test('1.21.0: the log-findings.sh wrapper is gone and no prompt or doc names it', () => {

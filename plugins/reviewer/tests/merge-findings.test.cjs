@@ -518,6 +518,8 @@ test('parseFixerReport: zero applied, declared counts that disagree with the lin
   const bad = parseFixerReport('FIXER-RESULT\nAPPLIED: 3\n- X @ a.md\nSKIPPED: 0\nEND')
   assert.equal(bad.applied.length, 1); assert.equal(bad.mismatch, true)
   assert.equal(parseFixerReport('no block here'), null)
+  const at = parseFixerReport('FIXER-RESULT\nAPPLIED: 0\nSKIPPED: 1\n- Y @ b.md — conflicts with the owner @ c.md\nEND')
+  assert.deepEqual(at.skipped, [{ title: 'Y', location: 'b.md', reason: 'conflicts with the owner @ c.md' }], 'the reason is split off before the location')
 })
 test('CLI --parse-fixer reads the block on stdin and prints the JSON', () => {
   const r = spawnSync('node', [SCRIPT, '--parse-fixer'], { input: 'FIXER-RESULT\nAPPLIED: 1\n- T @ a.md:3\nSKIPPED: 0\nEND\n', encoding: 'utf8' })

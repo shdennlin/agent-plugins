@@ -452,6 +452,13 @@ if (scenario === 'fanout') {
   }
   for (const f of result.findings) assert(Array.isArray(f.engines) && f.engine !== 'both', 'final findings carry engines[] and no both')
   assert(result.history[0].findings.some(f => f.pattern === 'done criteria'), 'a reviewer-given pattern passes through to the history row')
+  // history v3: the workflow sets each row's outcome from what the fixer applied / escalated
+  const o1 = Object.fromEntries(result.history[0].findings.map(f => [f.title, f.outcome]))
+  assert(o1['Goal unmeasurable'] === 'fixed' && o1['No rollback section'] === 'fixed', 'round 1 applied blockers log fixed (got ' + JSON.stringify(o1) + ')')
+  assert(o1['Task 7 lacks done criteria'] === 'open', 'a LOW not sent to the round fixer is open in round 1')
+  const o2 = Object.fromEntries(result.history[1].findings.map(f => [f.title, f.outcome]))
+  assert(o2['Task 7 lacks done criteria'] === 'fixed', 'the clearing round LOW fixed by fix-low logs fixed (got ' + JSON.stringify(o2) + ')')
+  for (const h of result.history) for (const f of h.findings) assert(['open', 'fixed', 'escalated', 'residual'].includes(f.outcome), 'every history finding carries an outcome')
 }
 if (scenario === 'angledown') {
   assert(result.history[0].degraded === true, 'a dead angle degrades the round')

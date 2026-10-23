@@ -45,9 +45,10 @@ FILES=""
 for p in "${PATHS[@]}"; do
   if [[ "$p" == /* ]]; then abs="$p"; else abs="$WD/$p"; fi
   [[ -e "$abs" ]] || die2 "spec path does not exist: $p"
-  real="$(cd "$(dirname "$abs")" && pwd -P)/$(basename "$abs")"
-  [[ "$real" == "$REAL_TOP/"* ]] || die2 "spec path is outside the repository: $p"
-  if [[ -d "$abs" ]]; then
+  # physical path: `..`, `.` and symlinked parents resolve away, so the manifest holds clean repo-relative paths
+  if [[ -d "$abs" ]]; then real="$(cd "$abs" && pwd -P)"; else real="$(cd "$(dirname "$abs")" && pwd -P)/$(basename "$abs")"; fi
+  [[ "$real" == "$REAL_TOP" || "$real" == "$REAL_TOP/"* ]] || die2 "spec path is outside the repository: $p"
+  if [[ -d "$real" ]]; then
     found="$(find "$real" -type f -name '*.md' | sed "s|^$REAL_TOP/||")"
     [[ -n "$found" ]] || die2 "no .md files under: $p"
     FILES+="$found"$'\n'

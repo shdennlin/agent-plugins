@@ -6,7 +6,7 @@
 // (without --second-engine: [claude] and a stderr count); round → integer; change normalized; locations
 // defaults to [location]; pattern/run_id null; v 3. Rows already at v 3 and rows that cannot validate
 // after mapping (unknown severity, empty title…) are kept verbatim; the latter are counted as unmigratable
-// with their line numbers on stderr and make the exit status 1. A real run writes <file>.v1.bak first and
+// with their line numbers on stderr and make the exit status 1. A real run writes <file>.pre-v3.bak first and
 // refuses to run when that backup already exists. Never run this against a file you have not backed up.
 'use strict'
 const fs = require('fs')
@@ -53,7 +53,7 @@ function main(argv) {
   }
   if (!file) { process.stderr.write('migrate-history: <history.jsonl> is required\n'); return 1 }
   if (secondEngine && !ENGINES.includes(secondEngine) && !/^other:/.test(secondEngine)) { process.stderr.write(`migrate-history: --second-engine must be one of ${ENGINES.join(', ')} or other:<skill>\n`); return 1 }
-  const bak = file + '.v1.bak'
+  const bak = file + '.pre-v3.bak'
   if (!dryRun && fs.existsSync(bak)) { process.stderr.write(`migrate-history: ${bak} already exists; refusing to overwrite a backup\n`); return 1 }
   const text = fs.readFileSync(file, 'utf8')
   const lines = text.split('\n')

@@ -441,16 +441,17 @@ function parseFixerReport(text) {
     if ((m = line.match(/^APPLIED:\s*(\d+)/))) { section = 'applied'; out.declared.applied = Number(m[1]); continue }
     if ((m = line.match(/^SKIPPED:\s*(\d+)/))) { section = 'skipped'; out.declared.skipped = Number(m[1]); continue }
     if (!section || !line.startsWith('- ')) continue
-    const body = line.slice(2)
+    let body = line.slice(2)
+    let reason
+    if (section === 'skipped') {
+      // the reason comes off first: it may itself contain " @ "
+      const dash = body.indexOf(' — ')
+      if (dash !== -1) { reason = body.slice(dash + 3).trim(); body = body.slice(0, dash) }
+    }
     const at = body.lastIndexOf(' @ ')
     if (at === -1) continue
     const title = body.slice(0, at).trim()
-    let rest = body.slice(at + 3)
-    let reason
-    if (section === 'skipped') {
-      const dash = rest.indexOf(' — ')
-      if (dash !== -1) { reason = rest.slice(dash + 3).trim(); rest = rest.slice(0, dash) }
-    }
+    const rest = body.slice(at + 3)
     const entry = { title, location: rest.trim() }
     if (section === 'skipped') entry.reason = reason ?? ''
     out[section].push(entry)
@@ -497,7 +498,7 @@ function main(argv) {
   process.stdout.write(json + '\n')
   if (!o.log) return
 
-  // v2 rows: the merge is always the Claude engine's review (result, or spec when manifest.mode is spec)
+  // v3 rows: the merge is always the Claude engine's review (result, or spec when manifest.mode is spec)
   const rows = merged.issues.map((i) => ({
     severity: i.severity,
     title: i.title,

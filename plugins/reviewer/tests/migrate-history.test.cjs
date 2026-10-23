@@ -23,13 +23,13 @@ test('dry-run leaves the file byte-identical and prints the summary', () => {
   assert.match(r.stdout, /engine '' → claude: 3/); assert.match(r.stdout, /claude-result → claude: 1/); assert.match(r.stdout, /both → engines: 1 \(second engine: unknown\)/)
   assert.match(r.stdout, /round→int: 9/); assert.match(r.stdout, /change normalized: 2/); assert.match(r.stdout, /unmigratable: 2/)
   assert.match(r.stderr, /line 8:.*severity/); assert.match(r.stderr, /line 9:.*title/)
-  assert.ok(!fs.existsSync(f + '.v1.bak'))
+  assert.ok(!fs.existsSync(f + '.pre-v3.bak'))
 })
 test('a real run writes the backup, rewrites the rows, and every migrated row validates', () => {
   const f = tmpCopy(); const before = fs.readFileSync(f)
   const r = run([f, '--second-engine', 'spectra-review'])
   assert.equal(r.status, 1)
-  assert.ok(before.equals(fs.readFileSync(f + '.v1.bak')), 'backup is the original')
+  assert.ok(before.equals(fs.readFileSync(f + '.pre-v3.bak')), 'backup is the original')
   const rs = rows(f); assert.equal(rs.length, 15)
   const migrated = rs.filter((x) => x.v === 3)
   assert.equal(migrated.length, 13)
@@ -50,10 +50,10 @@ test('both without --second-engine gives engines [claude] and a stderr count', (
   assert.deepEqual(rows(f)[3].engines, ['claude'])
   assert.match(r.stderr, /1 'both' row\(s\) kept engines \[claude\]: pass --second-engine/)
 })
-test('an existing .v1.bak refuses to run', () => {
-  const f = tmpCopy(); fs.writeFileSync(f + '.v1.bak', 'x')
-  const r = run([f]); assert.equal(r.status, 1); assert.match(r.stderr, /\.v1\.bak already exists/)
-  assert.equal(fs.readFileSync(f + '.v1.bak', 'utf8'), 'x')
+test('an existing .pre-v3.bak refuses to run', () => {
+  const f = tmpCopy(); fs.writeFileSync(f + '.pre-v3.bak', 'x')
+  const r = run([f]); assert.equal(r.status, 1); assert.match(r.stderr, /\.pre-v3\.bak already exists/)
+  assert.equal(fs.readFileSync(f + '.pre-v3.bak', 'utf8'), 'x')
 })
 test('a clean v1 file exits 0', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-')); const f = path.join(d, 'h.jsonl')

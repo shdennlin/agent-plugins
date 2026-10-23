@@ -47,7 +47,7 @@ function normalizeEngine(e, source) {
   return `other:${v}`
 }
 
-// `path:12` → line, `path:12-20` → line/endLine, `path:name` → symbol, `path §heading` → section,
+// `path:12` (or `:L12`) → line, `path:12-20` → line/endLine, `path:name` / `name()` / `A::b` → symbol, `path §heading` → section,
 // `path` alone → path; anything else keeps the whole string as the path and in `raw`.
 function parseLocation(loc) {
   const s = String(loc ?? '').trim()
@@ -61,9 +61,9 @@ function parseLocation(loc) {
   if (i === -1) return s ? { path: s } : { path: s, raw: s }
   const path = s.slice(0, i), detail = s.slice(i + 1)
   let m
-  if (path && (m = detail.match(/^(\d+)$/))) return { path, line: Number(m[1]) }
-  if (path && (m = detail.match(/^(\d+)-(\d+)$/))) return { path, line: Number(m[1]), endLine: Number(m[2]) }
-  if (path && /^[A-Za-z_$][\w.$]*$/.test(detail)) return { path, symbol: detail }
+  if (path && (m = detail.match(/^L?(\d+)$/))) return { path, line: Number(m[1]) }
+  if (path && (m = detail.match(/^L?(\d+)-L?(\d+)$/))) return { path, line: Number(m[1]), endLine: Number(m[2]) }
+  if (path && (m = detail.match(/^([A-Za-z_$][\w.$]*(?:::[A-Za-z_$][\w.$]*)*)(?:\(\))?$/))) return { path, symbol: m[1] }
   return { path: s, raw: s }
 }
 const keyOf = (title, location) => `${String(title ?? '').trim().toLowerCase()}|${String(location ?? '').trim()}`
