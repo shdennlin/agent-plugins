@@ -118,7 +118,7 @@ result:
       If the spec set's tasks include checkpoint tasks (mid-implementation
       partial-diff reviews), verify each is checked off; flag any unchecked
       checkpoint task as a finding — the implementation skipped its gate.
-      For every issue, set `pattern` to a literal substring copied from the offending added line (no regex) when the same construct could appear in another changed file.
+      For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations.
 
   robustness:
     label: "Robustness & Security"
@@ -127,7 +127,7 @@ result:
       Review for: missing error handling, input validation gaps, security
       vulnerabilities, edge case handling, missing try/catch blocks,
       unvalidated user input, and authentication/authorization gaps.
-      For every issue, set `pattern` to a literal substring copied from the offending added line (no regex) when the same construct could appear in another changed file.
+      For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations.
 
   correctness:
     label: "Correctness & Logic"
@@ -136,4 +136,4 @@ result:
       Review for: algorithm correctness, data flow accuracy, state management,
       off-by-one errors, race conditions, incorrect assumptions, and divergence
       between spec intent and actual behavior.
-      For every issue, set `pattern` to a literal substring copied from the offending added line (no regex) when the same construct could appear in another changed file.
+      For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations.

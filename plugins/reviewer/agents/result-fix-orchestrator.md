@@ -118,8 +118,7 @@ Agent tool:
     - **location**: `file:function`, where `file` is the path exactly as it
       appears in the file list below
     - **category**
-    - **pattern** (optional): a literal substring copied from the offending
-      added line, enough to find the same construct elsewhere, or omit it
+    - **pattern** (optional): For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations.
     - **expected**: what the spec says
     - **actual**: what the implementation does
     - **impact**: what could go wrong
@@ -171,7 +170,7 @@ node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --change "<change id>"
 
 It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with `locations`, `coverage`, `via`, `invalid_reports`, `verdict`, `complete`, `counts`), Read `merged.json`; the only steps left to you are:
 
-1. **Semantic fold** — two merged issues with different locations that describe the same defect become one issue: keep the worse severity, union `locations` (primary first), and note the fold in the issue. Folds are report-only; the log already reflects the script's merge. The script dedups only issues at the same location with an equal title (case- and whitespace-insensitive), and folds issues with an equal title and equal `pattern` across files; differently worded duplicates of one defect are this fold's job.
+1. **Semantic fold** — the script already folds every issue that shares a `pattern` (across titles and files) into one entry, keeps the worst-severity wording, and lists the other angles' titles in that entry's `rationale` (`folded` = how many). What is left for you: same-location issues whose patterns differ but describe one defect (one pattern is often a substring of the other), and pattern-less duplicates; merge them the same way (worst severity, union `locations`, note the fold). The reverse also applies: if a `rationale` line describes a different defect than the entry's title, split it back out. Folds are report-only; the log already reflects the script's merge.
 2. **Process findings** — for each entry in `invalid_reports`, add one issue: severity MEDIUM, category `review-process`, title `<angle> report failed validation`, listing its violations. For each angle whose `via` is `file`, add one line to section D: "angle <angle> reported via fallback file, schema enforcement did not apply".
 3. **Compile** the unified report from `merged.json`:
 
@@ -188,7 +187,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 (from `coverage`: [x] implemented, [~] partial, [ ] missing)
 
 ### D) Issues & Risks
-(from `issues`, worst first, each with its severity, location, expected/actual/impact/recommendation and a `locations:` line)
+(from `issues`, worst first, each with its severity, location, expected/actual/impact/recommendation and a `locations:` line; when `rationale` is present add an indented `also reported as:` line followed by its lines)
 
 ### E) Verdict
 PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
@@ -197,7 +196,7 @@ PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
 
 `complete` is false when any report is invalid or any file is `not_reviewed`. Then the verdict line is `FAIL (review incomplete: <angles>)`, whatever `verdict` says, where `<angles>` are the `invalid_reports` angles and every `not_reviewed_by` angle, deduplicated; the counts follow on the same line. The review-process issues from step 2 stay report-only: they are never fixer directives.
 
-Output the merged report. Fixer directives (Step 6) come from these issues: `location` → file | function, `expected` → context, `actual` → missing, `recommendation` → action.
+Output the merged report. Fixer directives (Step 6) come from these issues: `location` → file | function, `expected` → context, `actual` → missing, `recommendation` → action; when `rationale` is present append `also reported as: <rationale lines>` to the context, and when `locations` has more than one entry list every location in the directive so the fixer edits every site.
 
 ### Step 4: Check Verdict
 
