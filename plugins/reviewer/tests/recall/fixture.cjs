@@ -40,14 +40,16 @@ const BASE = {
 }
 
 const FEATURE = {
-  // seed type-none: int(None) raises TypeError, not the ValueError R1 demands
-  'src/parse.py': `def parse_amount(s):\n    if isinstance(s, str):\n        s = s.strip()\n    return int(s)\n\n\ndef parse_amount_field(raw):\n    # seed crossfile-cast (first site)\n    return int(raw)\n`,
-  // seed crossfile-cast (second site): the same unchecked cast
+  // seed type-none: int(None) raises TypeError, not the ValueError R1 demands.
+  // seed crossfile-cast (first site): the unchecked int(...) cast that parse_row repeats below
+  'src/parse.py': `def parse_amount(s):\n    if isinstance(s, str):\n        s = s.strip()\n    return int(s)\n`,
+  // seed crossfile-cast (second site): the same unchecked cast instead of calling parse_amount
   'src/importer.py': `AMOUNT = 2\n\n\ndef parse_row(cells):\n    raw = cells[AMOUNT]\n    return {"sku": cells[0], "qty": cells[1], "amount": int(raw)}\n`,
   // seed boundary-slice: one item short of size
   'src/paginate.py': `def page(items, number, size):\n    start = (number - 1) * size\n    return items[start:start + size - 1]\n`,
-  // seed dataflow-stale: filtered is computed, the unfiltered list is summed
-  'src/report.py': `def build_report(items):\n    filtered = [i for i in items if not i.get("skip")]\n    count = len(filtered)\n    total = sum(i["amount"] for i in filtered)\n    return {"count": count, "total": sum(items)}\n`,
+  // seed dataflow-stale: `total` is computed over `filtered` but the returned value sums the
+  // unfiltered list (no crash: the expression is well-typed, the data flow is wrong)
+  'src/report.py': `def build_report(items):\n    filtered = [i for i in items if not i.get("skip")]\n    count = len(filtered)\n    total = sum(i["amount"] for i in filtered)\n    return {"count": count, "total": sum(i["amount"] for i in items)}\n`,
   'docs/spec.md': SPEC,
 }
 

@@ -30,7 +30,7 @@
     "kind": "dataflow",
     "file": "src/report.py",
     "function": "build_report",
-    "pattern": "\"total\": sum(items)",
+    "pattern": "\"total\": sum(i[\"amount\"] for i in items)",
     "titleHints": [
       "unfiltered",
       "skip",
@@ -43,8 +43,8 @@
     "id": "crossfile-cast",
     "kind": "crossfile",
     "file": "src/parse.py",
-    "function": "parse_amount_field",
-    "pattern": "int(raw)",
+    "function": "parse_amount",
+    "pattern": "int(",
     "titleHints": [
       "non-numeric",
       "ValueError",

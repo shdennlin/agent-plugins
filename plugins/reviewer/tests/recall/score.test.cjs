@@ -11,10 +11,26 @@ const seeds = [
 ]
 const merged = (issues) => ({ issues, complete: true, verdict: 'FAIL', counts: { CRITICAL: 0, HIGH: 1, MEDIUM: 0, LOW: 0 } })
 
-test('function match hits regardless of title', () => {
-  const r = scoreRun(merged([{ title: 'x', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), seeds.slice(0, 1))
-  assert.deepEqual(r.hits, ['type-none'])
-  assert.equal(r.extra, 0)
+test('function match still needs a title hint: an unrelated issue in the seeded function is extra', () => {
+  const r = scoreRun(merged([{ title: 'parse_amount lacks a docstring', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), seeds.slice(0, 1))
+  assert.deepEqual(r.misses, ['type-none'])
+  assert.equal(r.extra, 1)
+  const h = scoreRun(merged([{ title: 'TypeError escapes', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), seeds.slice(0, 1))
+  assert.deepEqual(h.hits, ['type-none'])
+  assert.equal(h.extra, 0)
+})
+
+test('crossfile seed also needs a title hint: a two-file issue about something else is extra', () => {
+  const r = scoreRun(merged([{ title: 'missing type hints', location: 'src/parse.py', locations: ['src/parse.py', 'src/importer.py'] }]), seeds.slice(1))
+  assert.deepEqual(r.misses, ['crossfile-cast'])
+  assert.equal(r.extra, 1)
+})
+
+test('matched counts how many issues hit each seed', () => {
+  const r = scoreRun(merged([
+    { title: 'TypeError on None', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] },
+    { title: 'None escapes as TypeError', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), seeds.slice(0, 1))
+  assert.deepEqual(r.matched, { 'type-none': 2 })
 })
 
 test('bare path location hits only with a title hint, and only for its own file', () => {
@@ -40,8 +56,8 @@ test('crossfile seed: both files in one issue -> hit; one file -> partial; two s
 
 test('a seed counts once even when two issues match it', () => {
   const r = scoreRun(merged([
-    { title: 'a', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] },
-    { title: 'b', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), seeds.slice(0, 1))
+    { title: 'TypeError on None', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] },
+    { title: 'None is not handled', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), seeds.slice(0, 1))
   assert.deepEqual(r.hits, ['type-none'])
   assert.equal(r.extra, 0)
 })

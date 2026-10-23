@@ -32,9 +32,10 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--out') opts.out = path.resolve(next())
   else if (a === '--min-recall') opts.minRecall = Number(next())
   else if (a === '--keep') opts.keep = true
-  else if (a === '--dry-run') { while (i + 1 < argv.length && !argv[i + 1].startsWith('--')) opts.dryRun.push(path.resolve(argv[++i])) }
+  else if (a === '--dry-run') { opts.dryRunSeen = true; while (i + 1 < argv.length && !argv[i + 1].startsWith('--')) opts.dryRun.push(path.resolve(argv[++i])) }
   else { console.error(`recall: unknown argument: ${a}`); process.exit(1) }
 }
+if (opts.dryRunSeen && !opts.dryRun.length) { console.error('recall: --dry-run needs at least one merged.json path'); process.exit(1) }
 if (!opts.out) opts.out = path.join(os.tmpdir(), `reviewer-recall-${new Date().toISOString().replace(/[:.]/g, '-')}`)
 fs.mkdirSync(opts.out, { recursive: true })
 
@@ -68,8 +69,11 @@ function liveRun(n) {
   const seconds = Math.round((Date.now() - t0) / 1000)
   fs.writeFileSync(path.join(opts.out, `run-${n}.txt`), `${r.stdout || ''}\n--- stderr ---\n${r.stderr || ''}\nexit=${r.status}\n`)
   const mergedFile = newestMerged(repo)
-  if (mergedFile) fs.copyFileSync(mergedFile, path.join(opts.out, `run-${n}-merged.json`))
-  const result = toRun(n, mergedFile, { seconds, claudeExit: r.status })
+  const kept = mergedFile ? path.join(opts.out, `run-${n}-merged.json`) : null
+  if (mergedFile) fs.copyFileSync(mergedFile, kept)
+  const spawnError = r.error ? `${r.error.code || ''} ${r.error.message || ''}`.trim() : (r.signal ? `signal ${r.signal}` : null)
+  const result = toRun(n, kept, { seconds, claudeExit: r.status, ...(spawnError ? { spawnError } : {}) })
+  if (!result.ok && spawnError) result.error = `${result.error} (${spawnError})`
   if (!opts.keep) fs.rmSync(tmp, { recursive: true, force: true }); else result.repo = repo
   return result
 }
@@ -77,10 +81,11 @@ function liveRun(n) {
 // ---- aggregate ----------------------------------------------------------------------------
 export function summarize(runs, seeds) {
   const ok = runs.filter(r => r.ok)
-  const perSeed = Object.fromEntries(seeds.map(s => [s.id, { kind: s.kind, hits: 0, partial: 0, outOf: ok.length }]))
+  const perSeed = Object.fromEntries(seeds.map(s => [s.id, { kind: s.kind, hits: 0, partial: 0, matched: 0, outOf: ok.length }]))
   for (const r of ok) {
     for (const id of r.hits) perSeed[id].hits++
     for (const id of r.partial) perSeed[id].partial++
+    for (const [id, n] of Object.entries(r.matched || {})) perSeed[id].matched += n
   }
   const recall = r => r.hits.length / seeds.length
   const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
@@ -91,14 +96,14 @@ export function summarize(runs, seeds) {
 }
 
 function table(summary) {
-  const lines = ['run | ok | recall | hits | partial | extra | complete | verdict']
+  const lines = ['run | ok | recall | hits | partial | extra | complete | verdict | seconds']
   for (const r of summary.runs) {
     lines.push(r.ok
       ? `${r.run} | yes | ${(r.hits.length / summary.seeds).toFixed(2)} | ${r.hits.join(',') || '-'} | ${r.partial.join(',') || '-'} | ${r.extra} | ${r.complete} | ${r.verdict}${r.seconds ? ` | ${r.seconds}s` : ''}`
       : `${r.run} | NO | - | - | - | - | - | ${r.error}`)
   }
-  lines.push('', 'seed | kind | hits/outOf | partial')
-  for (const [id, s] of Object.entries(summary.perSeed)) lines.push(`${id} | ${s.kind} | ${s.hits}/${s.outOf} | ${s.partial}`)
+  lines.push('', 'seed | kind | hits/outOf | partial | issues per hit')
+  for (const [id, s] of Object.entries(summary.perSeed)) lines.push(`${id} | ${s.kind} | ${s.hits}/${s.outOf} | ${s.partial} | ${s.hits ? (s.matched / s.hits).toFixed(1) : '-'}`)
   lines.push('', `mean recall ${summary.meanRecall === null ? '-' : summary.meanRecall.toFixed(2)} over ${summary.okRuns} ok run(s); mean extra ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
   return lines.join('\n')
 }

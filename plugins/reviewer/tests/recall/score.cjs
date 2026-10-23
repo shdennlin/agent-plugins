@@ -1,10 +1,11 @@
 'use strict'
 // Scores one merged.json (from scripts/merge-findings.cjs) against the seed oracle.
-// Match rule: an issue hits a seed when one of its locations (fallback: location) has the seed's
-// file as path part AND (the location names the seed's function OR the location has no function
-// and the issue text matches a titleHints regex). A crossFile seed is a hit only when ONE issue's
-// locations cover every listed file; any issue covering some of them makes it `partial`.
-// Each seed counts once; issues matching no seed are `extra`.
+// Match rule: an issue hits a seed when its text matches one of the seed's titleHints AND one of
+// its locations (fallback: location) has the seed's file as path part AND (the location names the
+// seed's function OR the location has no function). A crossFile seed additionally needs ONE issue
+// whose locations cover every listed file; a hinted issue covering some of them makes it `partial`.
+// The hint is always required: an unrelated remark about the seeded function is not a hit.
+// Each seed counts once (`matched` says how many issues hit it); issues matching no seed are `extra`.
 const { normalizePath } = require('../../mcp/schema.cjs')
 
 function pathPart(location) {
@@ -33,17 +34,18 @@ const hintMatches = (seed, issue) => {
 
 // plain seed: does this issue hit it?
 function plainMatch(seed, issue) {
+  if (!hintMatches(seed, issue)) return false
   for (const loc of issueLocations(issue)) {
     if (pathPart(loc) !== normalizePath(seed.file)) continue
     const fn = funcPart(loc)
-    if (fn && fn === seed.function) return true
-    if (!fn && hintMatches(seed, issue)) return true
+    if (!fn || fn === seed.function) return true
   }
   return false
 }
 
 // crossFile seed: 'hit' when one issue covers every file, 'partial' when it covers some, else null
 function crossMatch(seed, issue) {
+  if (!hintMatches(seed, issue)) return null
   const files = new Set(issueLocations(issue).map(pathPart))
   const covered = seed.crossFile.filter(f => files.has(normalizePath(f)))
   if (covered.length === seed.crossFile.length) return 'hit'
@@ -53,12 +55,14 @@ function crossMatch(seed, issue) {
 function scoreRun(merged, seeds) {
   const issues = Array.isArray(merged?.issues) ? merged.issues : []
   const status = new Map(seeds.map(s => [s.id, 'miss']))
+  const matched = Object.fromEntries(seeds.map(s => [s.id, 0]))
   const matchedIssues = new Set()
   for (const seed of seeds) {
     for (const issue of issues) {
       const m = Array.isArray(seed.crossFile) ? crossMatch(seed, issue) : (plainMatch(seed, issue) ? 'hit' : null)
       if (!m) continue
       matchedIssues.add(issue)
+      if (m === 'hit') matched[seed.id]++
       if (m === 'hit') status.set(seed.id, 'hit')
       else if (status.get(seed.id) !== 'hit') status.set(seed.id, 'partial')
     }
@@ -69,6 +73,7 @@ function scoreRun(merged, seeds) {
     partial: by('partial'),
     misses: by('miss'),
     extra: issues.filter(i => !matchedIssues.has(i)).length,
+    matched,
     complete: merged?.complete,
     verdict: merged?.verdict,
     counts: merged?.counts,

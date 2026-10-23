@@ -42,3 +42,11 @@ test('--min-recall gates the exit code', () => {
   assert.match(r.stdout, /mean recall 0\.00/)
   assert.match(r.stderr, /below --min-recall/)
 })
+
+test('--dry-run with no paths exits 1 and never falls through to live runs', () => {
+  const out = mkTmp()
+  const r = spawnSync(process.execPath, [RUN, '--dry-run', '--out', out], { encoding: 'utf8', env: { ...process.env, PATH: '' } })
+  assert.equal(r.status, 1)
+  assert.match(r.stderr, /--dry-run needs at least one merged.json/)
+  assert.ok(!fs.existsSync(path.join(out, 'run-1.txt')), 'no live run started')
+})
