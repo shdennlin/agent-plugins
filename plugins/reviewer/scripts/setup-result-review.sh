@@ -64,21 +64,36 @@ g rev-parse --git-dir >/dev/null 2>&1 || die2 "not a git repository: $WD"
 TOP="$(g rev-parse --show-toplevel)"
 
 # Strategy: WORKTREE, or <base>...HEAD (display string; the diff itself runs from the merge base).
-BASE_REF=""
+# A base name resolves to the local branch, else to origin/<name>. Auto-detect order: the branch
+# origin/HEAD points at, then develop, main, master; on that branch itself the strategy is WORKTREE.
+resolve_ref() {
+  if g rev-parse --verify -q "$1" >/dev/null 2>&1; then echo "$1"
+  elif g rev-parse --verify -q "origin/$1" >/dev/null 2>&1; then echo "origin/$1"
+  else return 1; fi
+}
+default_base() {
+  local head cand
+  head="$(g symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||' || true)"
+  for cand in $head develop main master; do
+    [[ -n "$cand" ]] || continue
+    if resolve_ref "$cand" >/dev/null; then echo "$cand"; return 0; fi
+  done
+  return 1
+}
+BASE_NAME="" BASE_REF=""
 if [[ -n "$BASE" ]]; then
-  BASE_REF="$BASE"
+  BASE_NAME="$BASE"
+  BASE_REF="$(resolve_ref "$BASE")" || die2 "base ref '$BASE' does not exist"
 else
   BRANCH="$(g symbolic-ref --short -q HEAD || true)"
   [[ -n "$BRANCH" ]] || die2 "detached HEAD: cannot auto-detect a diff strategy (use --base)"
-  case "$BRANCH" in
-    main|develop) STRATEGY="WORKTREE" ;;
-    *) if g rev-parse --verify -q develop >/dev/null 2>&1; then BASE_REF="develop"; else BASE_REF="main"; fi ;;
-  esac
+  BASE_NAME="$(default_base)" || die2 "cannot auto-detect a base branch (none of origin/HEAD, develop, main, master exist; use --base)"
+  if [[ "$BRANCH" == "$BASE_NAME" ]]; then STRATEGY="WORKTREE"; else BASE_REF="$(resolve_ref "$BASE_NAME")"; fi
 fi
 DIFF_BASE=""
 if [[ -n "$BASE_REF" ]]; then
-  STRATEGY="$BASE_REF...HEAD"
-  DIFF_BASE="$(g merge-base "$BASE_REF" HEAD 2>/dev/null)" || die2 "no merge base between $BASE_REF and HEAD"
+  STRATEGY="$BASE_NAME...HEAD"
+  DIFF_BASE="$(g merge-base "$BASE_REF" HEAD 2>/dev/null)" || die2 "no merge base between $BASE_NAME and HEAD"
 fi
 
 sorted_lines() { LC_ALL=C sort -u; }
@@ -141,11 +156,11 @@ while IFS= read -r p; do
     sub_base="$old_ptr"; sub_strategy="recorded-pointer"
     if [[ "$old_ptr" != "$new_ptr" && -n "$BASE_REF" ]]; then
       sub_ref=""
-      if gs rev-parse --verify -q "$BASE_REF" >/dev/null 2>&1; then sub_ref="$BASE_REF"
-      elif gs rev-parse --verify -q "origin/$BASE_REF" >/dev/null 2>&1; then sub_ref="origin/$BASE_REF"; fi
+      if gs rev-parse --verify -q "$BASE_NAME" >/dev/null 2>&1; then sub_ref="$BASE_NAME"
+      elif gs rev-parse --verify -q "origin/$BASE_NAME" >/dev/null 2>&1; then sub_ref="origin/$BASE_NAME"; fi
       if [[ -n "$sub_ref" ]]; then
         mb="$(gs merge-base "$sub_ref" HEAD 2>/dev/null || true)"
-        if [[ -n "$mb" && "$mb" != "$new_ptr" ]]; then sub_base="$mb"; sub_strategy="merge-base($BASE_REF,HEAD)"; fi
+        if [[ -n "$mb" && "$mb" != "$new_ptr" ]]; then sub_base="$mb"; sub_strategy="merge-base($BASE_NAME,HEAD)"; fi
       fi
     fi
     gs cat-file -e "$sub_base^{commit}" 2>/dev/null \
@@ -173,9 +188,9 @@ if [[ -d "$TOP/openspec" ]]; then ROOT="$TOP/openspec/reviews/runs"; else ROOT="
 mkdir -p "$ROOT"
 [[ -f "$ROOT/.gitignore" ]] || printf '*\n' >"$ROOT/.gitignore"
 
-RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
-RUN_DIR="$ROOT/$RUN_ID"
-mkdir -p "$RUN_DIR"
+# mktemp guarantees a fresh directory even when two runs start in the same second
+RUN_DIR="$(mktemp -d "$ROOT/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")" || die2 "cannot create a run directory under $ROOT"
+RUN_ID="$(basename "$RUN_DIR")"
 printf '%s\n' "$PATCH" >"$RUN_DIR/diff.patch"
 
 lines_json() { printf '%s\n' "$1" | jq -R -s 'split("\n") | map(select(length>0))'; }

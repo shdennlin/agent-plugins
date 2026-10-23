@@ -49,7 +49,7 @@ out="$("$SCRIPT" --working-dir "$TMP" --base main)"
 run="$(jq -r .run_dir <<<"$out")"
 [[ "$run" == "$TMP/.claude/reviewer/runs/"* ]] || fail "run_dir root"
 [[ -f "$run/manifest.json" && -s "$run/diff.patch" ]] || fail "manifest/diff missing"
-[[ "$(jq -r .run_id "$run/manifest.json")" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{4}$ ]] || fail "run_id format"
+[[ "$(jq -r .run_id "$run/manifest.json")" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$ ]] || fail "run_id format"
 [[ "$(jq -r .working_directory "$run/manifest.json")" == "$TMP" ]] || fail "manifest working_directory"
 jq -e '.created|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")' "$run/manifest.json" >/dev/null || fail "created format"
 jq -e 'has("size_class")|not' "$run/manifest.json" >/dev/null || fail "manifest must not carry size_class"
@@ -255,5 +255,25 @@ rc=0; "$SCRIPT" --working-dir "$S/super" --base develop >/dev/null 2>"$S/err4.tx
 [[ "$rc" == 2 ]] || fail "shallow sub: exit 2 expected, got $rc ($(cat "$S/err4.txt"))"
 grep -q "submodule subE: base commit $old_e is not in its clone" "$S/err4.txt" || fail "shallow sub: message names the sub and commit (got: $(cat "$S/err4.txt"))"
 rm -rf "$S"
+
+# 9. base auto-detect order (origin/HEAD, develop, main, master), missing --base ref, run-dir uniqueness.
+R="$(mktemp -d)"
+mkrepo "$R/m"; gc "$R/m" branch -m main master; printf 'x\n' >"$R/m/x"; gc "$R/m" add -A; gc "$R/m" commit -q -m base
+gc "$R/m" switch -q -c feat; printf 'y\n' >>"$R/m/x"; gc "$R/m" commit -q -am feat
+[[ "$("$SCRIPT" --working-dir "$R/m" --auto-detect | jq -r .diff_strategy)" == "master...HEAD" ]] || fail "master repo auto-detects master"
+gc "$R/m" switch -q master; printf 'w\n' >>"$R/m/x"
+[[ "$("$SCRIPT" --working-dir "$R/m" --auto-detect | jq -r .diff_strategy)" == "WORKTREE" ]] || fail "on master itself → WORKTREE"
+# origin/HEAD wins over develop
+mkrepo "$R/o"; printf 'o\n' >"$R/o/o"; gc "$R/o" add -A; gc "$R/o" commit -q -m base; gc "$R/o" branch trunk; gc "$R/o" branch develop
+git clone -q "$R/o" "$R/c"; git -C "$R/c" remote set-head origin trunk
+gc "$R/c" switch -q -c feat; printf 'z\n' >"$R/c/z"; gc "$R/c" add -A; gc "$R/c" commit -q -m z
+[[ "$("$SCRIPT" --working-dir "$R/c" --auto-detect | jq -r .diff_strategy)" == "trunk...HEAD" ]] || fail "origin/HEAD → trunk beats develop (got $("$SCRIPT" --working-dir "$R/c" --auto-detect | jq -r .diff_strategy))"
+rc=0; "$SCRIPT" --working-dir "$R/c" --base nosuch >/dev/null 2>"$R/e.txt" || rc=$?
+[[ "$rc" == 2 ]] || fail "missing --base ref exits 2 (rc=$rc)"
+grep -q "base ref 'nosuch' does not exist" "$R/e.txt" || fail "missing --base ref names itself (got: $(cat "$R/e.txt"))"
+d1="$("$SCRIPT" --working-dir "$R/c" --base trunk | jq -r .run_dir)"; d2="$("$SCRIPT" --working-dir "$R/c" --base trunk | jq -r .run_dir)"
+[[ "$d1" != "$d2" && -d "$d1" && -d "$d2" ]] || fail "two runs get distinct run dirs"
+[[ "$(basename "$d1")" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$ ]] || fail "run id format (got $(basename "$d1"))"
+rm -rf "$R"
 
 echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, submodules, $n normalize cases"
