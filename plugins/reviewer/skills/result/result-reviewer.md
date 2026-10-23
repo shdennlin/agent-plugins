@@ -61,7 +61,12 @@ It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` an
 
 ### Step 4: Review through the angle brief
 
-Read `<physical>/../../templates/result-angle-prompt.md` (the same brief Claude Code's result-fix-orchestrator sends each angle reviewer). It is your analysis, cross-reference and report methodology. Fill its placeholders yourself from Step 3's setup output: `{angle_label}` = `Single reviewer`, `{angle_focus}` = all three result angles' `focus:` text from `templates/review-angles.yaml` joined, `{angle_key}` = `single`, `{spec_summary}` from Step 1, `{run_dir}`, `{size_class}`, `{working_directory}` and `{file_list}` (the manifest's `files`, one per line) from the setup JSON. Then do what the brief says, with two Codex differences: `coverage` is REQUIRED (you are the only reviewer, so you also carry the coverage angle), and because `report_review` does not exist here, write the identical JSON to `<run_dir>/single.json` with a Bash heredoc and say `report_review unavailable, wrote file directly` (the merge flags it as a direct-write report).
+Read `{plugin_root}/templates/result-angle-prompt.md` (the same brief Claude Code's result-fix-orchestrator sends each angle reviewer). It is your analysis, cross-reference and report methodology. Fill its placeholders yourself from Step 3's setup output: `{angle_label}` = `Single reviewer`, `{angle_focus}` = all three result angles' `focus:` text from `{plugin_root}/templates/review-angles.yaml` joined, `{angle_key}` = `single`, `{spec_summary}` from Step 1, `{run_dir}`, `{size_class}`, `{working_directory}` and `{file_list}` (the manifest's `files`, one per line) from the setup JSON. Then do what the brief says, with three Codex differences: the brief's "your last action is ONE call" and "print only three lines" do not apply here — after writing the report continue to Step 5d (merge and log) and Step 6 (the full report); `coverage` is REQUIRED (you are the only reviewer, so you also carry the coverage angle), and because `report_review` does not exist here, write the identical JSON to `<run_dir>/single.json` with a Bash heredoc and say `report_review unavailable, wrote file directly` (the merge flags it as a direct-write report).
+
+While reading the diff, also identify, for Section B of the report:
+- Which files were modified, added, or deleted (tag `[NEW]` / `[DELETED]` / `[GENERATED]`)
+- Which functions/classes were changed
+- What behavior was added or altered
 
 ### Step 5d: Merge and Log
 

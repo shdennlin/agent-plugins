@@ -21,8 +21,10 @@ not run `git diff` yourself. Size class: {size_class}.
 its `diff --git` header (e.g. `grep -n '^diff --git' {run_dir}/diff.patch`,
 then `sed -n '<start>,<end>p'`), until every file has been opened.
 Do NOT skip files as "unrelated to the spec": defects that violate no spec
-sentence live in exactly those files. Test files are in scope. Generated
-files (lockfiles, protos, snapshots) may be skimmed but must be opened.
+sentence (a value silently overriding a caller, two roots for one config tree,
+I/O in a constructor) live in exactly those files. Test files are in scope —
+read them, do not triage them by grep. Generated files (lockfiles, protos,
+snapshots) may be skimmed but must be opened.
 When a hunk changes behaviour, open enough surrounding context
 (`cd {working_directory} && git show HEAD:<path>`) to judge it, including
 callers in other files. If `manifest.json` lists `submodules`, a path that

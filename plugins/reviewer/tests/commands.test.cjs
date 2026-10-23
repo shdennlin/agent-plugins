@@ -117,6 +117,32 @@ test('SKILL.md files are pointer stubs, not flag copies', () => {
 
 test('the spec-dual workflow carries the command name', () => {
   assert.ok(fs.existsSync(path.join(ROOT, 'workflows', 'spec-dual.workflow.js')), 'workflows/spec-dual.workflow.js missing')
-  assert.match(read('workflows/spec-dual.workflow.js'), /name: 'spec-dual'/)
+  const wf = read('workflows/spec-dual.workflow.js').match(/name: '([a-z-]+)'/)[1]
+  assert.notEqual(wf, 'spec-dual', 'a workflow named like the command shadows the slash command')
+  assert.ok(read('commands/spec-dual.md').includes(`name: "reviewer:${wf}"`), 'command calls the workflow by its meta.name')
   for (const f of ['commands/spec-dual.md', 'skills/spec-dual/SKILL.md', 'README.md']) assert.ok(!read(f).includes('two-engine-spec-review'), `${f} still names two-engine-spec-review`)
+})
+
+// --- batch C review fixes
+test('result-reviewer is an internal brief-receiver, not a self-contained reviewer', () => {
+  const t = read('agents/result-reviewer.md')
+  assert.match(t, /Not directly invocable/)
+  for (const bad of ['log_script_path', '## Log Findings', '## Input Parameters']) assert.ok(!t.includes(bad), `result-reviewer.md still has ${bad}`)
+})
+test('result-fixer keeps the Write tool it had as an untyped agent', () => {
+  assert.match(read('agents/result-fixer.md'), /^tools:\n(?:  - .*\n)*  - Write\n/m)
+})
+test('the Codex companion continues past the brief and resolves the template from the plugin root', () => {
+  const t = read('skills/result/result-reviewer.md')
+  assert.match(t, /do not apply[^.]*continue to Step 5d/)
+  assert.ok(!t.includes('<physical>/../../templates'), 'template path must use the plugin root variable')
+  assert.match(t, /Which functions\/classes were changed/)
+})
+test('the template keeps the spec-silent defect examples and the test-file rule', () => {
+  const t = read('templates/result-angle-prompt.md')
+  assert.match(t, /I\/O in a constructor/)
+  assert.match(t, /do not triage them by grep/)
+})
+test('INSTALL.md does not overclaim spec under Codex', () => {
+  assert.match(read('.codex/INSTALL.md'), /\| `spec` \| untested/)
 })

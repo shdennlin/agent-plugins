@@ -46,7 +46,7 @@ What each command can do under Codex (Claude Code's Task, Skill, Workflow and pl
 |---|---|---|
 | `init` | ✓ | rules go to `openspec/config.yaml` or the portable `.claude/reviewer/rules.yaml`; `--from-history` reads the history file |
 | `result` | ✓ without `-c` | one reviewer follows `templates/result-angle-prompt.md` and writes `<run_dir>/single.json` in place of the `report_review` tool; `-c <engine>` is ignored (no Skill tool) |
-| `spec` | ✓ single prompt | the orchestrator prompt runs as one reviewer, no parallel angles; `--fix` applies the spec-fixer prompt in the same session |
+| `spec` | untested / best effort | the orchestrator prompt (`agents/spec-orchestrator.md`) is written for parallel Agent fan-out and a typed fixer; under Codex it has to run as one reviewer in one session, which nobody has measured yet |
 | `spec-dual` | ✗ | needs Claude Code's Workflow tool and the `codex:codex-rescue` agent; use `$spec` instead |
 
 

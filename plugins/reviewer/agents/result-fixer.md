@@ -9,6 +9,7 @@ whenToUse: |
 tools:
   - Read
   - Edit
+  - Write
   - Glob
   - Grep
   - Bash

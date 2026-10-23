@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'spec-dual',
+  name: 'spec-dual-loop',
   description: 'Claude + Codex dual-engine spec review; each round fixes all fresh union blockers in ONE coherent session-model pass, escalating findings it cannot resolve, then clears LOW.',
   phases: [
     { title: 'Review', detail: 'Claude and Codex review the same change in parallel' },

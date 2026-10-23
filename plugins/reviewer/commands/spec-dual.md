@@ -116,7 +116,7 @@ Call the Workflow tool by plugin workflow name (do NOT use `scriptPath` — plug
 
 ```
 Workflow({
-  name: "reviewer:spec-dual",
+  name: "reviewer:spec-dual-loop",
   args: {
     change: "<change path string>",
     maxRounds: <max_rounds>,
