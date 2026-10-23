@@ -108,6 +108,7 @@ computes the diff once (for a branch strategy, from the merge base to the workin
 uncommitted edits are included) and creates a run directory — `openspec/reviews/runs/<run_id>/` when
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
+The slash commands are `commands/*.md`; `skills/*/SKILL.md` are Codex pointer stubs (see `.codex/INSTALL.md` for what works there).
 In a git superproject the setup script expands each changed, checked-out submodule into its own
 diff (paths prefixed `<sub>/`, recorded under `submodules` with the base commit and how it was
 chosen; uncommitted edits inside a sub count), so a review run from the superproject sees the
