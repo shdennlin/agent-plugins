@@ -322,3 +322,31 @@ test('merge: pattern on one angle only at the same location+title gives one issu
   assert.equal(hit[0].pattern, ra.issues[0].pattern)
   assert.equal(hit[0].folded, 0)
 })
+
+// --- Submodule-aware manifests (setup-result-review.sh expands changed gitlinks into "<sub>/<path>")
+
+test('real superproject manifest: every file is prefixed by one of four sub-repos; merge accepts it with no reports', () => {
+  const man = require('./fixtures/submodule-manifest.json')
+  const subs = new Set(man.files.map((f) => f.split('/')[0]))
+  assert.deepEqual([...subs].sort(), ['api-contract', 'central', 'core-api', 'frontend'])
+  assert.equal(man.files.length, 194)
+  const m = merge(man, [], '', { expect: ['coverage'] })
+  assert.equal(m.complete, false)
+  assert.equal(m.files.length, 194)
+  assert.ok(m.files.every((f) => f.verdict === 'not_reviewed'))
+})
+
+test('sweep crosses sub-repos through prefixed +++ headers', () => {
+  const man = { run_id: 'x', files: ['central/a.py', 'core-api/b.go'], working_directory: '/tmp/x' }
+  const patch = [
+    'diff --git a/central/a.py b/central/a.py', '--- a/central/a.py', '+++ b/central/a.py', '@@ -0,0 +1 @@', '+x = int(raw)',
+    'diff --git a/core-api/b.go b/core-api/b.go', '--- a/core-api/b.go', '+++ b/core-api/b.go', '@@ -0,0 +1 @@', '+y := int(raw)',
+  ].join('\n')
+  const rep = {
+    angle: 'correctness', via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'central/a.py', verdict: 'issues', issue_count: 1 }, { path: 'core-api/b.go', verdict: 'clean', issue_count: 0 }],
+    issues: [{ severity: 'HIGH', title: 'unchecked cast', location: 'central/a.py:f', category: 'c', pattern: 'int(', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }],
+  }
+  const m = merge(man, [rep], patch)
+  assert.deepEqual(m.issues[0].locations, ['central/a.py:f', 'core-api/b.go'])
+})
