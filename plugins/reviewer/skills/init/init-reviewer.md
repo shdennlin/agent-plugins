@@ -16,20 +16,13 @@ All subsequent commands run from this directory.
 
 ### Step 1: Determine the Rules Target
 
-Check if `openspec/config.yaml` exists in the working directory:
-
-```bash
-test -f openspec/config.yaml && echo "EXISTS" || echo "NOT_FOUND"
-```
-
-- If EXISTS, the target file is `openspec/config.yaml`.
-- If NOT_FOUND, fall back to the portable target `.claude/reviewer/rules.yaml` (the
-  dispatcher has already confirmed the portable target with the user). If it doesn't exist
-  yet, you will create it (including its parent directory) in Step 6, with the same
-  artifact-keyed YAML shape as `openspec/config.yaml`'s `rules:` section: top-level keys
-  `proposal`, `specs`, `design`, `tasks`, each a list of quoted rule strings.
-
-Use "the target file" below to mean whichever of these was selected.
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs" --paths` (Bash) from the git root; it prints
+`{ git_root, rules_kind, rules_target, rules_exists, history_path }`. The target file is `rules_target`
+(`openspec/config.yaml` for an OpenSpec repo, the portable `.claude/reviewer/rules.yaml` otherwise; the
+dispatcher has already confirmed a portable target with the user). When `rules_exists` is false you
+will create it (including its parent directory) in Step 6, with the same artifact-keyed YAML shape as
+`openspec/config.yaml`'s `rules:` section: top-level keys `proposal`, `specs`, `design`, `tasks`, each a
+list of quoted rule strings.
 
 ### Step 2: Read the Rules Template
 

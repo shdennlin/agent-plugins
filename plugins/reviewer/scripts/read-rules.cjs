@@ -5,7 +5,8 @@
 //   <git-root>/.claude/reviewer/rules.yaml -> its top level              (portable fallback)
 // and print ONE JSON object: { source, proposal: [], specs: [], design: [], tasks: [] }.
 //
-//   node read-rules.cjs [--root <abs>]
+//   node read-rules.cjs [--root <abs>]            rules
+//   node read-rules.cjs --paths [--root <abs>]    { git_root, rules_kind, rules_target, rules_exists, history_path }
 //
 // Missing files are not errors (exit 0, empty arrays, source null). Exit 2 only when a file
 // exists but cannot be read. Accepts only the YAML subset init writes: artifact keys holding
@@ -97,18 +98,35 @@ function readRules(root = gitRoot()) {
   return result
 }
 
-module.exports = { readRules, parseRulesYaml, AREAS }
+// Where this project's rules target and review history live. The ONE place that knows the
+// precedence rule (openspec/config.yaml when openspec/ exists, else the portable fallback).
+const HISTORY_OPENSPEC = 'openspec/reviews/history.jsonl'
+const HISTORY_PORTABLE = '.claude/reviewer/history.jsonl'
+function resolvePaths(root = gitRoot()) {
+  const openspec = fs.existsSync(path.join(root, 'openspec'))
+  const target = path.join(root, openspec ? CONFIG : FALLBACK)
+  return {
+    git_root: root,
+    rules_kind: openspec ? 'openspec' : 'portable',
+    rules_target: target,
+    rules_exists: fs.existsSync(target),
+    history_path: path.join(root, openspec ? HISTORY_OPENSPEC : HISTORY_PORTABLE),
+  }
+}
+
+module.exports = { readRules, parseRulesYaml, resolvePaths, AREAS }
 
 if (require.main === module) {
   const argv = process.argv.slice(2)
-  let root
+  let root, paths = false
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--root') root = argv[++i]
+    else if (argv[i] === '--paths') paths = true
     else if (argv[i] === '--quiet') { /* reserved */ }
     else { process.stderr.write(`read-rules: unknown argument: ${argv[i]}\n`); process.exit(1) }
   }
   try {
-    process.stdout.write(JSON.stringify(readRules(root || gitRoot())) + '\n')
+    process.stdout.write(JSON.stringify(paths ? resolvePaths(root || gitRoot()) : readRules(root || gitRoot())) + '\n')
   } catch (e) {
     process.stderr.write(`${e.message}\n`)
     process.exit(e.exitCode || 2)

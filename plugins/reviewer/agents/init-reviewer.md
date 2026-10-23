@@ -29,16 +29,15 @@ tools:
 
 # Init Reviewer Agent
 
-You inject reviewer-aligned rules into a project's rules target — `openspec/config.yaml` when present, otherwise the portable fallback `.claude/reviewer/rules.yaml` — so specs pass review on first attempt.
+You inject reviewer-aligned rules into a project's rules target (resolved by `read-rules.cjs --paths`: `openspec/config.yaml` for OpenSpec repos, else the portable `.claude/reviewer/rules.yaml`) — so specs pass review on first attempt.
 
 ## Behavior
 
 - Navigate to git repository root
-- Determine the target file: `openspec/config.yaml` if it exists at the git root;
-  otherwise `.claude/reviewer/rules.yaml` (create it, including parent directory, with the
-  same artifact-keyed YAML shape: top-level keys `proposal`, `specs`, `design`, `tasks`,
-  each a list of quoted rule strings) (the dispatcher has already confirmed the portable
-  target with the user)
+- Determine the target file with `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs" --paths`
+  (`rules_target`; create it, including parent directory, when `rules_exists` is false, with the
+  same artifact-keyed YAML shape: top-level keys `proposal`, `specs`, `design`, `tasks`, each a
+  list of quoted rule strings) (the dispatcher has already confirmed a portable target with the user)
 - Parse the reviewer rules template (provided inline in the prompt)
 - Read existing config and identify which rules are already present per artifact ID (proposal, specs, design, tasks)
 - Compute delta: filter template rules not already present (exact string match)

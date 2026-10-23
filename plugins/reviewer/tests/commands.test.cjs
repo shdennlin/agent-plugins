@@ -172,3 +172,12 @@ test('spec-dual retains history (not findings) for logging; result -c maps unkno
   assert.ok(!/jq missing/.test(sd))
   assert.match(read("commands/result.md"), /other:<engine key>/)
 })
+
+// --- batch D: deterministic prep in scripts
+test('rules/history paths come from read-rules --paths, not prose', () => {
+  for (const f of ['commands/init.md', 'skills/init/init-reviewer.md', 'agents/init-reviewer.md', 'commands/spec-dual.md']) {
+    const t = read(f)
+    assert.match(t, /read-rules\.cjs" --paths/, `${f} does not call read-rules --paths`)
+    assert.ok(!/openspec\/config\.yaml` (if|when) (it )?(exists|present)/.test(t), `${f} still spells out the precedence rule`)
+  }
+})
