@@ -84,43 +84,8 @@ function liveRun(n) {
   return result
 }
 
-// ---- aggregate ----------------------------------------------------------------------------
-export function summarize(runs, seeds) {
-  const ok = runs.filter(r => r.ok)
-  const perSeed = Object.fromEntries(seeds.map(s => [s.id, { kind: s.kind, hits: 0, partial: 0, matched: 0, outOf: ok.length }]))
-  for (const r of ok) {
-    for (const id of r.hits) perSeed[id].hits++
-    for (const id of r.partial) perSeed[id].partial++
-    for (const [id, n] of Object.entries(r.matched || {})) perSeed[id].matched += n
-  }
-  const recall = r => r.hits.length / seeds.length
-  const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
-  return {
-    seeds: seeds.length, runs, okRuns: ok.length,
-    meanRecall: mean(ok.map(recall)), meanExtra: mean(ok.map(r => r.extra)), perSeed,
-    meanExtraBefore: mean(ok.filter(r => r.before).map(r => r.before.extra)),
-    refuted: ok.reduce((a, r) => a + (r.refuted || 0), 0),
-    falseRefutation: ok.reduce((a, r) => a + (r.false_refutation || []).length, 0),
-    severity: ok.reduce((acc, r) => ({ exact: acc.exact + (r.severity?.exact || 0), within1: acc.within1 + (r.severity?.within1 || 0), n: acc.n + (r.severity?.n || 0) }), { exact: 0, within1: 0, n: 0 }),
-  }
-}
-
-function table(summary) {
-  const lines = ['run | ok | recall | hits | partial | extra (before → after) | refuted | false refutation | complete | verdict | seconds']
-  for (const r of summary.runs) {
-    const extra = r.ok ? (r.before ? `${r.before.extra} → ${r.extra}` : String(r.extra)) : '-'
-    lines.push(r.ok
-      ? `${r.run} | yes | ${(r.hits.length / summary.seeds).toFixed(2)} | ${r.hits.join(',') || '-'} | ${r.partial.join(',') || '-'} | ${extra} | ${r.refuted || 0} | ${(r.false_refutation || []).join(',') || '-'} | ${r.complete} | ${r.verdict}${r.seconds ? ` | ${r.seconds}s` : ''}`
-      : `${r.run} | NO | - | - | - | - | - | - | - | ${r.error}`)
-  }
-  lines.push('', 'seed | kind | hits/outOf | partial | issues per hit')
-  for (const [id, s] of Object.entries(summary.perSeed)) lines.push(`${id} | ${s.kind} | ${s.hits}/${s.outOf} | ${s.partial} | ${s.hits ? (s.matched / s.hits).toFixed(1) : '-'}`)
-  lines.push('', `mean recall ${summary.meanRecall === null ? '-' : summary.meanRecall.toFixed(2)} over ${summary.okRuns} ok run(s); mean extra ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
-  const sv = summary.severity || { exact: 0, within1: 0, n: 0 }
-  lines.push(`severity match over ${sv.n} hit seed(s): exact ${sv.n ? (sv.exact / sv.n).toFixed(2) : '-'}, within one level ${sv.n ? (sv.within1 / sv.n).toFixed(2) : '-'}`)
-  lines.push(`verification: refuted ${summary.refuted || 0} issue(s); false refutation ${summary.falseRefutation || 0}; mean extra before ${summary.meanExtraBefore === null || summary.meanExtraBefore === undefined ? '-' : summary.meanExtraBefore.toFixed(1)} → after ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
-  return lines.join('\n')
-}
+// ---- aggregate: shared with tests/spec-recall (report.cjs) ----
+const { summarize, table, gate } = require('./report.cjs')
 
 // ---- main ---------------------------------------------------------------------------------
 const runs = opts.dryRun.length
@@ -130,12 +95,5 @@ const summary = summarize(runs, SEEDS)
 fs.writeFileSync(path.join(opts.out, 'summary.json'), JSON.stringify(summary, null, 2))
 console.log(table(summary))
 console.log(`\nsummary: ${path.join(opts.out, 'summary.json')}`)
-if (opts.minRecall !== null && (summary.meanRecall === null || summary.meanRecall < opts.minRecall)) {
-  console.error(`recall: mean recall below --min-recall ${opts.minRecall}`)
-  process.exit(1)
-}
-if (summary.falseRefutation > 0) {
-  const names = [...new Set(runs.flatMap(r => r.false_refutation || []))]
-  console.error(`recall: verification refuted ${summary.falseRefutation} seed hit(s): ${names.join(', ')} — recall lost to the verifier`)
-  process.exit(1)
-}
+const why = gate(summary, runs, opts.minRecall)
+if (why) { console.error(`recall: ${why}`); process.exit(1) }
