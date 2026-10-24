@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Seeded recall harness for /reviewer:result. Builds a scratch repo with known bugs, runs the
 // review headlessly N times, scores each run's merged.json against seeds.json and prints recall
-// per run and per seed. A measurement, not a gate: exit 0 unless --min-recall is given.
+// per run and per seed. A measurement, not a gate: exit 0 unless --min-recall is given or
+// verification refuted a seed hit (a false refutation always exits 1).
 //
 //   node plugins/reviewer/tests/recall/run.mjs [--runs 3] [--model sonnet]
 //        [--angles coverage,robustness,correctness] [--plugin-dir <abs>] [--out <dir>]
@@ -52,11 +53,14 @@ function newestMerged(repo) {
   return dirs.length ? path.join(runs, dirs[dirs.length - 1], 'merged.json') : null
 }
 
+// the pre-verification merge sits beside merged.json as merged.pre-verify.json (or <name>.pre-verify.json)
+const preVerifyPath = (mergedFile) => mergedFile.replace(/\.json$/, '.pre-verify.json')
 function toRun(n, mergedFile, extra = {}) {
   if (!mergedFile) return { run: n, ok: false, error: 'no merged.json', ...extra }
   const { merged, error } = readMerged(mergedFile)
   if (!merged) return { run: n, ok: false, error, ...extra }
-  return { run: n, ok: true, file: mergedFile, ...scoreRun(merged, SEEDS), ...extra }
+  const pre = fs.existsSync(preVerifyPath(mergedFile)) ? readMerged(preVerifyPath(mergedFile)).merged : null
+  return { run: n, ok: true, file: mergedFile, ...scoreRun(merged, SEEDS, { preVerify: pre }), ...extra }
 }
 
 function liveRun(n) {
@@ -71,6 +75,7 @@ function liveRun(n) {
   const mergedFile = newestMerged(repo)
   const kept = mergedFile ? path.join(opts.out, `run-${n}-merged.json`) : null
   if (mergedFile) fs.copyFileSync(mergedFile, kept)
+  if (mergedFile && fs.existsSync(preVerifyPath(mergedFile))) fs.copyFileSync(preVerifyPath(mergedFile), preVerifyPath(kept))
   const spawnError = r.error ? `${r.error.code || ''} ${r.error.message || ''}`.trim() : (r.signal ? `signal ${r.signal}` : null)
   const result = toRun(n, kept, { seconds, claudeExit: r.status, ...(spawnError ? { spawnError } : {}) })
   if (!result.ok && spawnError) result.error = `${result.error} (${spawnError})`
@@ -92,22 +97,27 @@ export function summarize(runs, seeds) {
   return {
     seeds: seeds.length, runs, okRuns: ok.length,
     meanRecall: mean(ok.map(recall)), meanExtra: mean(ok.map(r => r.extra)), perSeed,
+    meanExtraBefore: mean(ok.filter(r => r.before).map(r => r.before.extra)),
+    refuted: ok.reduce((a, r) => a + (r.refuted || 0), 0),
+    falseRefutation: ok.reduce((a, r) => a + (r.false_refutation || []).length, 0),
     severity: ok.reduce((acc, r) => ({ exact: acc.exact + (r.severity?.exact || 0), within1: acc.within1 + (r.severity?.within1 || 0), n: acc.n + (r.severity?.n || 0) }), { exact: 0, within1: 0, n: 0 }),
   }
 }
 
 function table(summary) {
-  const lines = ['run | ok | recall | hits | partial | extra | complete | verdict | seconds']
+  const lines = ['run | ok | recall | hits | partial | extra (before → after) | refuted | false refutation | complete | verdict | seconds']
   for (const r of summary.runs) {
+    const extra = r.ok ? (r.before ? `${r.before.extra} → ${r.extra}` : String(r.extra)) : '-'
     lines.push(r.ok
-      ? `${r.run} | yes | ${(r.hits.length / summary.seeds).toFixed(2)} | ${r.hits.join(',') || '-'} | ${r.partial.join(',') || '-'} | ${r.extra} | ${r.complete} | ${r.verdict}${r.seconds ? ` | ${r.seconds}s` : ''}`
-      : `${r.run} | NO | - | - | - | - | - | ${r.error}`)
+      ? `${r.run} | yes | ${(r.hits.length / summary.seeds).toFixed(2)} | ${r.hits.join(',') || '-'} | ${r.partial.join(',') || '-'} | ${extra} | ${r.refuted || 0} | ${(r.false_refutation || []).join(',') || '-'} | ${r.complete} | ${r.verdict}${r.seconds ? ` | ${r.seconds}s` : ''}`
+      : `${r.run} | NO | - | - | - | - | - | - | - | ${r.error}`)
   }
   lines.push('', 'seed | kind | hits/outOf | partial | issues per hit')
   for (const [id, s] of Object.entries(summary.perSeed)) lines.push(`${id} | ${s.kind} | ${s.hits}/${s.outOf} | ${s.partial} | ${s.hits ? (s.matched / s.hits).toFixed(1) : '-'}`)
   lines.push('', `mean recall ${summary.meanRecall === null ? '-' : summary.meanRecall.toFixed(2)} over ${summary.okRuns} ok run(s); mean extra ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
   const sv = summary.severity || { exact: 0, within1: 0, n: 0 }
   lines.push(`severity match over ${sv.n} hit seed(s): exact ${sv.n ? (sv.exact / sv.n).toFixed(2) : '-'}, within one level ${sv.n ? (sv.within1 / sv.n).toFixed(2) : '-'}`)
+  lines.push(`verification: refuted ${summary.refuted || 0} issue(s); false refutation ${summary.falseRefutation || 0}; mean extra before ${summary.meanExtraBefore === null || summary.meanExtraBefore === undefined ? '-' : summary.meanExtraBefore.toFixed(1)} → after ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
   return lines.join('\n')
 }
 
@@ -121,5 +131,10 @@ console.log(table(summary))
 console.log(`\nsummary: ${path.join(opts.out, 'summary.json')}`)
 if (opts.minRecall !== null && (summary.meanRecall === null || summary.meanRecall < opts.minRecall)) {
   console.error(`recall: mean recall below --min-recall ${opts.minRecall}`)
+  process.exit(1)
+}
+if (summary.falseRefutation > 0) {
+  const names = [...new Set(runs.flatMap(r => r.false_refutation || []))]
+  console.error(`recall: verification refuted ${summary.falseRefutation} seed hit(s): ${names.join(', ')} — recall lost to the verifier`)
   process.exit(1)
 }

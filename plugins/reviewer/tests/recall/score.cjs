@@ -52,7 +52,24 @@ function crossMatch(seed, issue) {
   return covered.length ? 'partial' : null
 }
 
-function scoreRun(merged, seeds) {
+// opts.preVerify: the merge before `--apply-verify` (merged.pre-verify.json). With it, the score also
+// reports what verification did: hits/extra before, how many issues it refuted, and the seeds that were
+// hit before and are not hit after (false refutations — recall lost to the verifier).
+function scoreRun(merged, seeds, opts = {}) {
+  const after = scoreIssues(merged, seeds)
+  const pre = opts.preVerify && Array.isArray(opts.preVerify.issues) ? scoreIssues(opts.preVerify, seeds) : null
+  return {
+    ...after,
+    before: pre ? { hits: pre.hits, extra: pre.extra } : null,
+    refuted: Array.isArray(merged?.refuted) ? merged.refuted.length : 0,
+    false_refutation: pre ? pre.hits.filter((id) => !after.hits.includes(id)) : [],
+    complete: merged?.complete,
+    verdict: merged?.verdict,
+    counts: merged?.counts,
+  }
+}
+
+function scoreIssues(merged, seeds) {
   const issues = Array.isArray(merged?.issues) ? merged.issues : []
   const status = new Map(seeds.map(s => [s.id, 'miss']))
   const matched = Object.fromEntries(seeds.map(s => [s.id, 0]))
@@ -89,9 +106,6 @@ function scoreRun(merged, seeds) {
     misses: by('miss'),
     extra: issues.filter(i => !matchedIssues.has(i)).length,
     matched,
-    complete: merged?.complete,
-    verdict: merged?.verdict,
-    counts: merged?.counts,
   }
 }
 
