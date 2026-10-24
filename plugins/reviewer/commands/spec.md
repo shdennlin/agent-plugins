@@ -1,6 +1,7 @@
 ---
 allowed-tools:
   - Read
+  - Bash
   - Task
   - AskUserQuestion
 description: Review a spec/proposal/design before implementation to catch gaps, risks, and ambiguities
@@ -12,8 +13,8 @@ argument-hint: "[path...] [--fix] [--no-explore] [--angles list] [-n N] [--help/
 Review feature specifications, proposals, designs, or task lists before implementation starts.
 
 Multi-angle parallel review is the default — every invocation fans out across all
-built-in angles (scope, completeness, tasks, platform, and composition when the
-orchestrator judges multiple independent spec units are in scope). Use `--angles`
+built-in angles (scope, completeness, tasks, platform, design, consistency, and
+composition when the orchestrator judges multiple independent spec units are in scope). Use `--angles`
 to narrow that set; use `--fix` to also run an iterative review → fix loop.
 
 ## Arguments
@@ -36,7 +37,7 @@ From `$ARGUMENTS`, extract:
 2. **paths**: collect all positional arguments (not flags or flag values)
 3. **fix_enabled**: true if `--fix` is present
 4. **no_explore**: true if `--no-explore` is present
-5. **angles**: value after `--angles` (comma-separated string), or "default" if not provided
+5. **angles**: value after `--angles` (comma-separated string), or "default" if not provided. Validate it: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/check-angles.cjs" --section spec --angles <value>`; on exit 1 print its stderr line and stop; pass the `angles` array it prints to the orchestrator as `angles` (joined with commas; "default" stays "default" so the orchestrator may add composition)
 6. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
 
 ### Help Output
@@ -122,6 +123,8 @@ Task tool:
     Stay focused and efficient — breadth over depth. Do NOT analyze or judge the spec,
     only report codebase facts.
 ```
+
+If that agent type is not available in this session (the `feature-dev` plugin is not installed), use the built-in `Explore` agent with the same brief instead.
 
 Capture the code-explorer output as `CODEBASE_CONTEXT`.
 

@@ -14,7 +14,7 @@ Each plugin lives under `plugins/{name}/` and can contain any combination of:
 
 - **Commands** (`commands/*.md`) — Slash commands invoked by users. Parse `$ARGUMENTS`, show `--help`, then dispatch to an agent via `Task` tool with `subagent_type`.
 - **Agents** (`agents/*.md`) — Autonomous agents with YAML frontmatter (`identifier`, `model`, `tools`, `whenToUse`). The markdown body is the system prompt.
-- **Skills** (`skills/{name}/SKILL.md` + companion agent `.md`) — Auto-discovered capabilities. `SKILL.md` defines metadata; the companion file is the agent prompt template.
+- **Skills** (`skills/{name}/SKILL.md` + companion agent `.md`) — Codex entry points. In Claude Code the slash command is `commands/{name}.md`; a `SKILL.md` is a pointer stub (frontmatter + where Codex should look) plus the Codex companion prompt, never a second copy of the flags.
 - **Scripts** (`scripts/*.sh`) — Deterministic shell logic invoked by commands or hooks. Used for argument parsing, env validation, path resolution, state setup. Keeps deterministic work out of agent prompts. See "Where to put logic" below.
 - **Hooks** (`hooks/hooks.json` + `hooks/*.sh`, or `.claude-plugin/hooks/hooks.json`) — Event-driven automation (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`).
 - **Templates** (`templates/`) — Static content injected by agents (e.g., YAML rules).

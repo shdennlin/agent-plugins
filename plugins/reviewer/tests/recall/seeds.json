@@ -10,7 +10,8 @@
       "\\bNone\\b",
       "non-string",
       "not a str"
-    ]
+    ],
+    "expectedSeverity": "HIGH"
   },
   {
     "id": "boundary-slice",
@@ -23,7 +24,8 @@
       "one (item|element|short|fewer)",
       "size - 1",
       "slice"
-    ]
+    ],
+    "expectedSeverity": "MEDIUM"
   },
   {
     "id": "dataflow-stale",
@@ -37,7 +39,8 @@
       "filtered",
       "excluded",
       "stale"
-    ]
+    ],
+    "expectedSeverity": "HIGH"
   },
   {
     "id": "crossfile-cast",
@@ -54,6 +57,58 @@
     "crossFile": [
       "src/parse.py",
       "src/importer.py"
-    ]
+    ],
+    "expectedSeverity": "HIGH"
+  },
+  {
+    "id": "crossfile-rate",
+    "kind": "crossfile",
+    "file": "src/pricing.py",
+    "function": "with_tax",
+    "pattern": "TAX_RATE",
+    "titleHints": [
+      "percent",
+      "fraction",
+      "100",
+      "TAX_RATE",
+      "unit"
+    ],
+    "crossFile": [
+      "src/pricing.py",
+      "src/cart.py"
+    ],
+    "expectedSeverity": "HIGH"
+  },
+  {
+    "id": "crossfile-split",
+    "kind": "crossfile",
+    "file": "src/export.py",
+    "function": "to_csv_row",
+    "pattern": "split(\",\")",
+    "titleHints": [
+      "quoted",
+      "comma",
+      "csv",
+      "split"
+    ],
+    "crossFile": [
+      "src/export.py",
+      "src/api.py"
+    ],
+    "expectedSeverity": "MEDIUM"
+  },
+  {
+    "id": "buried-range",
+    "kind": "boundary",
+    "file": "src/legacy_big.py",
+    "function": "last_n_ids",
+    "pattern": "range(1, n)",
+    "titleHints": [
+      "off-by-one",
+      "one (fewer|short|less)",
+      "range\\(1",
+      "n - 1|n-1|excludes"
+    ],
+    "expectedSeverity": "MEDIUM"
   }
 ]

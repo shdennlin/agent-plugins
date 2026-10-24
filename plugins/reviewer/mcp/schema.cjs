@@ -12,14 +12,14 @@ const ISSUE_SCHEMA = {
   type: 'object',
   properties: {
     severity: { type: 'string', enum: SEVERITIES },
-    title: str,
-    location: str,
-    category: str,
+    title: { type: 'string', minLength: 1 },
+    location: { type: 'string', minLength: 1 },
+    category: { type: 'string', minLength: 1 },
     pattern: str,
     expected: str,
     actual: str,
     impact: str,
-    recommendation: str,
+    recommendation: { type: 'string', minLength: 1 },
   },
   required: ['severity', 'title', 'location', 'category', 'expected', 'actual', 'impact', 'recommendation'],
   additionalProperties: false,
@@ -64,7 +64,9 @@ const REPORT_SCHEMA = {
 }
 
 const typeOk = (t, v) => {
+  if (Array.isArray(t)) return t.some((x) => typeOk(x, v))
   switch (t) {
+    case 'null': return v === null
     case 'string': return typeof v === 'string'
     case 'integer': return Number.isInteger(v)
     case 'array': return Array.isArray(v)
@@ -76,14 +78,21 @@ const typeOk = (t, v) => {
 // Structural check of `value` against `schema`, pushing "<path>: <problem>".
 function checkShape(value, schema, path, out) {
   if (!typeOk(schema.type, value)) {
-    out.push(`${path}: must be ${schema.type}`)
+    out.push(`${path}: must be ${Array.isArray(schema.type) ? schema.type.join(' or ') : schema.type}`)
     return
   }
+  if (value === null) return
   if (schema.enum && !schema.enum.includes(value)) {
     out.push(`${path}: must be one of ${schema.enum.join(', ')} (got ${JSON.stringify(value)})`)
   }
   if (schema.minimum !== undefined && value < schema.minimum) {
     out.push(`${path}: must be >= ${schema.minimum}`)
+  }
+  if (schema.minLength !== undefined && typeof value === 'string' && value.length < schema.minLength) {
+    out.push(schema.minLength === 1 ? `${path}: must not be empty` : `${path}: must be at least ${schema.minLength} characters`)
+  }
+  if (schema.minItems !== undefined && Array.isArray(value) && value.length < schema.minItems) {
+    out.push(`${path}: must have at least ${schema.minItems} item(s)`)
   }
   if (schema.type === 'array' && schema.items) {
     value.forEach((v, i) => checkShape(v, schema.items, `${path}[${i}]`, out))
@@ -126,7 +135,11 @@ const issueAt = (location, p) => {
   return normalizePath(i === -1 ? location : location.slice(0, i)) === p
 }
 
-function validateReport(report, manifestFiles) {
+// opts.verdictRule (default true): reject a verdict that contradicts the issues. The report_review
+// tool keeps it (the agent can retry); the merge turns it off because it recomputes the verdict from
+// the issues and a file-written report must not become "invalid" over a label.
+function validateReport(report, manifestFiles, opts = {}) {
+  const verdictRule = opts.verdictRule !== false
   const out = []
   if (!typeOk('object', report)) return [': report must be an object']
   checkShape(report, REPORT_SCHEMA, '', out)
@@ -135,7 +148,15 @@ function validateReport(report, manifestFiles) {
   if (typeof report.run_dir === 'string' && !(report.run_dir.startsWith('/') && RUNS_SEGMENT.test(report.run_dir + '/'))) {
     out.push('run_dir: must be an absolute path inside a /reviews/runs/ or /reviewer/runs/ directory')
   }
+  if (typeof report.run_dir === 'string' && /(^|\/)\.\.(\/|$)/.test(report.run_dir)) {
+    out.push('run_dir: must not contain a .. segment')
+  }
   if (!shapeOk) return out
+
+  // verdict must agree with the issues: PASS cannot carry a CRITICAL/HIGH issue, FAIL needs at least one issue
+  const blocking = report.issues.filter((i) => i.severity === 'CRITICAL' || i.severity === 'HIGH').length
+  if (verdictRule && report.verdict === 'PASS' && blocking > 0) out.push(`verdict: PASS but ${blocking} CRITICAL/HIGH issue(s) reported`)
+  if (verdictRule && report.verdict === 'FAIL' && report.issues.length === 0) out.push('verdict: FAIL but no issues reported')
 
   const manifest = new Set(manifestFiles.map(normalizePath))
   const reported = new Set(report.files.map((f) => normalizePath(f.path)))
@@ -161,4 +182,48 @@ function validateReport(report, manifestFiles) {
   return out
 }
 
-module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath }
+// --- history.jsonl row, schema version 2 (written only by scripts/log-findings.cjs)
+const ENGINES = ['claude', 'codex', 'code-review', 'spectra-review']
+const OTHER_ENGINE = /^other:[a-z0-9][a-z0-9:_-]*$/
+const nonEmpty = { type: 'string', minLength: 1 }
+const HISTORY_ROW = {
+  type: 'object',
+  properties: {
+    v: { type: 'integer', enum: [2] },
+    ts: nonEmpty,
+    change: nonEmpty,
+    source: { type: 'string', enum: ['spec', 'spec-dual', 'result'] },
+    round: { type: 'integer', minimum: 1 },
+    run_id: { type: ['string', 'null'] },
+    engine: nonEmpty,                                   // vocabulary checked in validateHistoryRow
+    engines: { type: 'array', items: nonEmpty, minItems: 1 },
+    severity: { type: 'string', enum: SEVERITIES },
+    category: nonEmpty,
+    title: nonEmpty,
+    location: nonEmpty,
+    locations: { type: 'array', items: { type: 'string' } },
+    pattern: { type: ['string', 'null'] },
+  },
+  required: ['v', 'ts', 'change', 'source', 'round', 'run_id', 'engine', 'engines', 'severity', 'category', 'title', 'location', 'locations', 'pattern'],
+  additionalProperties: false,
+}
+
+// change id as stored: no leading ./, no doubled or trailing slashes, trimmed
+function normalizeChange(s) {
+  return String(s ?? '').trim().replace(/^(\.\/)+/, '').replace(/\/{2,}/g, '/').replace(/\/+$/, '')
+}
+
+const engineOk = (e) => ENGINES.includes(e) || OTHER_ENGINE.test(e)
+
+function validateHistoryRow(row) {
+  const out = []
+  if (!typeOk('object', row)) return [': row must be an object']
+  checkShape(row, HISTORY_ROW, '', out)
+  if (typeof row.engine === 'string' && row.engine && !engineOk(row.engine)) {
+    out.push(`engine: must be one of ${ENGINES.join(', ')} or other:<skill> (got ${JSON.stringify(row.engine)})`)
+  }
+  if (Array.isArray(row.engines)) row.engines.forEach((e, i) => { if (typeof e === 'string' && e && !engineOk(e)) out.push(`engines[${i}]: must be one of ${ENGINES.join(', ')} or other:<skill>`) })
+  return out
+}
+
+module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath, HISTORY_ROW, ENGINES, validateHistoryRow, normalizeChange }

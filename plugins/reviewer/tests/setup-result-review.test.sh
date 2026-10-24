@@ -49,7 +49,7 @@ out="$("$SCRIPT" --working-dir "$TMP" --base main)"
 run="$(jq -r .run_dir <<<"$out")"
 [[ "$run" == "$TMP/.claude/reviewer/runs/"* ]] || fail "run_dir root"
 [[ -f "$run/manifest.json" && -s "$run/diff.patch" ]] || fail "manifest/diff missing"
-[[ "$(jq -r .run_id "$run/manifest.json")" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{4}$ ]] || fail "run_id format"
+[[ "$(jq -r .run_id "$run/manifest.json")" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$ ]] || fail "run_id format"
 [[ "$(jq -r .working_directory "$run/manifest.json")" == "$TMP" ]] || fail "manifest working_directory"
 jq -e '.created|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")' "$run/manifest.json" >/dev/null || fail "created format"
 jq -e 'has("size_class")|not' "$run/manifest.json" >/dev/null || fail "manifest must not carry size_class"
@@ -233,7 +233,9 @@ grep -q '^+merged = int(x)$' "$run/diff.patch" || fail "bump-to-tip hunk present
 [[ "$(jq -r '.submodules[]|select(.path=="subF")|.strategy' "$run/manifest.json")" == "empty-tree" ]] || fail "dir→submodule strategy"
 [[ ",$files," == *",sub[A-Z],"* ]] || fail "a plain file named like a glob is kept (got $files)"
 [[ ",$files," != *",subH,"* ]] || fail "removed submodule dropped from files"
-grep -q "submodule subH: removed in this change, skipped" "$S/err.txt" || fail "removed submodule noted (got: $(cat "$S/err.txt"))"
+grep -q "submodule subH: removed in this change" "$S/err.txt" || fail "removed submodule noted (got: $(cat "$S/err.txt"))"
+[[ "$(jq -c '[.skipped_submodules[]?|select(.path=="subH")]' "$run/manifest.json")" == "[]" ]] || fail "a removed submodule is a note, not a skip (nothing left to review)"
+[[ "$(jq -r '.notes[]|select(.path=="subH")|.note' "$run/manifest.json")" == "removed in this change" ]] || fail "removed submodule recorded in notes (got $(jq -c .notes "$run/manifest.json"))"
 [[ "$(jq -r '.submodules|length' "$run/manifest.json")" == "2" ]] || fail "subE + subF recorded (got $(jq -c .submodules "$run/manifest.json"))"
 # user-level ignore config must not switch the feature off either
 out2="$(git -C "$S/super" config diff.ignoreSubmodules all; "$SCRIPT" --working-dir "$S/super" --base develop 2>/dev/null)" || fail "ignoreSubmodules=all run failed"
@@ -255,5 +257,62 @@ rc=0; "$SCRIPT" --working-dir "$S/super" --base develop >/dev/null 2>"$S/err4.tx
 [[ "$rc" == 2 ]] || fail "shallow sub: exit 2 expected, got $rc ($(cat "$S/err4.txt"))"
 grep -q "submodule subE: base commit $old_e is not in its clone" "$S/err4.txt" || fail "shallow sub: message names the sub and commit (got: $(cat "$S/err4.txt"))"
 rm -rf "$S"
+
+# 9. base auto-detect order (origin/HEAD, develop, main, master), missing --base ref, run-dir uniqueness.
+R="$(mktemp -d)"
+mkrepo "$R/m"; gc "$R/m" branch -m main master; printf 'x\n' >"$R/m/x"; gc "$R/m" add -A; gc "$R/m" commit -q -m base
+gc "$R/m" switch -q -c feat; printf 'y\n' >>"$R/m/x"; gc "$R/m" commit -q -am feat
+[[ "$("$SCRIPT" --working-dir "$R/m" --auto-detect | jq -r .diff_strategy)" == "master...HEAD" ]] || fail "master repo auto-detects master"
+gc "$R/m" switch -q master; printf 'w\n' >>"$R/m/x"
+[[ "$("$SCRIPT" --working-dir "$R/m" --auto-detect | jq -r .diff_strategy)" == "WORKTREE" ]] || fail "on master itself → WORKTREE"
+# origin/HEAD wins over develop
+mkrepo "$R/o"; printf 'o\n' >"$R/o/o"; gc "$R/o" add -A; gc "$R/o" commit -q -m base; gc "$R/o" branch trunk; gc "$R/o" branch develop
+git clone -q "$R/o" "$R/c"; git -C "$R/c" remote set-head origin trunk
+gc "$R/c" switch -q -c feat; printf 'z\n' >"$R/c/z"; gc "$R/c" add -A; gc "$R/c" commit -q -m z
+[[ "$("$SCRIPT" --working-dir "$R/c" --auto-detect | jq -r .diff_strategy)" == "trunk...HEAD" ]] || fail "origin/HEAD → trunk beats develop (got $("$SCRIPT" --working-dir "$R/c" --auto-detect | jq -r .diff_strategy))"
+out9="$("$SCRIPT" --working-dir "$R/c" --auto-detect)"
+[[ "$(jq -r .base_name <<<"$out9")" == "trunk" ]] || fail "stdout names the base (got $(jq -c . <<<"$out9"))"
+[[ "$(jq -r .base_name "$(jq -r .run_dir <<<"$out9")/manifest.json")" == "trunk" ]] || fail "manifest names the base"
+# an integration branch that is not the detected default still reviews its working tree (gitflow: on develop, origin/HEAD=trunk)
+gc "$R/c" switch -q develop 2>/dev/null || gc "$R/c" switch -q -c develop origin/develop; printf 'd\n' >>"$R/c/o"
+out9b="$("$SCRIPT" --working-dir "$R/c" --auto-detect)"
+[[ "$(jq -r .diff_strategy <<<"$out9b")" == "WORKTREE" ]] || fail "on develop → WORKTREE even when origin/HEAD is trunk (got $(jq -r .diff_strategy <<<"$out9b"))"
+[[ "$(jq -r .base_name <<<"$out9b")" == "" ]] || fail "WORKTREE has an empty base_name"
+gc "$R/c" checkout -q -- o; gc "$R/c" switch -q feat
+rc=0; "$SCRIPT" --working-dir "$R/c" --base nosuch >/dev/null 2>"$R/e.txt" || rc=$?
+[[ "$rc" == 2 ]] || fail "missing --base ref exits 2 (rc=$rc)"
+grep -q "base ref 'nosuch' does not exist" "$R/e.txt" || fail "missing --base ref names itself (got: $(cat "$R/e.txt"))"
+d1="$("$SCRIPT" --working-dir "$R/c" --base trunk | jq -r .run_dir)"; d2="$("$SCRIPT" --working-dir "$R/c" --base trunk | jq -r .run_dir)"
+[[ "$d1" != "$d2" && -d "$d1" && -d "$d2" ]] || fail "two runs get distinct run dirs"
+[[ "$(basename "$d1")" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$ ]] || fail "run id format (got $(basename "$d1"))"
+rm -rf "$R"
+
+# 10. runs/ retention (newest 10 kept) and skipped submodules recorded in the manifest.
+Q="$(mktemp -d)"
+mkrepo "$Q/libZ"; printf 'z\n' >"$Q/libZ/z.txt"; gc "$Q/libZ" add -A; gc "$Q/libZ" commit -q -m base
+mkrepo "$Q/super" develop; gc "$Q/super" submodule add -q "$Q/libZ" libZ; printf 'p\n' >"$Q/super/plain.txt"
+gc "$Q/super" add -A; gc "$Q/super" commit -q -m base; gc "$Q/super" branch -f develop
+gc "$Q/super" switch -q -c feat; printf 'z2\n' >"$Q/libZ/z.txt"; gc "$Q/libZ" commit -q -am z2
+gc "$Q/super/libZ" fetch -q origin && gc "$Q/super/libZ" checkout -q "$(git -C "$Q/libZ" rev-parse HEAD)"
+printf 'p2\n' >"$Q/super/plain.txt"; gc "$Q/super" add -A; gc "$Q/super" commit -q -m "bump libZ, edit plain"
+rm -rf "$Q/super/libZ"; mkdir "$Q/super/libZ"   # gitlink present, checkout gone
+RUNS="$Q/super/.claude/reviewer/runs"; mkdir -p "$RUNS"; printf '*\n' >"$RUNS/.gitignore"; printf 'x\n' >"$RUNS/stray.txt"
+for i in 01 02 03 04 05 06 07 08 09 10 11 12; do mkdir "$RUNS/202601${i}T000000Z-aaaaaa"; done
+outq="$("$SCRIPT" --working-dir "$Q/super" --base develop 2>"$Q/err.txt")" || fail "section 10 setup failed: $(cat "$Q/err.txt")"
+[[ "$(find "$RUNS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" == "11" ]] || fail "retention keeps 10 old dirs + the new one (got $(find "$RUNS" -mindepth 1 -maxdepth 1 -type d | wc -l))"
+[[ ! -d "$RUNS/20260101T000000Z-aaaaaa" && ! -d "$RUNS/20260102T000000Z-aaaaaa" && -d "$RUNS/20260103T000000Z-aaaaaa" ]] || fail "the two oldest dirs are pruned"
+[[ -f "$RUNS/stray.txt" && -f "$RUNS/.gitignore" ]] || fail "files in runs/ are never pruned"
+runq="$(jq -r .run_dir <<<"$outq")"
+[[ "$(jq -c '.skipped_submodules' "$runq/manifest.json")" == '[{"path":"libZ","reason":"not checked out"}]' ]] || fail "skipped submodule recorded (got $(jq -c .skipped_submodules "$runq/manifest.json"))"
+[[ "$(jq -r '.files|join(",")' <<<"$outq")" == "plain.txt" ]] || fail "skipped submodule contributes no files"
+# a runs/ that is a symlink out of the repo is never pruned (and never deleted through)
+OUTSIDE="$(mktemp -d)"; mkdir "$OUTSIDE/20260101T000000Z-victim"; printf 'keep\n' >"$OUTSIDE/20260101T000000Z-victim/x"
+rm -rf "$RUNS"; ln -s "$OUTSIDE" "$RUNS"
+"$SCRIPT" --working-dir "$Q/super" --base develop >/dev/null 2>"$Q/err2.txt" || true
+[[ -f "$OUTSIDE/20260101T000000Z-victim/x" ]] || fail "prune followed a symlinked runs/ outside the repo"
+grep -q "runs directory resolves outside the repository" "$Q/err2.txt" || fail "symlinked runs/ is reported (got: $(cat "$Q/err2.txt"))"
+rm -f "$RUNS"; rm -rf "$OUTSIDE"; mkdir -p "$RUNS"
+REVIEWER_KEEP_RUNS="abc" "$SCRIPT" --working-dir "$Q/super" --base develop >/dev/null 2>"$Q/err3.txt" || fail "non-integer REVIEWER_KEEP_RUNS must fall back, not fail ($(cat "$Q/err3.txt"))"
+rm -rf "$Q"
 
 echo "ok: setup-result-review strategy, manifest, hostile git config, merge-base working tree, run roots, gitignore, size_class, WORKTREE staged/unstaged, exit codes, submodules, $n normalize cases"

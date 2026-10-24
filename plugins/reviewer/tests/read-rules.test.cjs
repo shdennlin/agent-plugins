@@ -39,11 +39,12 @@ test('config.yaml rules section wins when the file exists', () => {
   assert.deepEqual(r.tasks, [])
 })
 
-test('openspec dir without config.yaml falls back to rules.yaml', () => {
+test('openspec dir without config.yaml: the target is config.yaml (same rule as --paths), so nothing is read yet', () => {
   const root = mk({ 'openspec/changes/.keep': '', '.claude/reviewer/rules.yaml': 'tasks:\n  - "T1"\n' })
   const r = readRules(root)
-  assert.equal(r.source, '.claude/reviewer/rules.yaml')
-  assert.deepEqual(r.tasks, ['T1'])
+  assert.equal(r.source, null, 'readRules and resolvePaths must name the same file')
+  assert.deepEqual(r.tasks, [])
+  assert.equal(resolvePaths(root).rules_kind, 'openspec')
 })
 
 test('neither file: empty shape, source null', () => {
@@ -89,4 +90,26 @@ test('CLI prints JSON for --root', () => {
 test('quoted item followed by a trailing comment is unquoted', () => {
   const p = parseRulesYaml('tasks:\n  - "T1"   # comment\n  - \'T2\' # c\n', { nested: false })
   assert.deepEqual(p.tasks, ['T1', 'T2'])
+})
+
+// --- --paths: the one rules/history path oracle (refactor batch D)
+const { resolvePaths } = require('../scripts/read-rules.cjs')
+test('resolvePaths: openspec repo → config.yaml target and openspec history', () => {
+  const root = mk({ 'openspec/README.md': 'x' })
+  const p = resolvePaths(root)
+  assert.deepEqual(p, { git_root: root, rules_kind: 'openspec', rules_target: path.join(root, 'openspec/config.yaml'), rules_exists: false, history_path: path.join(root, 'openspec/reviews/history.jsonl') })
+  fs.writeFileSync(path.join(root, 'openspec/config.yaml'), 'rules:\n')
+  assert.equal(resolvePaths(root).rules_exists, true)
+})
+test('resolvePaths: plain repo → portable rules.yaml and .claude/reviewer history', () => {
+  const root = mk({ 'README.md': 'x' })
+  const p = resolvePaths(root)
+  assert.equal(p.rules_kind, 'portable'); assert.equal(p.rules_target, path.join(root, '.claude/reviewer/rules.yaml')); assert.equal(p.rules_exists, false)
+  assert.equal(p.history_path, path.join(root, '.claude/reviewer/history.jsonl'))
+})
+test('CLI --paths prints the JSON', () => {
+  const root = mk({ 'openspec/config.yaml': 'rules:\n' })
+  const r = spawnSync('node', [SCRIPT, '--paths', '--root', root], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const j = JSON.parse(r.stdout); assert.equal(j.rules_kind, 'openspec'); assert.equal(j.rules_exists, true); assert.equal(j.git_root, root)
 })

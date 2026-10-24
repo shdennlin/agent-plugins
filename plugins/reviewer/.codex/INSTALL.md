@@ -40,6 +40,16 @@ cmd /c mklink /J "$env:USERPROFILE\.agents\skills\reviewer" "$env:USERPROFILE\.c
 
 ## Codex differences
 
+What each command can do under Codex (Claude Code's Task, Skill, Workflow and plugin MCP tools do not exist there):
+
+| Command | Under Codex | Notes |
+|---|---|---|
+| `init` | ✓ | rules go to `openspec/config.yaml` or the portable `.claude/reviewer/rules.yaml`; `--from-history` reads the history file |
+| `result` | ✓ without `-c` | one reviewer follows `templates/result-angle-prompt.md` and writes `<run_dir>/single.json` in place of the `report_review` tool; `-c <engine>` is ignored (no Skill tool) |
+| `spec` | untested / best effort | the orchestrator prompt (`agents/spec-orchestrator.md`) is written for parallel Agent fan-out and a typed fixer; under Codex it has to run as one reviewer in one session, which nobody has measured yet |
+| `spec-dual` | ✗ | needs Claude Code's Workflow tool and the `codex:codex-rescue` agent; use `$spec` instead |
+
+
 `/reviewer:result -c <engine>` invokes a second review skill through Claude Code's Skill
 tool. Under Codex there is no Skill tool and no built-in `/code-review`, so the flag is
 ignored whatever its value and the spec review runs alone; the report says so in one line.

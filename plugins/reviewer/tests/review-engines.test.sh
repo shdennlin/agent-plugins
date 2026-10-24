@@ -20,5 +20,9 @@ done
 awk '$0=="  code-review:"{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -q 'level_required: true' || fail "code-review must require a level"
 awk '$0=="  code-review:"{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -qE 'CONFIRMED: medium|PLAUSIBLE: low' || fail "code-review severity_map changed"
 awk '$0=="  spectra-review:"{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -qE 'Critical: high' || fail "spectra-review severity_map changed"
+awk '$0=="  code-review:"{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -qE '^    levels: \[low, medium, high, xhigh, max\]$' || fail "code-review must list its levels"
+awk '$0=="  spectra-review:"{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -q '^    scope: self$' || fail "spectra-review must declare scope: self"
+awk '$0=="  spectra-review:"{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -qE '^    base_arg: " --base <base>"( +#.*)?$' || fail "spectra-review must declare base_arg"
+for engine in code-review _default; do awk -v e="  ${engine}:" '$0==e{f=1;next} f&&/^  [A-Za-z_-]+:$/{f=0} f' "$T" | grep -q '^    scope: base$' || fail "engine '$engine' must declare scope: base"; done
 grep -q 'review-engines.yaml' "$HERE/../commands/result.md" || fail "commands/result.md does not reference the template"
-echo "ok: review-engines.yaml has code-review, spectra-review, _default with skill/args/never_pass/findings_from/severity_map/notes"
+echo "ok: review-engines.yaml has code-review, spectra-review, _default with skill/args/never_pass/findings_from/severity_map/notes, levels, scope and base_arg"

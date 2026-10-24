@@ -13,6 +13,9 @@
 #
 # Field meanings:
 #   skill          name passed to the Skill tool
+#   levels         (level_required entries) the level words `-c <level>` may select
+#   scope          base = reviews <base>...HEAD like the spec review; self = resolves its own diff
+#   base_arg       appended to args only when the user passed --base (self-scoped engines)
 #   args           Skill args; placeholders: <level> <base> <change-name> <spec-paths>
 #                  (<change-name> = basename of an openspec/changes/<name>/ spec path, else
 #                  the first spec path)
@@ -28,6 +31,8 @@ engines:
     skill: code-review
     availability: Claude Code built-in (absent under Codex)
     level_required: true
+    levels: [low, medium, high, xhigh, max]
+    scope: base
     args: "<level> <base> --max-findings all"
     never_pass: ["--fix", "--comment"]
     findings_from: >
@@ -44,7 +49,9 @@ engines:
     skill: spectra-review
     availability: generated into .claude/skills/ by the Spectra CLI (Spectra repos only)
     level_required: false
-    args: "<change-name>"   # append " --base <base>" only when the user passed --base
+    scope: self
+    args: "<change-name>"
+    base_arg: " --base <base>"   # appended only when the user passed --base (the engine scopes its own diff otherwise)
     never_pass: []
     findings_from: >
       The "Findings" section of its Review Report: numbered entries of the form
@@ -63,6 +70,7 @@ engines:
     skill: "<skill-name>"
     availability: whatever the user installed; the command does not check beforehand
     level_required: false
+    scope: base
     args: "<base>"
     never_pass: ["--fix", "--comment", "--apply", "--write"]
     findings_from: >

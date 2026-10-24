@@ -12,7 +12,7 @@ const { merge, foldByPattern } = require('../scripts/merge-findings.cjs')
 
 const FIXTURES = path.join(__dirname, 'fixtures')
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'merge-findings.cjs')
-const LOG_SCRIPT = path.join(__dirname, '..', 'scripts', 'log-findings.sh')
+const LOG_SCRIPT = path.join(__dirname, '..', 'scripts', 'log-findings.cjs')
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'))
 const clone = (v) => structuredClone(v)
@@ -233,7 +233,12 @@ test('CLI writes merged.json and logs through log-findings.sh with locations', (
   const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
   assert.equal(rows.length, 1)
   assert.equal(rows[0].locations.length, 2)
-  assert.equal(rows[0].engine, '')
+  assert.equal(rows[0].engine, 'claude')
+  assert.deepEqual(rows[0].engines, ['claude'])
+  assert.equal(rows[0].v, 2)
+  assert.equal(rows[0].round, 2)
+  assert.equal(typeof rows[0].run_id, 'string')
+  assert.ok('pattern' in rows[0])
 })
 
 test('CLI --no-log writes merged.json and no history file', (t) => {
@@ -328,8 +333,11 @@ test('merge: pattern on one angle only at the same location+title gives one issu
 test('real superproject manifest: every file is prefixed by one of four sub-repos; merge accepts it with no reports', () => {
   const man = require('./fixtures/submodule-manifest.json')
   const subs = new Set(man.files.map((f) => f.split('/')[0]))
-  assert.deepEqual([...subs].sort(), ['api-contract', 'central', 'core-api', 'frontend'])
+  assert.deepEqual([...subs].sort(), ['sub-a', 'sub-b', 'sub-c', 'sub-d'])
   assert.equal(man.files.length, 194)
+  assert.equal(new Set(man.files).size, 194, 'paths are unique')
+  assert.ok(man.files.every((f) => !/onelegion|\/src\//.test(f)), 'no project paths in the fixture')
+  assert.ok(!/shdennlin|onelegion/.test(JSON.stringify(man)), 'no user or project names in the fixture')
   const m = merge(man, [], '', { expect: ['coverage'] })
   assert.equal(m.complete, false)
   assert.equal(m.files.length, 194)
@@ -349,4 +357,121 @@ test('sweep crosses sub-repos through prefixed +++ headers', () => {
   }
   const m = merge(man, [rep], patch)
   assert.deepEqual(m.issues[0].locations, ['central/a.py:f', 'core-api/b.go'])
+})
+
+test('sweep matches on the trimmed pattern (trailing whitespace in pattern does not disable it)', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const patch = ['diff --git a/a.py b/a.py', '+++ b/a.py', '@@ -0,0 +1 @@', '+x = int(raw)', 'diff --git a/b.py b/b.py', '+++ b/b.py', '@@ -0,0 +1 @@', '+y = int(raw)'].join('\n')
+  const rep = { angle: 'correctness', via: 'report_review', verdict: 'FAIL', files: [{ path: 'a.py', verdict: 'issues', issue_count: 1 }, { path: 'b.py', verdict: 'clean', issue_count: 0 }],
+    issues: [{ severity: 'HIGH', title: 't', location: 'a.py:f', category: 'c', pattern: 'int( ', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] }
+  assert.deepEqual(merge(man, [rep], patch).issues[0].locations, ['a.py:f', 'b.py'])
+})
+
+test('merge: a file-written report whose verdict contradicts its issues is not invalid (the merge recomputes the verdict)', () => {
+  const man = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x' }
+  const rep = { run_dir: '/tmp/x/.claude/reviewer/runs/r1', angle: 'correctness', via: 'file', verdict: 'PASS', files: [{ path: 'a.py', verdict: 'issues', issue_count: 1 }],
+    issues: [{ severity: 'HIGH', title: 't', location: 'a.py:f', category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] }
+  const out = merge(man, [rep], '')
+  assert.deepEqual(out.invalid_reports, [])
+  assert.equal(out.complete, true)
+  assert.equal(out.verdict, 'FAIL')
+})
+
+// --- batch E: construct-head sweep
+const { constructHead } = require('../scripts/merge-findings.cjs')
+const mkPatch = (files) => files.map(([f, line]) => [`diff --git a/${f} b/${f}`, `+++ b/${f}`, '@@ -0,0 +1 @@', `+${line}`].join('\n')).join('\n')
+const mkRep = (files, issue) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: 'correctness', via: 'report_review', verdict: 'FAIL',
+  files: files.map((f, i) => ({ path: f, verdict: i === 0 ? 'issues' : 'clean', issue_count: i === 0 ? 1 : 0 })),
+  issues: [{ severity: 'HIGH', title: 't', location: `${files[0]}:f`, category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r', ...issue }] })
+test('constructHead strips the statement around a call and keeps operator forms; keywords and bare identifiers give null', () => {
+  assert.equal(constructHead('return int(s)'), 'int(')
+  assert.equal(constructHead('x = int(raw)'), 'int(')
+  assert.equal(constructHead('y := strconv.Atoi(v)'), 'Atoi(', 'receiver stripped: the callee names the construct')
+  assert.equal(constructHead('await fetch(url)'), 'fetch(')
+  assert.equal(constructHead('int('), 'int(')
+  assert.equal(constructHead('size - 1'), 'size - 1')
+  assert.equal(constructHead('items[start:start + size - 1]'), 'items[start:start + size - 1]')
+  for (const k of ['self', 'None', 'if', 'return', 'true', 'nil', 'this', 'x', 'ab']) assert.equal(constructHead(k), null, k)
+})
+test('head sweep joins a file whose added lines hold the call head even when the pattern carries different arguments', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const m = merge(man, [mkRep(['a.py', 'b.py'], { pattern: 'return int(s)' })], mkPatch([['a.py', 'return int(s)'], ['b.py', 'y = int(raw)']]))
+  assert.deepEqual(m.issues[0].locations, ['a.py:f', 'b.py'])
+  assert.deepEqual(m.issues[0].swept_by_head, ['b.py'])
+})
+test('head sweep is capped at 5 files and word-bounded on the left', () => {
+  const six = ['a.py', 'b.py', 'c.py', 'd.py', 'e.py', 'f.py', 'g.py']
+  const man = { run_id: 'x', files: six, working_directory: '/tmp/x' }
+  const spray = merge(man, [mkRep(six, { pattern: 'v = get(key)' })], mkPatch(six.map((f) => [f, 'z = get(other)'])))
+  assert.deepEqual(spray.issues[0].locations, ['a.py:f'], 'get( appears in 6 other files: none added')
+  const bound = merge({ run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }, [mkRep(['a.py', 'b.py'], { pattern: 'x = print(a)' })], mkPatch([['a.py', 'x = print(a)'], ['b.py', 'sprint(b)']]))
+  assert.deepEqual(bound.issues[0].locations, ['a.py:f'], 'sprint( does not match print(')
+})
+
+// --- batch E: normalized fold key + same-file containment
+const { normKey } = require('../scripts/merge-findings.cjs')
+test('normKey ignores whitespace, quote style and the statement around a single call', () => {
+  assert.equal(normKey('items[start:start + size - 1]'), normKey('items[start:start+size-1]'))
+  assert.equal(normKey("int('x')"), normKey('int("x")'))
+  assert.equal(normKey('return int(s)'), 'int(')
+  assert.equal(normKey('x = int(raw)'), 'int(')
+  assert.equal(normKey('int(raw) + 1'), 'int(raw)+1')
+  assert.equal(normKey('ab'), null)
+})
+test('same-file issues whose keys contain one another fold; cross-file containment does not', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const issue = (file, pattern, title, angle) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'a.py', verdict: file === 'a.py' ? 'issues' : 'clean', issue_count: file === 'a.py' ? 1 : 0 }, { path: 'b.py', verdict: file === 'b.py' ? 'issues' : 'clean', issue_count: file === 'b.py' ? 1 : 0 }],
+    issues: [{ severity: 'HIGH', title, location: `${file}:f`, category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const same = merge(man, [issue('a.py', 'int(s)', 'unchecked cast', 'correctness'), issue('a.py', 'int(', 'cast may raise', 'robustness')], '')
+  assert.equal(same.issues.length, 1); assert.equal(same.issues[0].folded, 1); assert.match(same.issues[0].rationale || '', /cast may raise|unchecked cast/)
+  const cross = merge(man, [issue('a.py', 'int(', 'unchecked cast', 'correctness'), issue('b.py', 'int(raw) + 1', 'off by one after cast', 'robustness')], '')
+  assert.equal(cross.issues.length, 2, 'different files, one key a substring of the other: not folded')
+})
+
+test('a skipped submodule in the manifest makes the review incomplete with a not_reviewed entry naming it', () => {
+  const man = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x', skipped_submodules: [{ path: 'libZ', reason: 'not checked out' }] }
+  const rep = { run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: 'coverage', via: 'report_review', verdict: 'PASS', files: [{ path: 'a.py', verdict: 'clean', issue_count: 0 }], issues: [] }
+  const m = merge(man, [rep], '')
+  assert.equal(m.complete, false)
+  const entry = m.files.find((f) => f.path.startsWith('libZ/'))
+  assert.ok(entry, 'entry for the skipped submodule'); assert.equal(entry.verdict, 'not_reviewed'); assert.match(entry.path, /submodule not checked out/)
+})
+
+// --- batch E final review fixes
+test('keyword "calls" and == comparisons are not call heads or assignments; receivers are stripped', () => {
+  assert.equal(constructHead('if (user == null)'), null)
+  assert.equal(constructHead('while (ok)'), null)
+  assert.equal(constructHead('line.split(",")'), 'split(')
+  assert.equal(normKey('row.split(",")'), 'split(')
+  assert.notEqual(normKey('if (user == null)'), normKey('if (items.length > 0)'))
+  assert.notEqual(normKey('x == None'), normKey('cache == None'))
+  assert.equal(normKey('x == None'), 'x==None')
+  assert.equal(constructHead('count == len(items)'), 'count == len(items)')
+})
+test('containment folds only on a word boundary: print( does not contain int(', () => {
+  const man = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x' }
+  const rep = (pattern, title, sev, angle) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'a.py', verdict: 'issues', issue_count: 1 }],
+    issues: [{ severity: sev, title, location: 'a.py:f', category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const m = merge(man, [rep('int(raw)', 'unchecked cast', 'HIGH', 'correctness'), rep('print(token)', 'secret printed', 'CRITICAL', 'security')], '')
+  assert.equal(m.issues.length, 2)
+})
+test('a bare call head found in more than 5 patch files never folds across files', () => {
+  const six = ['a.py', 'b.py', 'c.py', 'd.py', 'e.py', 'f.py']
+  const man = { run_id: 'x', files: six, working_directory: '/tmp/x' }
+  const rep = (file, pattern, title) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: title, via: 'report_review', verdict: 'FAIL',
+    files: six.map((p) => ({ path: p, verdict: p === file ? 'issues' : 'clean', issue_count: p === file ? 1 : 0 })),
+    issues: [{ severity: 'HIGH', title, location: `${file}:f`, category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const patch = mkPatch(six.map((f) => [f, 'n = len(x)']))
+  const m = merge(man, [rep('a.py', 'len(items)', 'empty list'), rep('b.py', 'len(buf)', 'buffer overrun')], patch)
+  assert.equal(m.issues.length, 2, 'len( is in 6 files: generic, no cross-file fold')
+  const two = merge({ run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }, [rep('a.py', 'int(s)', 't1'), rep('b.py', 'int(raw)', 't2')], mkPatch([['a.py', 'int(s)'], ['b.py', 'int(raw)']]))
+  assert.equal(two.issues.length, 1, 'int( in 2 files still folds across files')
+})
+test('head sweep matches the callee after a receiver: line.split( in a.py joins row.split( in b.py', () => {
+  const man = { run_id: 'x', files: ['a.py', 'b.py'], working_directory: '/tmp/x' }
+  const m = merge(man, [mkRep(['a.py', 'b.py'], { pattern: 'line.split(",")' })], mkPatch([['a.py', 'cells = line.split(",")'], ['b.py', 'return row.split(",")']]))
+  assert.deepEqual(m.issues[0].locations, ['a.py:f', 'b.py'])
+  assert.deepEqual(m.issues[0].swept_by_head, ['b.py'])
 })

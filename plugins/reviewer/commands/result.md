@@ -40,12 +40,9 @@ From `$ARGUMENTS`, extract:
 3. **base**: value after `--base` or `-b` (if provided)
 4. **fix**: true if `--fix` is present
 5. **fix_all**: true if the token right after `--fix` is exactly `all` (consume it); any other token after `--fix` is not consumed
-6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided
+6. **angles**: value after `--angles` (comma-separated string), or "default" if not provided. Validate it: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/check-angles.cjs" --section result --angles <value>`; on exit 1 print its stderr line and stop; pass the `angles` array it prints to the orchestrator as `angles` (joined with commas)
 7. **max_iterations**: integer value after `-n` or `--max-iterations`, default 3
-8. **engine**: the token after `-c` or `--with-code-review`.
-   - If it is one of `low`, `medium`, `high`, `xhigh`, `max`: `engine = code-review`, `level = <token>`.
-   - Else if it is a bare skill name (matches `^[a-z0-9][a-z0-9:_-]*$`, not a flag): `engine = <token>`, `level = none`.
-   - If it is missing or anything else (including another flag), print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
+8. **engine**: the token after `-c` or `--with-code-review`. Validate it now, before any review runs: `node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-engine.cjs" --token "<token>" --check` (Bash); on exit 1 print its stderr line and stop (a level-required engine without a level, a level no engine accepts, a bad character, `_default`). Keep the raw token for Step 3b; the level words and the engine entries live in `templates/review-engines.yaml`. If the token is missing or looks like a flag, print the line below and stop — do NOT guess and do NOT delegate. `/code-review` silently reuses the last level the user typed when none is given, so an implicit level would make this command depend on the user's previous manual run.
    ```
    -c needs an engine: a /code-review level (low | medium | high | xhigh | max; medium recommended) or a review skill name (e.g. spectra-review)
    ```
@@ -114,7 +111,7 @@ Examples:
   /reviewer:result docs/plan/ --fix --base main --angles coverage -n 5
 
   # Fix every severity without asking
-  /reviewer:result docs/plan/ --fix all --angles security,coverage
+  /reviewer:result docs/plan/ --fix all --angles robustness,coverage
 ```
 
 ### Step 2: Resolve Paths
@@ -172,22 +169,21 @@ When `-c` is set, pass `log_script_path` as `none`; the orchestrator then runs t
 
 The second engine is a spec-blind review whose recipe this plugin does not control. It is invoked ONLY to review; it never fixes or posts. Everything engine-specific is data:
 
-1. Read `${CLAUDE_PLUGIN_ROOT}/templates/review-engines.yaml` and pick the entry under `engines:` whose key equals `engine` (from Step 1). If there is no such key, use the `_default` entry with `skill = engine`. Keep the entry's `skill`, `args`, `never_pass`, `findings_from`, `severity_map` and `notes` for the steps below.
-2. Resolve the placeholders in `args`:
-   - `<level>`: the level from Step 1 (only `code-review` needs one).
-   - `<base>`: the review base. If `--base` was given, that branch; otherwise auto-detect exactly as the agent does (`git rev-parse --verify develop` → `develop`, else `main`). Only when `<base>` appears in the entry's `args`: if HEAD is on that branch itself (no commits beyond it), stop with `-c needs a branch with commits beyond <base>; pass --base`. An engine whose `args` has no `<base>` resolves its own scope and is not subject to this check. Passing the base matters for `/code-review`: with no target it diffs against the upstream or default branch and on a large diff silently narrows to the last few commits (verified 2026-10-13 on Claude Code 2.1.296).
-   - `<change-name>`: the basename of the first spec path of the form `openspec/changes/<name>/`, else the first spec path.
-   - `<spec-paths>`: all spec paths, space-separated.
-   The diff the engine reviews must be the same `<base>...HEAD` the spec review used; if the engine resolves its own scope (spectra-review does, through `spectra scope`), say so in the scope note rather than forcing a base on it.
+1. Resolve the engine with the script (Bash), from the git root:
+   ```bash
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-engine.cjs" --token "<token from Step 1>" --spec "<spec path 1>" "<spec path 2>" … [--base "<branch, only if --base was given>"] --manifest "<run_dir>/manifest.json"
+   ```
+   `<run_dir>` is the `Run dir:` line of the orchestrator's report. On exit 1 print its stderr line and stop (an unknown level, a level on a level-less engine, or a level-required engine without one). It prints `{ engine, level, skill, args, skip_reason, never_pass, findings_from, severity_map, notes, scope, base: { name, given }, change_name }` with every placeholder in `args` already resolved from `templates/review-engines.yaml` and the base the spec review diffed against (`base.name`; `null` when the spec review used the working tree).
+2. If `skip_reason` is not null (`args` is null: HEAD is on the base branch and the engine is base-scoped), print that line verbatim and go to Step 3c with the spec findings alone. If `scope` is `self` (spectra-review resolves its own diff through `spectra scope`), say so in the scope note rather than forcing a base on it; `args` already carries `--base` only when the user passed one.
 3. Invoke it through the Skill tool:
    ```
    Skill tool:
-   - skill: "<entry.skill>"
-   - args: "<entry.args with placeholders resolved>"
+   - skill: "<skill from the resolver>"
+   - args: "<args from the resolver>"
    ```
    Never append any flag listed in `never_pass`, and never add `--fix`, `--comment` or anything that edits files or posts externally, whatever the engine. `--fix` would edit the working tree outside this command's fix loop; `--comment` posts to GitHub.
 4. Capture its findings where `findings_from` says they are. Each should have a file (or artifact) reference, a one-sentence summary, a failure scenario when the engine gives one, and the engine's own label (verdict, severity or confidence). Note what the engine says about its scope (tests excluded, single pass, truncated at N, approximated scope) — carry that into the report as the scope note.
-5. **If the skill is unavailable, denied, or fails** (not installed in this session — e.g. `/code-review` under Codex, `spectra-review` outside a Spectra repo — or the Skill call errors): print one line `<engine> engine skipped: <reason>` and continue with Steps 3c–3d using the spec findings alone, all tagged `engine: claude-result`, so they are still reported and logged. The second verdict line then reads `<engine>: skipped (<reason>)`.
+5. **If the skill is unavailable, denied, or fails** (not installed in this session — e.g. `/code-review` under Codex, `spectra-review` outside a Spectra repo — or the Skill call errors): print one line `<engine> engine skipped: <reason>` and continue with Steps 3c–3d using the spec findings alone, all tagged `engine: claude`, so they are still reported and logged. The second verdict line then reads `<engine>: skipped (<reason>)`.
 6. At the end of the report print each line from the entry's `notes` (side effects the user must know about, e.g. `/code-review` remembering `--max-findings all`).
 
 #### Step 3c: Merge the two engines' findings
@@ -195,9 +191,9 @@ The second engine is a spec-blind review whose recipe this plugin does not contr
 This is LLM judgment; do it here, not in a script. Nothing below depends on which engine ran — only on the entry's `severity_map` and the tag `engine`.
 
 1. **Severity for engine findings.** Map the engine's own label through `severity_map` (case-insensitive); an unlabeled finding or an unlisted label becomes `low`. Raise to `high` or `critical` only when the failure scenario names data loss, a security bypass, or a startup crash on a documented configuration. Never lower.
-2. **Engine tag.** Mark each finding `engine: claude-result` (spec review) or `engine: <engine key>` (e.g. `code-review`, `spectra-review`). Two findings are the SAME issue only when they point at the same file and the same root cause (line numbers may differ); merge those into one entry tagged `engine: both`, keep the worse severity, and keep both descriptions. Expect the intersection to be near zero — the two engines ask different questions, and a finding only one engine saw is still signal.
-3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry tagged `engine: both`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
-4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its engine tag. Replace the Verdict with two lines:
+2. **Engine tag.** Mark each finding `engine: claude` (spec review) or `engine: <engine key>` when the key is `code-review` or `spectra-review`, else `engine: other:<engine key>` (any other skill); and `engines: [<that engine>]`. Two findings are the SAME issue only when they point at the same file and the same root cause (line numbers may differ); merge those into one entry with `engine: claude` and `engines: [claude, <engine key>]` (agreement is the list, never a separate engine value), keep the worse severity, and keep both wordings in the rationale.
+3. **Conflicts are findings.** If the spec review ticked a requirement as implemented and the engine flags that same behaviour as a bug (e.g. an allowlist exemption the spec mandates), do NOT drop either side. Emit one entry with `engine: claude`, `engines: [claude, <engine key>]`, `category: spec-conflict`, severity = the engine's, stating that the spec sanctions the behaviour and the code review calls it unsafe. That entry is the most valuable output of running two engines; it needs a human decision, not a fixer.
+4. **Report.** Reproduce the agent's sections A–C unchanged. Replace section D with the merged list, worst severity first, each entry showing its `engines` list. Replace the Verdict with two lines:
    ```
    Spec review: PASS | FAIL (N critical, N high) | FAIL (review incomplete: <angles>)
    <engine>[ <level>]: N findings (N critical, N high, N medium, N low) — <scope note from Step 3b.4>
@@ -214,10 +210,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/merge-findings.cjs" <run_dir> --change "<cha
 
 (no `--no-log`; the orchestrator's own run used `--no-log`). Repeat its `logged N finding(s)` or `findings not logged: …` line and skip the rest of this step — `merged.json` already holds every finding and location, and re-typing them loses function names and drops locations.
 
-Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`) — and run, from the git root:
+Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `engines`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`), `pattern` (the orchestrator's, else null) — and run, from the git root, with `--run-id` set to the run id from the `Run dir:` line (its last path segment):
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 <<'FINDINGS_JSON'
+node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 --run-id "<run id>" <<'FINDINGS_JSON'
 <the JSON array>
 FINDINGS_JSON
 ```
@@ -271,7 +267,7 @@ Report the agent's findings back to the user.
 /reviewer:result docs/plan/ --fix
 
 # With base branch, custom angles, fix every severity, max 5 rounds
-/reviewer:result docs/plan/ --fix all -b main --angles security,coverage -n 5
+/reviewer:result docs/plan/ --fix all -b main --angles robustness,coverage -n 5
 
 # Spec review + /code-review (medium) as a second engine, one merged report and one log entry
 /reviewer:result openspec/changes/my-change/ --base develop -c medium

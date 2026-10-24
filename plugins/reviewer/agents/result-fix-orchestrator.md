@@ -83,77 +83,9 @@ For each angle, spawn an Agent **in parallel** (include all Agent calls in a sin
 
 ```
 Agent tool:
-  description: "Result review — {angle label}"
-  prompt: |
-    You are a senior engineer reviewing an implementation against a spec.
-
-    ## Your Review Angle: {angle label}
-    {angle focus text}
-
-    ## Spec Summary
-    {spec summary from Step 0}
-
-    ## Instructions
-
-    ### Analyze the Diff
-    The full diff is `{run_dir}/diff.patch` — the single source of the diff; do
-    not run `git diff` yourself. Size class: {size_class}.
-
-    `small`: read the whole file in one call.
-    `large`: read it in slices of 10–15 files, locating each file's section by
-    its `diff --git` header (e.g. `grep -n '^diff --git' {run_dir}/diff.patch`,
-    then `sed -n '<start>,<end>p'`), until every file has been opened.
-    Do NOT skip files as "unrelated to the spec": defects that violate no spec
-    sentence live in exactly those files. Test files are in scope. Generated
-    files (lockfiles, protos, snapshots) may be skimmed but must be opened.
-    When a hunk changes behaviour, open enough surrounding context
-    (`cd {working_directory} && git show HEAD:<path>`) to judge it, including
-    callers in other files. If `manifest.json` lists `submodules`, a path that
-    starts with one of their `path` values plus `/` belongs to that sub-repository: run
-    the git command inside `{working_directory}/<path>` with the rest of the
-    file path (`git -C {working_directory}/central show HEAD:src/x.py`).
-
-    ### Cross-Reference
-    Review the diff ONLY through your assigned angle.
-    For each issue found, record:
-    - **severity**: CRITICAL | HIGH | MEDIUM | LOW
-    - **title**
-    - **location**: `file:function`, where `file` is the path exactly as it
-      appears in the file list below
-    - **category**
-    - **pattern** (optional): For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations.
-    - **expected**: what the spec says
-    - **actual**: what the implementation does
-    - **impact**: what could go wrong
-    - **recommendation**: specific fix
-    Do not search for other occurrences yourself; the merge step does that
-    from `pattern`.
-
-    ### Report
-    Your last action is ONE call to `mcp__plugin_reviewer_review__report_review` with:
-    - `run_dir`: {run_dir}
-    - `angle`: {angle key}
-    - `files`: one entry for EVERY path in the file list below, none omitted —
-      `{path, verdict, issue_count}`, where `verdict` is `clean` (no issues),
-      `skimmed` (generated file, no issues) or `issues`, and `issue_count` equals
-      the number of your issues whose location is in that file
-    - `issues`: the issues above, or `[]`
-    - `coverage`: ONLY if your angle is coverage — one entry per spec
-      requirement `{requirement, status: implemented|missing|partial, location?}`
-    - `verdict`: PASS, or FAIL if any CRITICAL or HIGH issue remains
-
-    Your run is INCOMPLETE until the tool returns a line starting with `wrote`. If it returns an error, fix exactly the violations it lists and call again (max 3 attempts). If the tool is not available, write the identical JSON to `{run_dir}/{angle key}.json` with a Bash heredoc and say `report_review unavailable, wrote file directly`.
-
-    After the tool call, print only three lines:
-    angle: {angle key}
-    verdict: PASS | FAIL
-    issues: N
-
-    ## File List (from the run manifest)
-    {files, one path per line}
-
-    ## Working Directory
-    {working_directory}
+  subagent_type: "reviewer:result-reviewer"
+  description: "Result review — {angle_label}"
+  prompt: <the brief: read `{plugin_root}/templates/result-angle-prompt.md`, replace every `{placeholder}` — {angle_label}, {angle_focus} (the angle's `focus:` text), {angle_key}, {spec_summary} (from Step 0), {run_dir}, {size_class}, {working_directory}, {file_list} (the manifest's files, one path per line) — and pass the result verbatim>
 ```
 
 The orchestrator never parses the sub-agents' summaries; the reports live in `{run_dir}`.
@@ -179,7 +111,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ```
 ## Merged Review Report — Round {N}
-Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces})
+Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces}; base: {manifest base_name, or WORKTREE when empty})
 
 ### A) Intent Summary
 (from spec summary)
@@ -242,6 +174,7 @@ If there are directives to fix, spawn the result-fixer Agent:
 
 ```
 Agent tool:
+  subagent_type: "reviewer:result-fixer"
   description: "Fix implementation issues — round {N}"
   prompt: |
     Apply the following fix directives to the implementation code.

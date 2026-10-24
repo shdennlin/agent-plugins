@@ -188,6 +188,7 @@ If there are directives to fix, spawn the spec-fixer Agent:
 
 ```
 Agent tool:
+  subagent_type: "reviewer:spec-fixer"
   description: "Fix spec issues — round {N}"
   prompt: |
     Apply the following fix directives to the spec documents.
@@ -244,7 +245,7 @@ INCOMPLETE if it ends without either running this command or printing a
 "findings not logged: <reason>" line. If `log_script_path` was provided, persist the
 FINAL round's merged, deduplicated issues. Convert them to a JSON array — one object
 per issue with keys `severity` (upper-case), `title`, `location` (file or artifact
-name), `category` — then run:
+name), `category`, `engine` (always `claude`) — then run:
 
 ```bash
 "<log_script_path>" --change "<the change directory if reviewing one, else the primary spec path, expressed RELATIVE to the git root (never an absolute path) — keep this identifier consistent across runs and review sources for the same change>" --source spec --round <final round number> <<'FINDINGS_JSON'

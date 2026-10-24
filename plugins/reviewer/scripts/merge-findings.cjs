@@ -11,7 +11,7 @@
 // merged.json `complete` is false when any report is invalid or any file is not_reviewed; `verdict`
 // stays the severity verdict, so a caller must check `complete` before treating PASS as a pass.
 // Writes <run_dir>/merged.json, prints it, then (unless --no-log) appends the merged issues to the
-// review history through log-findings.sh. Logging is best-effort: a failure is reported, exit stays 0.
+// review history through log-findings.cjs. Logging is best-effort: a failure is reported, exit stays 0.
 
 const fs = require('fs')
 const path = require('path')
@@ -65,23 +65,83 @@ function unionLocations(lists) {
 // MIN_PATTERN characters are too generic to identify a construct and never fold.
 const MIN_PATTERN = 3
 const foldKey = (p) => (typeof p === 'string' && p.trim().length >= MIN_PATTERN ? p.trim() : null)
+
+// The construct a pattern names, independent of the statement around it: `return int(s)`, `x = int(raw)`
+// and `int(` all have the head `int(`. Operator/expression patterns are kept whole. Bare identifiers and
+// keywords give null (a head sweep on them would spray locations).
+const KEYWORDS = new Set(['self', 'none', 'if', 'for', 'return', 'true', 'false', 'null', 'nil', 'this', 'await', 'else', 'while', 'def', 'func', 'var', 'let', 'const', 'elif', 'switch', 'catch', 'with', 'except', 'unless', 'until', 'foreach'])
+// `x = …` / `x := …` is stripped as an assignment target; `x == …` is a comparison and stays whole
+const ASSIGN = /^[A-Za-z_][\w.]*\s*(:=|=(?!=)|\+=|-=)\s*/
+// the callee of `a.b.c(` is `c(`: the receiver is part of the statement, not the construct; a keyword callee (`if (`) is not a call
+const callee = (name) => { const last = name.split('.').pop(); return KEYWORDS.has(last.toLowerCase()) ? null : `${last}(` }
+function constructHead(pattern) {
+  const key = foldKey(pattern)
+  if (key === null) return null
+  let s = key.replace(/^(return|await|yield)\s+/, '').replace(ASSIGN, '').trim()
+  const call = s.match(/^([A-Za-z_][\w.]*)\s*\(/)
+  if (call) return callee(call[1])
+  if (/^[A-Za-z_]\w*$/.test(s)) return null
+  return s.length >= MIN_PATTERN ? s : null
+}
+const HEAD_CAP = 5   // a head found in more files than this is too generic to join on
+
+// Fold key: the pattern with the statement around it stripped, whitespace removed, quotes unified, and a
+// single call reduced to its head. Two angles describing one construct with different spacing, quoting or
+// arguments fold on this key; null below MIN_PATTERN.
+function normKey(pattern) {
+  const key = foldKey(pattern)
+  if (key === null) return null
+  let s = key.replace(/^(return|await|yield)\s+/, '').replace(ASSIGN, '').trim()
+  const call = s.match(/^([A-Za-z_][\w.]*)\s*\((?:[^()]|\([^()]*\))*\)$/)
+  const head = call ? callee(call[1]) : null
+  if (head !== null) return head
+  s = s.replace(/\s+/g, '').replace(/'/g, '"')
+  return s.length >= MIN_PATTERN ? s : null
+}
 const recLines = (r) => String(r ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
-function foldByPattern(issues) {
+// A bare head (`len(`) that the patch adds in more than HEAD_CAP files names no particular defect:
+// such a key folds within a file only. `opts.genericHead(head)` answers that from the patch.
+const isBareHead = (k) => /^\w+\($/.test(k)
+const SEP = '\u0000'
+const baseKey = (k) => k.split(SEP)[0]
+// `int(` is contained in `int(s)` but not in `print(`: the shorter key must start at a word boundary
+const containsKey = (longK, shortK) => {
+  for (let at = longK.indexOf(shortK); at !== -1; at = longK.indexOf(shortK, at + 1)) if (at === 0 || !/\w/.test(longK[at - 1])) return true
+  return false
+}
+function foldByPattern(issues, opts = {}) {
   const groups = new Map()
   const out = []
   for (const i of issues) {
-    const k = foldKey(i.pattern)
+    let k = normKey(i.pattern)
     if (k === null) {
       out.push({ ...i, folded: 0 })
       continue
     }
+    if (isBareHead(k) && opts.genericHead && opts.genericHead(k)) k = `${k}${SEP}${pathPart(i.location)}`
     if (!groups.has(k)) {
       groups.set(k, [])
       out.push(groups.get(k))
     }
     groups.get(k).push(i)
   }
-  return out.map((g) => {
+  // Same-file containment: a group whose key contains a shorter group's key joins it when the two
+  // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone.
+  const keys = [...groups.keys()].sort((x, y) => baseKey(x).length - baseKey(y).length)
+  for (const longK of keys) {
+    const longG = groups.get(longK)
+    if (!longG || !longG.length) continue
+    for (const shortK of keys) {
+      if (shortK === longK || baseKey(shortK).length >= baseKey(longK).length || !containsKey(baseKey(longK), baseKey(shortK))) continue
+      const shortG = groups.get(shortK)
+      if (!shortG || !shortG.length) continue
+      const shortFiles = new Set(shortG.map((i) => pathPart(i.location)))
+      if (!longG.some((i) => shortFiles.has(pathPart(i.location)))) continue
+      shortG.push(...longG.splice(0, longG.length))
+      break
+    }
+  }
+  return out.filter((g) => !Array.isArray(g) || g.length).map((g) => {
     if (!Array.isArray(g)) return g
     if (g.length === 1) return { ...g[0], folded: 0 }
     const sorted = [...g].sort(byWorst)
@@ -191,7 +251,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       invalid.push({ angle, violations: [r[PARSE_ERROR]] })
       continue
     }
-    const violations = validateReport(r, manifestFiles)
+    const violations = validateReport(r, manifestFiles, { verdictRule: false })
     if (violations.length) invalid.push({ angle, violations })
     if (!r || typeof r !== 'object') continue
 
@@ -243,16 +303,36 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       angles: [...as].sort(),
     }
     // the sweep uses the same threshold as the fold: a 1–2 char pattern would match every file
-    if (foldKey(pattern) !== null) {
+    const key = foldKey(pattern)
+    if (key !== null) {
       const own = pathPart(worst.location)
       for (const [file, lines] of added) {
         if (file === own || issue.locations.includes(file)) continue
-        if (lines.some((l) => l.includes(pattern))) issue.locations.push(file)
+        if (lines.some((l) => l.includes(key))) issue.locations.push(file)
+      }
+      // second pass on the construct head (`int(` for `return int(s)`), word-bounded on the left (a `.` receiver is allowed: `row.split(` holds `split(`) and
+      // capped: a head present in more than HEAD_CAP other files is too generic to be the same defect
+      const head = constructHead(pattern)
+      if (head !== null && head !== key) {
+        const esc = head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const re = new RegExp(`(^|[^\\w])${esc}`)
+        const hits = []
+        for (const [file, lines] of added) {
+          if (file === own || issue.locations.includes(file)) continue
+          if (lines.some((l) => re.test(l))) hits.push(file)
+        }
+        if (hits.length && hits.length <= HEAD_CAP) { issue.locations.push(...hits); issue.swept_by_head = hits }
       }
     }
     return issue
   })
-  const folded = foldByPattern(issues).sort(byWorst)
+  const genericHead = (head) => {
+    const re = new RegExp(`(^|[^\\w])${head.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+    let n = 0
+    for (const [, lines] of added) if (lines.some((l) => re.test(l)) && ++n > HEAD_CAP) return true
+    return false
+  }
+  const folded = foldByPattern(issues, { genericHead }).sort(byWorst)
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)
@@ -266,6 +346,10 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     else if (reported.length && reported.every((f) => f.verdict === 'skimmed')) verdict = 'skimmed'
     return { path: p, verdict, issue_count: issueCount, not_reviewed_by: notReviewedBy }
   })
+  // submodules the setup script could not expand are not reviewed, whatever the angles say
+  for (const sk of arr(manifest && manifest.skipped_submodules)) {
+    if (sk && typeof sk.path === 'string') files.push({ path: `${sk.path}/ (submodule ${sk.reason || 'skipped'})`, verdict: 'not_reviewed', issue_count: 0, not_reviewed_by: ['setup'] })
+  }
 
   const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]))
   for (const i of folded) if (i.severity in counts) counts[i.severity]++
@@ -307,7 +391,7 @@ function loadReports(runDir) {
 }
 
 function parseArgs(argv) {
-  const o = { runDir: null, change: null, round: '1', expect: [], log: true, logScript: path.join(__dirname, 'log-findings.sh') }
+  const o = { runDir: null, change: null, round: '1', expect: [], log: true, logScript: path.join(__dirname, 'log-findings.cjs') }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--change') o.change = argv[++i]
@@ -356,15 +440,20 @@ function main(argv) {
   process.stdout.write(json + '\n')
   if (!o.log) return
 
+  // v2 rows: the merge is always the Claude engine's result review; pattern and run_id travel along
   const rows = merged.issues.map((i) => ({
     severity: i.severity,
     title: i.title,
     location: i.location,
     category: i.category,
-    engine: '',
+    engine: 'claude',
+    engines: ['claude'],
     locations: i.locations,
+    pattern: typeof i.pattern === 'string' && i.pattern.trim() ? i.pattern : null,
   }))
-  const r = spawnSync(o.logScript, ['--change', o.change, '--source', 'result', '--round', String(o.round)], {
+  const isNode = /\.c?js$/.test(o.logScript)
+  const logArgs = ['--change', o.change, '--source', 'result', '--round', String(o.round), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
+  const r = spawnSync(isNode ? process.execPath : o.logScript, isNode ? [o.logScript, ...logArgs] : logArgs, {
     input: JSON.stringify(rows),
     cwd: manifest.working_directory || runDir,
     encoding: 'utf8',
@@ -379,4 +468,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports, foldByPattern }
+module.exports = { merge, loadReports, foldByPattern, constructHead, normKey }

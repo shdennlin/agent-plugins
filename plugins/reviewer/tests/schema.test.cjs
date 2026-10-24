@@ -39,3 +39,42 @@ test('validateReport matches ./-prefixed report paths to manifest paths', () => 
 test('normalizePath matches the pinned table (shared with the setup script)', () => {
   for (const [input, expected] of NORMALIZE_CASES) assert.equal(normalizePath(input), expected, input)
 })
+
+// --- verdict/issue consistency, non-empty strings, run_dir traversal (refactor batch A)
+test('PASS with a CRITICAL or HIGH issue is rejected', () => { const r = good(); r.verdict = 'PASS'; assert.match(validateReport(r, FILES).join('\n'), /verdict: PASS but 1 CRITICAL\/HIGH/) })
+test('FAIL with zero issues is rejected', () => { const r = good(); r.issues = []; r.files[0] = { path: 'src/a.py', verdict: 'clean', issue_count: 0 }; assert.match(validateReport(r, FILES).join('\n'), /verdict: FAIL but no issues/) })
+test('FAIL with only LOW issues is valid', () => { const r = good(); r.issues[0].severity = 'LOW'; assert.deepEqual(validateReport(r, FILES), []) })
+test('PASS with only MEDIUM issues is valid', () => { const r = good(); r.issues[0].severity = 'MEDIUM'; r.verdict = 'PASS'; assert.deepEqual(validateReport(r, FILES), []) })
+test('empty title, location, category or recommendation is rejected', () => {
+  for (const k of ['title', 'location', 'category', 'recommendation']) { const r = good(); r.issues[0][k] = ''; assert.match(validateReport(r, FILES).join('\n'), new RegExp(`issues\\[0\\]\\.${k}: must not be empty`)) }
+})
+test('run_dir with a .. segment is rejected', () => { const r = good(); r.run_dir = '/tmp/x/.claude/reviewer/runs/../../etc'; assert.match(validateReport(r, FILES).join('\n'), /run_dir: must not contain a \.\. segment/) })
+
+// --- history row schema v2 (refactor batch B)
+const { HISTORY_ROW, ENGINES, validateHistoryRow, normalizeChange } = require('../mcp/schema.cjs')
+const goodRow = () => ({ v: 2, ts: '2026-10-24T00:00:00Z', change: 'openspec/changes/x', source: 'result', round: 1, run_id: 'r1',
+  engine: 'claude', engines: ['claude'], severity: 'HIGH', category: 'correctness', title: 't', location: 'a.py:f', locations: ['a.py:f'], pattern: 'int(' })
+test('a complete v2 row validates', () => assert.deepEqual(validateHistoryRow(goodRow()), []))
+test('HISTORY_ROW names the fields and ENGINES is the closed vocabulary', () => {
+  assert.deepEqual([...HISTORY_ROW.required].sort(), ['category', 'change', 'engine', 'engines', 'location', 'locations', 'pattern', 'round', 'run_id', 'severity', 'source', 'title', 'ts', 'v'])
+  assert.deepEqual(ENGINES, ['claude', 'codex', 'code-review', 'spectra-review'])
+})
+test('engine must be in the vocabulary or other:<skill>; empty and legacy names are rejected', () => {
+  for (const bad of ['', 'claude-result', 'both', 'Claude']) { const r = goodRow(); r.engine = bad; assert.match(validateHistoryRow(r).join('\n'), /^engine: /m, `engine ${JSON.stringify(bad)} accepted`) }
+  const r = goodRow(); r.engine = 'other:my-skill'; assert.deepEqual(validateHistoryRow(r), [])
+})
+test('round must be an integer ≥ 1 and engines non-empty', () => {
+  const r = goodRow(); r.round = '1'; assert.match(validateHistoryRow(r).join('\n'), /round: must be integer/)
+  const z = goodRow(); z.round = 0; assert.match(validateHistoryRow(z).join('\n'), /round: must be >= 1/)
+  const e = goodRow(); e.engines = []; assert.match(validateHistoryRow(e).join('\n'), /engines: must have at least 1/)
+})
+test('pattern and run_id may be null; title/category/location must not be empty; no extra fields', () => {
+  const r = goodRow(); r.pattern = null; r.run_id = null; assert.deepEqual(validateHistoryRow(r), [])
+  for (const k of ['title', 'category', 'location']) { const x = goodRow(); x[k] = ''; assert.match(validateHistoryRow(x).join('\n'), new RegExp(`${k}: must not be empty`)) }
+  const extra = goodRow(); extra.outcome = 'fixed'; assert.match(validateHistoryRow(extra).join('\n'), /outcome: unknown property/)
+})
+test('normalizeChange strips ./, trailing slashes and doubled slashes', () => {
+  assert.equal(normalizeChange('./openspec/changes/x/'), 'openspec/changes/x')
+  assert.equal(normalizeChange(' openspec//changes/x '), 'openspec/changes/x')
+  assert.equal(normalizeChange('docs/spec.md'), 'docs/spec.md')
+})

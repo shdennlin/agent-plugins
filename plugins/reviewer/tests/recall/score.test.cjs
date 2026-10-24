@@ -70,3 +70,20 @@ test('issues matching no seed are extra; complete/verdict/counts pass through', 
   assert.equal(r.verdict, 'FAIL')
   assert.equal(r.counts.HIGH, 1)
 })
+
+// --- batch E: severity-match rate
+test('a hit seed at the wrong severity counts toward recall but not toward the exact rate; one level off counts within1', () => {
+  const s = [{ id: 'type-none', kind: 'type', file: 'src/parse.py', function: 'parse_amount', pattern: 'return int(s)', titleHints: ['TypeError'], expectedSeverity: 'HIGH' },
+    { id: 'boundary-slice', kind: 'boundary', file: 'src/paginate.py', function: 'page', pattern: 'x', titleHints: ['off-by-one'], expectedSeverity: 'MEDIUM' }]
+  const r = scoreRun(merged([
+    { title: 'TypeError escapes', severity: 'LOW', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] },
+    { title: 'off-by-one in slice', severity: 'HIGH', location: 'src/paginate.py:page', locations: ['src/paginate.py:page'] },
+  ]), s)
+  assert.deepEqual(r.hits, ['type-none', 'boundary-slice'])
+  assert.deepEqual(r.severity, { exact: 0, within1: 1, n: 2 })
+  const e = scoreRun(merged([{ title: 'TypeError escapes', severity: 'HIGH', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'] }]), [s[0]])
+  assert.deepEqual(e.severity, { exact: 1, within1: 1, n: 1 })
+})
+test('every seed in seeds.json carries an expectedSeverity', () => {
+  for (const seed of require('./seeds.json')) assert.match(seed.expectedSeverity || '', /^(CRITICAL|HIGH|MEDIUM|LOW)$/, seed.id)
+})

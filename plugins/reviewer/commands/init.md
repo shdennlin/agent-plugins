@@ -68,16 +68,14 @@ Examples:
 Read the reviewer rules template from the plugin:
 `${CLAUDE_PLUGIN_ROOT}/templates/reviewer-rules.yaml`
 
-Store the full content — it will be passed to the agent.
+Note its path — the agent receives it as `template_path` and reads it itself (only `--from-history` passes an inline block).
 
 ### Step 2b: From-History Mode (only when --from-history)
 
 When from_history is true, do NOT use the static template. Instead:
 
-1. **Locate history**: first determine the git root via `git rev-parse --show-toplevel`
-   (Bash). Resolve both candidate paths against that root — not the cwd — then read
-   `<git-root>/openspec/reviews/history.jsonl` if it exists, else
-   `<git-root>/.claude/reviewer/history.jsonl`. If neither exists, tell the user
+1. **Locate history**: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs" --paths` (Bash) and read the file at its
+   `history_path` (resolved against the git root, never the cwd). If it does not exist, tell the user
    "No review history found — run /reviewer:spec, /reviewer:result, or /reviewer:spec-dual first"
    and STOP.
 2. **Cluster**: parse the JSONL lines. Group findings that describe the same recurring problem
@@ -94,8 +92,8 @@ When from_history is true, do NOT use the static template. Instead:
    proceed. If the user selects none, skip to step 6 (retirement may still apply); if there
    is also nothing to retire, report "no rules confirmed" and STOP.
 6. **Retire**: the flywheel must prune as well as add — rules are a per-spec compliance tax.
-   Read the current rules target (`openspec/config.yaml` at the git root, else
-   `.claude/reviewer/rules.yaml`) and flag retirement candidates: existing rules whose
+   Read the current rules target (`rules_target` from the same `--paths` call) and flag
+   retirement candidates: existing rules whose
    finding class appears NOWHERE in the history (guarding against a problem this project
    has never had), and rules duplicated or superseded by a newly confirmed candidate.
    Do NOT flag a rule merely because its finding class stopped after injection — silence
@@ -110,8 +108,8 @@ When from_history is true, do NOT use the static template. Instead:
 
 ### Step 2c: Confirm Portable Fallback (before dispatch)
 
-Before delegating: check for `openspec/config.yaml` at the git root. If it does NOT exist,
-tell the user the injection will target the portable fallback `.claude/reviewer/rules.yaml`
+Before delegating: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/read-rules.cjs" --paths` (Bash). If `rules_kind` is
+`portable`, tell the user the injection will target the portable fallback `rules_target`
 (consumed by /reviewer:spec via project_rules, not by OpenSpec generation) and confirm with
 AskUserQuestion before dispatching. If the user declines, stop.
 
@@ -130,10 +128,12 @@ Task tool:
     - dry_run: <true or false>
 
     Working directory: <current directory>
+    - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
+    - template_path: ${CLAUDE_PLUGIN_ROOT}/templates/reviewer-rules.yaml   (omit this line and append the block below only in --from-history mode)
 
-    ## Reviewer Rules Template
+    ## Reviewer Rules Template   (only in --from-history mode)
 
-    <paste full content of reviewer-rules.yaml here>
+    <the confirmed candidate rules as YAML keyed by artifact>
 ```
 
 Report the agent's results back to the user.

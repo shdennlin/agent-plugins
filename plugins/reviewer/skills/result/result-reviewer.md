@@ -57,58 +57,16 @@ Run the setup script (`--base <branch>` when a base branch was given, `--auto-de
 "{plugin_root}/scripts/setup-result-review.sh" --working-dir "$(pwd)" --auto-detect
 ```
 
-It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` — the full diff, always including uncommitted work: for `WORKTREE` the staged and unstaged changes, for `<base>...HEAD` everything from the merge base (`diff_base` in the manifest) to the working tree. Auto-detect compares a feature branch against `develop` (if it exists) or `main`, and uses the working tree on `main` / `develop`. Any non-zero exit (1: usage error or `jq` missing; 2: not a git repository, detached HEAD, empty diff) → print the script's stderr line and stop; on detached HEAD, ask the user to specify `--base`.
+It prints one JSON object. Keep `run_id`, `run_dir`, `diff_strategy`, `files` and `size_class`. `run_dir` holds `manifest.json` and `diff.patch` — the full diff, always including uncommitted work: for `WORKTREE` the staged and unstaged changes, for `<base>...HEAD` everything from the merge base (`diff_base` in the manifest) to the working tree. Auto-detect compares a feature branch against the base the script detects (origin/HEAD, else `develop`, `main`, `master`; `base_name` in its JSON) and uses the working tree on `develop` / `main` / `master`. Any non-zero exit (1: usage error or `jq` missing; 2: not a git repository, detached HEAD, empty diff) → print the script's stderr line and stop; on detached HEAD, ask the user to specify `--base`.
 
-### Step 4: Analyze the Diff
+### Step 4: Review through the angle brief
 
-The full diff is `{run_dir}/diff.patch` — the single source of the diff; do not run `git diff` yourself.
+Read `{plugin_root}/templates/result-angle-prompt.md` (the same brief Claude Code's result-fix-orchestrator sends each angle reviewer). It is your analysis, cross-reference and report methodology. Fill its placeholders yourself from Step 3's setup output: `{angle_label}` = `Single reviewer`, `{angle_focus}` = all three result angles' `focus:` text from `{plugin_root}/templates/review-angles.yaml` joined, `{angle_key}` = `single`, `{spec_summary}` from Step 1, `{run_dir}`, `{size_class}`, `{working_directory}` and `{file_list}` (the manifest's `files`, one per line) from the setup JSON. Then do what the brief says, with three Codex differences: the brief's "your last action is ONE call" and "print only three lines" do not apply here — after writing the report continue to Step 5d (merge and log) and Step 6 (the full report); `coverage` is REQUIRED (you are the only reviewer, so you also carry the coverage angle), and because `report_review` does not exist here, write the identical JSON to `<run_dir>/single.json` with a Bash heredoc and say `report_review unavailable, wrote file directly` (the merge flags it as a direct-write report).
 
-**`small` size class:** read the whole file in one call.
-
-**`large` size class:** read it in slices of 10–15 files, locating each file's section by its `diff --git` header (e.g. `grep -n '^diff --git' {run_dir}/diff.patch`, then `sed -n '<start>,<end>p'`), until every file has been opened.
-- Do NOT skip files as "unrelated to the spec": defects that violate no spec sentence (a value silently overriding a caller, two roots for one config tree, I/O in a constructor) live in exactly those files
-- Test files are in scope — read them, do not triage them by grep
-- Generated files (lockfiles, protos, snapshots) may be skimmed, but open them
-- When a hunk changes behaviour, open enough surrounding context (`git show HEAD:<path>`) to judge it, including callers in other files
-- If `manifest.json` lists `submodules`, a path that starts with one of their `path` values plus `/` belongs to that sub-repository: run the git command inside `<working_directory>/<path>` with the rest of the file path (`git -C <working_directory>/central show HEAD:src/x.py`)
-
-Identify:
-- Which files were modified, added, or deleted
+While reading the diff, also identify, for Section B of the report:
+- Which files were modified, added, or deleted (tag `[NEW]` / `[DELETED]` / `[GENERATED]`)
 - Which functions/classes were changed
 - What behavior was added or altered
-
-### Step 5: Cross-Reference Spec vs Implementation
-
-For each requirement from the spec:
-- Check if it appears in the diff
-- Note whether the implementation matches the spec's intent
-- Flag any divergence
-
-For each issue found, record:
-- **severity**: CRITICAL | HIGH | MEDIUM | LOW
-- **title**
-- **location**: `file:function`, where `file` is the path exactly as it appears in the manifest's `files`
-- **category**
-- **expected**: what the spec says
-- **actual**: what the implementation does
-- **impact**: what could go wrong
-- **recommendation**: specific fix
-
-### Step 5b: Pattern
-
-For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations. Do not search for other occurrences yourself; the merge step does that from `pattern` and records every occurrence under the issue's `locations`.
-
-### Step 5c: Report
-
-Make ONE call to `mcp__plugin_reviewer_review__report_review` with:
-- `run_dir`: {run_dir}
-- `angle`: `single`
-- `files`: one entry for EVERY path in the manifest's `files`, none omitted — `{path, verdict, issue_count}`, where `verdict` is `clean` (no issues), `skimmed` (generated file, no issues) or `issues`, and `issue_count` equals the number of your issues whose location is in that file
-- `issues`: the issues from Steps 5–5b, or `[]`
-- `coverage`: one entry per spec requirement `{requirement, status: implemented|missing|partial, location?}`
-- `verdict`: PASS, or FAIL if any CRITICAL or HIGH issue remains
-
-Your run is INCOMPLETE until the tool returns a line starting with `wrote`. If it returns an error, fix exactly the violations it lists and call again (max 3 attempts). If the tool is not available (Codex has no plugin MCP server), write the identical JSON to `{run_dir}/single.json` with a Bash heredoc and say `report_review unavailable, wrote file directly`.
 
 ### Step 5d: Merge and Log
 
@@ -124,7 +82,7 @@ It writes and prints `{run_dir}/merged.json` (`files`, `issues` worst-first with
 
 ### Step 6: Produce Report
 
-Output the following sections exactly, rendered from `merged.json`, under the heading `## Merged Review Report — Round {N}` followed by one line `Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces})` so the command layer can re-run the merge for logging:
+Output the following sections exactly, rendered from `merged.json`, under the heading `## Merged Review Report — Round {N}` followed by one line `Run dir: {run_dir} (angles: {angle keys, comma-separated, no spaces}; base: {manifest base_name, or WORKTREE when empty})` so the command layer can re-run the merge for logging:
 
 ## A) Intent Summary
 

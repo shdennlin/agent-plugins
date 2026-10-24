@@ -108,10 +108,17 @@ computes the diff once (for a branch strategy, from the merge base to the workin
 uncommitted edits are included) and creates a run directory — `openspec/reviews/runs/<run_id>/` when
 `openspec/` exists, otherwise `.claude/reviewer/runs/<run_id>/`, both git-ignored — holding
 `manifest.json` (diff strategy, every changed path, staged/unstaged split) and `diff.patch`.
+The slash commands are `commands/*.md`; `skills/*/SKILL.md` are Codex pointer stubs (see `.codex/INSTALL.md` for what works there).
+History rows (`history.jsonl`) are schema v2, written only by `scripts/log-findings.cjs`: `engine` is one of `claude`, `codex`, `code-review`, `spectra-review` or `other:<skill>` (never empty), `engines` lists every engine that raised the finding, `round` is an integer, `change` has no trailing slash, and `pattern`, `run_id` and `v: 2` travel with each row. Older rows migrate in place with `scripts/migrate-history.cjs`: run it with `--dry-run` first, read the summary (rows that cannot validate are kept verbatim and listed on stderr), then run it for real; it writes `<file>.v1.bak` before rewriting and refuses to run when that backup exists. Rows that recorded agreement with the retired both tag need `--second-engine <name>` to record which second engine agreed (otherwise `engines` is `[claude]`):
+
+```bash
+node "$PLUGIN/scripts/migrate-history.cjs" openspec/reviews/history.jsonl --dry-run --second-engine spectra-review
+node "$PLUGIN/scripts/migrate-history.cjs" openspec/reviews/history.jsonl --second-engine spectra-review
+```
 In a git superproject the setup script expands each changed, checked-out submodule into its own
 diff (paths prefixed `<sub>/`, recorded under `submodules` with the base commit and how it was
 chosen; uncommitted edits inside a sub count), so a review run from the superproject sees the
-code, not the pointers. Removed or un-checked-out submodules are skipped with a note on stderr.
+code, not the pointers. Un-checked-out submodules are listed in `manifest.skipped_submodules` and make the review `complete: false` (a `not_reviewed` entry names them); a submodule removed in the change has nothing left to review and is only noted in `manifest.notes`. `runs/` keeps the newest 10 run directories (`REVIEWER_KEEP_RUNS` overrides); files in it are never touched.
 Each angle reports through the `report_review` tool of the plugin's stdio MCP server
 (`.mcp.json` → `mcp/server.cjs`), which rejects a report unless every manifest path carries a
 verdict, and writes `<angle>.json`. `scripts/merge-findings.cjs` then deterministically merges
@@ -160,7 +167,7 @@ With `-c <engine>` (long `--with-code-review`):
   via `spectra scope`) says so in the scope note;
 - engine findings get a mapped severity (raised only for data loss / security bypass / startup
   crash), an `engine` tag, and are merged with the spec findings — same file and same root
-  cause collapse to one `engine: both` entry;
+  cause collapse to one entry whose `engines` lists both;
 - a behaviour the spec sanctions and the engine flags is reported as a `spec-conflict`
   entry for a human decision, never dropped;
 - the report shows both verdict lines; the merged list is logged once to `history.jsonl` with
@@ -222,7 +229,7 @@ The spec fix loop:
 /reviewer:result docs/plan/ --fix --base main
 
 # Result: custom angles
-/reviewer:result docs/plan/ --fix --angles security,coverage
+/reviewer:result docs/plan/ --fix --angles robustness,coverage
 ```
 
 #### Spec Flags
@@ -363,3 +370,7 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation via s
 | result-fix-orchestrator | sonnet | Orchestrates iterative result review + fix loops |
 | spec-fixer | sonnet | Applies fixes to spec/design documents |
 | result-fixer | sonnet | Applies fixes to implementation code |
+
+## Changelog
+
+- **1.20.0** — refactor batches A–E: `/reviewer:spec` can run its rules step (Bash) and has an Explore fallback; `check-angles.cjs` rejects unknown angle keys; `report_review` rejects contradictory verdicts, empty strings and `..` in `run_dir`; base auto-detect honours `origin/HEAD` and `master`; run dirs via `mktemp`; the result angle brief lives in `templates/result-angle-prompt.md` and is dispatched to typed `reviewer:result-reviewer` / `result-fixer` / `spec-fixer` agents; `skills/*/SKILL.md` are Codex pointer stubs; the spec-dual workflow is `workflows/spec-dual.workflow.js` (`spec-dual-loop`); history rows are schema v2 through `log-findings.cjs` with one engine vocabulary, `engines[]`, integer rounds, `pattern`, `run_id` and `migrate-history.cjs`; spec-dual logs every round; `read-rules.cjs --paths`, `apply-rules.cjs` and `resolve-engine.cjs` take the mechanical work out of the prompts; the merge sweeps by construct head and folds on a normalized key (recall harness 0.75 → 1.0 on the original seeds, 0.86 over all 7); the harness has 7 seeds and a severity-match rate; fold keys ignore keyword calls, `==` and receivers, and a head found in more than 5 files folds per file only; a removed submodule is a note, not a skip; `runs/` keeps the newest 10; skipped submodules make a review incomplete.

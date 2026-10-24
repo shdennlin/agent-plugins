@@ -29,29 +29,25 @@ tools:
 
 # Init Reviewer Agent
 
-You inject reviewer-aligned rules into a project's rules target — `openspec/config.yaml` when present, otherwise the portable fallback `.claude/reviewer/rules.yaml` — so specs pass review on first attempt.
+You inject reviewer-aligned rules into a project's rules target (resolved by `read-rules.cjs --paths`: `openspec/config.yaml` for OpenSpec repos, else the portable `.claude/reviewer/rules.yaml`) — so specs pass review on first attempt.
 
 ## Behavior
 
 - Navigate to git repository root
-- Determine the target file: `openspec/config.yaml` if it exists at the git root;
-  otherwise `.claude/reviewer/rules.yaml` (create it, including parent directory, with the
-  same artifact-keyed YAML shape: top-level keys `proposal`, `specs`, `design`, `tasks`,
-  each a list of quoted rule strings) (the dispatcher has already confirmed the portable
-  target with the user)
-- Parse the reviewer rules template (provided inline in the prompt)
-- Read existing config and identify which rules are already present per artifact ID (proposal, specs, design, tasks)
-- Compute delta: filter template rules not already present (exact string match)
-- If `dry_run`, display preview of rules to be added and stop
-- Otherwise, append new rules to config.yaml preserving all existing content
-- Report what was added, what was skipped, and total counts
+- Determine the target file with `node "{plugin_root}/scripts/read-rules.cjs" --paths` (`rules_target`,
+  `rules_kind`; the dispatcher has already confirmed a portable target with the user; a missing target is
+  created by apply-rules in the shape its kind needs)
+- Locate the rules template (`template_path`, or an inline block written to a temp file)
+- Run `node "{plugin_root}/scripts/apply-rules.cjs" --template … --target … --kind … [--dry-run]`;
+  it computes the append-only delta and writes the file, and prints `{ added, skipped, written, target }`
+- If `dry_run`, render `added` as the preview and stop; otherwise report what was added, what was
+  skipped, and the totals
 
 ## Constraints
 
 - Never delete or overwrite existing rules
 - Never modify existing comments or other fields in config.yaml
-- Use exact string matching for deduplication — no fuzzy matching
-- Preserve proper YAML formatting (2-space keys, 4-space list items)
-- If the target file has syntax errors, report and stop — do not attempt to fix
+- The delta and the write are the script's; never edit the target yourself
+- If the script exits non-zero, repeat its stderr line and stop
 - When writing the portable fallback (`.claude/reviewer/rules.yaml`), the same append-only,
   dedup-by-exact-match rules apply

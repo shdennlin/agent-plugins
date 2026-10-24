@@ -1,0 +1,12 @@
+{"ts":"2026-09-16T10:00:00Z","change":"openspec/changes/a/","source":"spec","round":"1","severity":"HIGH","title":"scope creep","location":"proposal.md","category":"scope","engine":""}
+{"ts":"2026-10-17T10:00:00Z","change":"openspec/changes/b","source":"result","round":"3","severity":"LOW","title":"missing test","location":"src/x.py:run","category":"coverage","engine":"","locations":["src/x.py:run"]}
+{"ts":"2026-10-16T10:00:00Z","change":"./openspec/changes/b","source":"result","round":"1","severity":"MEDIUM","title":"unchecked cast","location":"src/y.py:parse","category":"correctness","engine":"claude-result","locations":["src/y.py:parse","src/z.py:load"]}
+{"ts":"2026-10-16T11:00:00Z","change":"openspec/changes/b","source":"result","round":"1","severity":"MEDIUM","title":"allowlist bypass","location":"src/e.py","category":"spec-conflict","engine":"both"}
+{"ts":"2026-10-01T10:00:00Z","change":"openspec/changes/c","source":"spec-dual","round":"2","severity":"MEDIUM","title":"undefined term","location":"specs/x/spec.md","category":"consistency","engine":"claude"}
+{"ts":"2026-10-01T10:00:00Z","change":"openspec/changes/c","source":"spec-dual","round":"2","severity":"LOW","title":"task order","location":"tasks.md","category":"tasks","engine":"codex"}
+{"ts":"2026-10-18T10:00:00Z","change":"openspec/changes/b","source":"result","round":"2","severity":"MEDIUM","title":"nil deref","location":"src/w.go:12","category":"correctness","engine":"spectra-review","locations":["src/w.go:12"]}
+{"ts":"2026-10-05T10:00:00Z","change":"openspec/changes/d/","source":"spec","round":"1","severity":"","title":"no severity","location":"design.md","category":"design","engine":""}
+{"ts":"2026-10-05T10:00:00Z","change":"openspec/changes/d","source":"spec","round":"1","severity":"LOW","title":"","location":"design.md","category":"design","engine":""}
+{"v":2,"ts":"2026-10-24T00:00:00Z","change":"openspec/changes/e","source":"result","round":1,"run_id":"r1","engine":"claude","engines":["claude"],"severity":"HIGH","category":"correctness","title":"already v2","location":"a.py:f","locations":["a.py:f"],"pattern":"int("}
+{"ts":"2026-07-09T10:00:00Z","change":"docs/spec.md","source":"spec","round":"3","severity":"HIGH","title":"ambiguous gate","location":"docs/spec.md","category":"spec-ambiguity","engine":""}
+{"ts":"2026-10-19T10:00:00Z","change":"openspec/changes/b","source":"result","round":"4","severity":"LOW","title":"stale comment","location":"src/x.py","category":"docs","engine":"code-review"}

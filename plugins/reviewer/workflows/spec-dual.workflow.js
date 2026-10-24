@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'two-engine-spec-review',
+  name: 'spec-dual-loop',
   description: 'Claude + Codex dual-engine spec review; each round fixes all fresh union blockers in ONE coherent session-model pass, escalating findings it cannot resolve, then clears LOW.',
   phases: [
     { title: 'Review', detail: 'Claude and Codex review the same change in parallel' },
@@ -15,13 +15,13 @@ let A
 if (typeof args === 'string') {
   try { A = args.trim() ? JSON.parse(args) : {} }
   catch {
-    throw new Error('two-engine-spec-review: args arrived as a non-JSON string; expected an object (or JSON-encoded object) with a `change` field')
+    throw new Error('spec-dual: args arrived as a non-JSON string; expected an object (or JSON-encoded object) with a `change` field')
   }
 } else {
   A = args || {}
 }
 if (!A.change) {
-  throw new Error('two-engine-spec-review: args.change (path to the change, relative to git root) is required')
+  throw new Error('spec-dual: args.change (path to the change, relative to git root) is required')
 }
 const CHANGE = A.change
 const MAX_ROUNDS = Number(A.maxRounds) > 0 ? Number(A.maxRounds) : 3
@@ -49,7 +49,7 @@ const GATES = Array.isArray(A.gateCommands)
 // passed as args.angles = [{ key, label, focus }]. Absent/malformed -> legacy single-agent path.
 function normalizeAngles(v) {
   if (v === undefined || v === null) return []
-  if (!Array.isArray(v)) { log('two-engine-spec-review: args.angles ignored (expected an array of {key,label,focus})'); return [] }
+  if (!Array.isArray(v)) { log('spec-dual: args.angles ignored (expected an array of {key,label,focus})'); return [] }
   return v.filter(a => a && typeof a.key === 'string' && a.key.trim())
           .map(a => ({ key: a.key.trim(), label: typeof a.label === 'string' && a.label.trim() ? a.label.trim() : a.key.trim(),
                        focus: typeof a.focus === 'string' ? a.focus.trim() : '' }))
@@ -74,7 +74,7 @@ function normalizeRules(v) {
   const empty = Object.fromEntries(RULE_AREAS.map(a => [a, []]))
   if (v === undefined || v === null) return empty
   if (typeof v !== 'object' || Array.isArray(v)) {
-    log('two-engine-spec-review: args.projectRules ignored (expected an object of string arrays keyed by proposal/specs/design/tasks)')
+    log('spec-dual: args.projectRules ignored (expected an object of string arrays keyed by proposal/specs/design/tasks)')
     return empty
   }
   for (const a of RULE_AREAS) empty[a] = Array.isArray(v[a]) ? v[a].filter(r => typeof r === 'string' && r.trim()).map(r => r.trim()) : []
@@ -312,6 +312,8 @@ async function reviewRound(round) {
   const claudeDown = results.filter(r => !r.ok).map(r => (r.job.keys.length ? `claude:${r.job.label.split(':')[1]}` : 'claude'))
   const claude = ANGLE_LIST.length ? unionClaude(results.filter(r => r.ok), round) : results[0].res
   const x = liveness(codexRaw,  `codex:${round}`)
+  // Codex findings bypass unionClaude's per-angle category default; history rows need a non-empty category
+  x.res = { ...x.res, findings: x.res.findings.map(f => (f.category ? f : { ...f, category: 'cross-cutting' })) }
   // A dead engine (or any dead angle agent) must NOT count as a clean review — the *Ok flags gate `cleared`.
   return { claude, codex: x.res, claudeOk: results.every(r => r.ok), codexOk: x.ok,
            claudeAgents: jobs.map(j => j.label), claudeDown }
@@ -351,6 +353,12 @@ function categorize({ claude, codex }, round) {
 
 const seenBy = (cat, f) =>
   cat.both.includes(f) ? 'both' : (cat.onlyClaude.includes(f) ? 'claude' : 'codex')
+// history row v2 vocabulary: `engine` is one engine, agreement is the `engines` list (never 'both')
+const engineTag = (cat, f) => {
+  const s = seenBy(cat, f)
+  return s === 'both' ? { engine: 'claude', engines: ['claude', 'codex'] } : { engine: s, engines: [s] }
+}
+const historyFinding = (cat, f) => ({ title: f.title, location: f.location, severity: f.severity, category: f.category || '', ...engineTag(cat, f) })
 
 // Build ONE directive covering all of a round's findings. Findings on a spec are
 // highly interrelated (the same license/workspace/path decision shows up across
@@ -552,6 +560,7 @@ while (round <= MAX_ROUNDS + 1) {
       `fresh=${fresh.length} linked=${linked} escalated=${escalated.size}` +
       (down.length ? ` | ⚠️ ENGINE DOWN: ${down.join('+')} — NOT a clean review` : ''))
   history.push({ round, counts: fmtCounts(cat.all), blockers: cat.blockers.length,
+                 findings: cat.all.map(f => historyFinding(cat, f)),
                  // intersection = findings BOTH engines reported (by key). ~0 is normal with independent
                  // engines and means every blocker is single-engine; surfaced so the consumer can weigh it.
                  intersection: cat.both.length, claudeOnly: cat.onlyClaude.length, codexOnly: cat.onlyCodex.length,
@@ -613,7 +622,7 @@ if (!cleared) {
   return { ready: false, enginesClean: false, change: CHANGE, rounds: history.length, fixRounds, reason, needsHuman, history,
             gateRan: GATES.length ? gateRan : null,
             intersection: intersectionSummary(),
-            findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
+            findings: lastAll.map(f => ({ ...f, ...(lastCat ? engineTag(lastCat, f) : { engine: 'claude', engines: ['claude'] }) })) }
 }
 
 // After blockers clear, fix remaining LOW issues (no re-review needed).
@@ -642,4 +651,4 @@ return { ready, enginesClean: true, change: CHANGE, rounds: history.length, fixR
          gateRan: GATES.length ? gateRan : null,
          ...(ready ? {} : { reason: `engines are clean but ${openHuman.length} MEDIUM+ blocker(s) are escalated to the human (see needsHuman)` }),
          intersection: intersectionSummary(),
-         findings: lastAll.map(f => ({ ...f, engine: lastCat ? seenBy(lastCat, f) : '' })) }
+         findings: lastAll.map(f => ({ ...f, ...(lastCat ? engineTag(lastCat, f) : { engine: 'claude', engines: ['claude'] }) })) }
