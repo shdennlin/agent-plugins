@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Seeded recall harness for /reviewer:result. Builds a scratch repo with known bugs, runs the
 // review headlessly N times, scores each run's merged.json against seeds.json and prints recall
-// per run and per seed. A measurement, not a gate: exit 0 unless --min-recall is given.
+// per run and per seed. A measurement, not a gate: exit 0 unless --min-recall is given or
+// verification refuted a seed hit (a false refutation always exits 1).
 //
 //   node plugins/reviewer/tests/recall/run.mjs [--runs 3] [--model sonnet]
 //        [--angles coverage,robustness,correctness] [--plugin-dir <abs>] [--out <dir>]
@@ -17,6 +18,7 @@ const require = createRequire(import.meta.url)
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const { buildFixture, SEEDS } = require('./fixture.cjs')
 const { scoreRun } = require('./score.cjs')
+const { pluginName } = require('./plugin-name.cjs')
 
 // ---- args ---------------------------------------------------------------------------------
 const opts = { runs: 3, model: 'sonnet', angles: 'coverage,robustness,correctness',
@@ -52,17 +54,20 @@ function newestMerged(repo) {
   return dirs.length ? path.join(runs, dirs[dirs.length - 1], 'merged.json') : null
 }
 
+// the pre-verification merge sits beside merged.json as merged.pre-verify.json (or <name>.pre-verify.json)
+const preVerifyPath = (mergedFile) => mergedFile.replace(/\.json$/, '.pre-verify.json')
 function toRun(n, mergedFile, extra = {}) {
   if (!mergedFile) return { run: n, ok: false, error: 'no merged.json', ...extra }
   const { merged, error } = readMerged(mergedFile)
   if (!merged) return { run: n, ok: false, error, ...extra }
-  return { run: n, ok: true, file: mergedFile, ...scoreRun(merged, SEEDS), ...extra }
+  const pre = fs.existsSync(preVerifyPath(mergedFile)) ? readMerged(preVerifyPath(mergedFile)).merged : null
+  return { run: n, ok: true, file: mergedFile, ...scoreRun(merged, SEEDS, { preVerify: pre }), ...extra }
 }
 
 function liveRun(n) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `recall-run${n}-`))
   const { repo } = buildFixture(tmp)
-  const prompt = `/reviewer:result docs/spec.md --base main --angles ${opts.angles}`
+  const prompt = `/${pluginName(opts.pluginDir)}:result docs/spec.md --base main --angles ${opts.angles}`
   const t0 = Date.now()
   const r = spawnSync('claude', ['-p', prompt, '--plugin-dir', opts.pluginDir, '--model', opts.model,
     '--output-format', 'text', '--max-turns', '60'], { cwd: repo, encoding: 'utf8', timeout: 20 * 60 * 1000 })
@@ -71,6 +76,7 @@ function liveRun(n) {
   const mergedFile = newestMerged(repo)
   const kept = mergedFile ? path.join(opts.out, `run-${n}-merged.json`) : null
   if (mergedFile) fs.copyFileSync(mergedFile, kept)
+  if (mergedFile && fs.existsSync(preVerifyPath(mergedFile))) fs.copyFileSync(preVerifyPath(mergedFile), preVerifyPath(kept))
   const spawnError = r.error ? `${r.error.code || ''} ${r.error.message || ''}`.trim() : (r.signal ? `signal ${r.signal}` : null)
   const result = toRun(n, kept, { seconds, claudeExit: r.status, ...(spawnError ? { spawnError } : {}) })
   if (!result.ok && spawnError) result.error = `${result.error} (${spawnError})`
@@ -78,38 +84,8 @@ function liveRun(n) {
   return result
 }
 
-// ---- aggregate ----------------------------------------------------------------------------
-export function summarize(runs, seeds) {
-  const ok = runs.filter(r => r.ok)
-  const perSeed = Object.fromEntries(seeds.map(s => [s.id, { kind: s.kind, hits: 0, partial: 0, matched: 0, outOf: ok.length }]))
-  for (const r of ok) {
-    for (const id of r.hits) perSeed[id].hits++
-    for (const id of r.partial) perSeed[id].partial++
-    for (const [id, n] of Object.entries(r.matched || {})) perSeed[id].matched += n
-  }
-  const recall = r => r.hits.length / seeds.length
-  const mean = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
-  return {
-    seeds: seeds.length, runs, okRuns: ok.length,
-    meanRecall: mean(ok.map(recall)), meanExtra: mean(ok.map(r => r.extra)), perSeed,
-    severity: ok.reduce((acc, r) => ({ exact: acc.exact + (r.severity?.exact || 0), within1: acc.within1 + (r.severity?.within1 || 0), n: acc.n + (r.severity?.n || 0) }), { exact: 0, within1: 0, n: 0 }),
-  }
-}
-
-function table(summary) {
-  const lines = ['run | ok | recall | hits | partial | extra | complete | verdict | seconds']
-  for (const r of summary.runs) {
-    lines.push(r.ok
-      ? `${r.run} | yes | ${(r.hits.length / summary.seeds).toFixed(2)} | ${r.hits.join(',') || '-'} | ${r.partial.join(',') || '-'} | ${r.extra} | ${r.complete} | ${r.verdict}${r.seconds ? ` | ${r.seconds}s` : ''}`
-      : `${r.run} | NO | - | - | - | - | - | ${r.error}`)
-  }
-  lines.push('', 'seed | kind | hits/outOf | partial | issues per hit')
-  for (const [id, s] of Object.entries(summary.perSeed)) lines.push(`${id} | ${s.kind} | ${s.hits}/${s.outOf} | ${s.partial} | ${s.hits ? (s.matched / s.hits).toFixed(1) : '-'}`)
-  lines.push('', `mean recall ${summary.meanRecall === null ? '-' : summary.meanRecall.toFixed(2)} over ${summary.okRuns} ok run(s); mean extra ${summary.meanExtra === null ? '-' : summary.meanExtra.toFixed(1)}`)
-  const sv = summary.severity || { exact: 0, within1: 0, n: 0 }
-  lines.push(`severity match over ${sv.n} hit seed(s): exact ${sv.n ? (sv.exact / sv.n).toFixed(2) : '-'}, within one level ${sv.n ? (sv.within1 / sv.n).toFixed(2) : '-'}`)
-  return lines.join('\n')
-}
+// ---- aggregate: shared with tests/spec-recall (report.cjs) ----
+const { summarize, table, gate } = require('./report.cjs')
 
 // ---- main ---------------------------------------------------------------------------------
 const runs = opts.dryRun.length
@@ -119,7 +95,5 @@ const summary = summarize(runs, SEEDS)
 fs.writeFileSync(path.join(opts.out, 'summary.json'), JSON.stringify(summary, null, 2))
 console.log(table(summary))
 console.log(`\nsummary: ${path.join(opts.out, 'summary.json')}`)
-if (opts.minRecall !== null && (summary.meanRecall === null || summary.meanRecall < opts.minRecall)) {
-  console.error(`recall: mean recall below --min-recall ${opts.minRecall}`)
-  process.exit(1)
-}
+const why = gate(summary, runs, opts.minRecall)
+if (why) { console.error(`recall: ${why}`); process.exit(1) }

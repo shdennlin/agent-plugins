@@ -1,0 +1,65 @@
+// node --test plugins/reviewer/tests/settle-findings.test.cjs
+'use strict'
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { spawnSync, execSync } = require('child_process')
+const { validateHistoryRow } = require('../mcp/schema.cjs')
+const SCRIPT = path.join(__dirname, '..', 'scripts', 'settle-findings.cjs')
+
+const row = (title, outcome, extra = {}) => ({ v: 3, ts: '2026-10-24T00:00:00Z', change: 'openspec/changes/x', source: 'spec', round: 1, run_id: 'r1',
+  engine: 'claude', engines: ['claude'], severity: 'MEDIUM', category: 'design', title, location: 'design.md §3', locations: [{ path: 'design.md', section: '3' }], pattern: null, outcome, ...extra })
+function repo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'settle-'))
+  execSync('git init -q', { cwd: dir })
+  fs.mkdirSync(path.join(dir, '.claude', 'reviewer'), { recursive: true })
+  const history = path.join(dir, '.claude', 'reviewer', 'history.jsonl')
+  const rows = [row('No rollback owner named', 'escalated'), row('Rollback owner undefined in tasks', 'escalated', { run_id: 'r1' }), row('Stale path drift', 'fixed'), row('Other change row', 'escalated', { change: 'openspec/changes/y', run_id: 'r2' })]
+  fs.writeFileSync(history, rows.map((r) => JSON.stringify(r)).join('\n') + '\n')
+  return { dir, history }
+}
+const run = (args, cwd) => spawnSync('node', [SCRIPT, ...args], { cwd, encoding: 'utf8' })
+const rows = (p) => fs.readFileSync(p, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+
+test('--list prints the matching rows for a run id or a change', () => {
+  const { dir } = repo()
+  const r = run(['--run-id', 'r1', '--list'], dir)
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.stdout.trim().split('\n').length, 3)
+  assert.match(r.stdout, /1\. escalated MEDIUM No rollback owner named \(design\.md §3\)/)
+  const c = run(['--change', './openspec/changes/y/', '--list'], dir)
+  assert.equal(c.stdout.trim().split('\n').length, 1); assert.match(c.stdout, /Other change row/)
+})
+test('--set rewrites only matching escalated/open rows in place; already-settled rows are left and counted; other rows are byte-identical', () => {
+  const { dir, history } = repo()
+  const before = rows(history)
+  const r = run(['--run-id', 'r1', '--title', 'Stale path', '--set', 'dismissed'], dir)
+  assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /settled 0 row\(s\) → dismissed \(left 1\)/)
+  const r2 = run(['--run-id', 'r1', '--title', 'No rollback owner named', '--set', 'fixed'], dir)
+  assert.equal(r2.status, 0, r2.stderr); assert.match(r2.stdout, /settled 1 row\(s\) → fixed \(left 0\)/)
+  const after = rows(history)
+  assert.equal(after[0].outcome, 'fixed'); assert.deepEqual({ ...after[0], outcome: 'escalated' }, before[0], 'nothing but outcome changed')
+  for (const i of [1, 2, 3]) assert.deepEqual(after[i], before[i])
+  for (const x of after) assert.deepEqual(validateHistoryRow(x), [])
+})
+test('--set over several rows (with or without --title) is refused unless --all-matching; --dry-run writes nothing; a bad outcome is refused', () => {
+  const { dir, history } = repo()
+  const bytes = fs.readFileSync(history)
+  const whole = run(['--change', 'openspec/changes/x', '--set', 'dismissed'], dir)
+  assert.equal(whole.status, 1, 'a change-wide --set without --all-matching is refused'); assert.match(whole.stderr, /3 rows match/i)
+  assert.ok(bytes.equals(fs.readFileSync(history)))
+  const r = run(['--run-id', 'r1', '--title', 'rollback', '--set', 'residual'], dir)
+  assert.equal(r.status, 1); assert.match(r.stderr, /2 rows match/i); assert.match(r.stderr, /No rollback owner named/)
+  assert.ok(bytes.equals(fs.readFileSync(history)))
+  const d = run(['--run-id', 'r1', '--title', 'rollback', '--set', 'residual', '--all-matching', '--dry-run'], dir)
+  assert.equal(d.status, 0, d.stderr); assert.match(d.stdout, /settled 2 row\(s\) → residual \(left 0\) \[dry-run/)
+  assert.ok(bytes.equals(fs.readFileSync(history)))
+  const a = run(['--run-id', 'r1', '--title', 'rollback', '--set', 'residual', '--all-matching'], dir)
+  assert.equal(a.status, 0, a.stderr); assert.equal(rows(history).filter((x) => x.outcome === 'residual').length, 2)
+  const bad = run(['--run-id', 'r1', '--set', 'done'], dir)
+  assert.equal(bad.status, 1); assert.match(bad.stderr, /--set/)
+  const none = run(['--list'], dir)
+  assert.equal(none.status, 1); assert.match(none.stderr, /--run-id or --change/)
+})

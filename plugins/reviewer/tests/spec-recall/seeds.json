@@ -1,0 +1,56 @@
+[
+  {
+    "id": "scope-no-nongoals",
+    "kind": "scope",
+    "file": "proposal.md",
+    "section": "What changes",
+    "phrase": "## What changes",
+    "titleHints": ["non-goals", "non goals", "out of scope", "not in scope"],
+    "expectedSeverity": "MEDIUM"
+  },
+  {
+    "id": "design-no-alternatives",
+    "kind": "design",
+    "file": "design.md",
+    "section": "Storage",
+    "phrase": "SQLite, one file per import",
+    "titleHints": ["alternative", "rejected", "trade-?off", "why (not|SQLite)"],
+    "expectedSeverity": "MEDIUM"
+  },
+  {
+    "id": "consistency-contradiction",
+    "kind": "consistency",
+    "file": "specs/export/spec.md",
+    "section": "Requirement: Exports are JSON and CSV",
+    "phrase": "JSON and CSV",
+    "titleHints": ["contradict", "CSV only", "inconsisten", "disagree", "conflict"],
+    "expectedSeverity": "HIGH"
+  },
+  {
+    "id": "completeness-no-scenario",
+    "kind": "completeness",
+    "file": "specs/limits/spec.md",
+    "section": "Requirement: Imports are rate limited",
+    "phrase": "## Requirement: Imports are rate limited",
+    "titleHints": ["scenario", "no (acceptance|test|example)", "untestable", "WHEN", "unverifiable"],
+    "expectedSeverity": "MEDIUM"
+  },
+  {
+    "id": "tasks-no-done",
+    "kind": "tasks",
+    "file": "tasks.md",
+    "line": 4,
+    "phrase": "- [ ] 3. Add tests",
+    "titleHints": ["done criteri", "verif", "vague", "which tests", "acceptance"],
+    "expectedSeverity": "LOW"
+  },
+  {
+    "id": "design-undefined-term",
+    "kind": "design",
+    "file": "design.md",
+    "section": "Error handling",
+    "phrase": "the budget",
+    "titleHints": ["budget", "undefined (term|concept)", "never defined", "not defined"],
+    "expectedSeverity": "MEDIUM"
+  }
+]

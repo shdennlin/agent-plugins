@@ -132,7 +132,26 @@ PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
 
 `complete` is false when any report is invalid or any file is `not_reviewed`. Then the verdict line is `FAIL (review incomplete: <angles>)`, whatever `verdict` says, where `<angles>` are the `invalid_reports` angles and every `not_reviewed_by` angle, deduplicated; the counts follow on the same line. The review-process issues from step 2 stay report-only: they are never fixer directives.
 
-Output the merged report. Fixer directives (Step 6) come from these issues: `location` → file | function, `expected` → context, `actual` → missing, `recommendation` → action; when `rationale` is present append `also reported as: <rationale lines>` to the context, and when `locations` has more than one entry list every location in the directive so the fixer edits every site.
+Do not output the report yet: verify first (Step 3b), then output it from the verified `merged.json`. Fixer directives (Step 6) come from the verified issues: `location` → file | function, `expected` → context, `actual` → missing, `recommendation` → action; when `rationale` is present append `also reported as: <rationale lines>` to the context, and when `locations` has more than one entry list every location in the directive so the fixer edits every site. Refuted issues are never directives.
+
+### Step 3b: Verify
+
+Verification runs on every round that has issues; skip it only when `merged.issues` is empty. Split `merged.issues` into batches of at most 8 in id order (`F1`–`F8`, `F9`–`F16`, …; batch names `b1`, `b2`, …) and spawn one Agent per batch **in parallel**:
+
+```
+Agent tool:
+  subagent_type: "reviewer:verifier"
+  description: "Verify findings — batch {b}"
+  prompt: <the brief: read `{plugin_root}/templates/verify-prompt.md`, replace every `{placeholder}` — {run_dir}, {batch}, {working_directory}, {mode} (`result`), {issues_json} (the batch's issues from `merged.json`, each with id, severity, title, location, locations, pattern, expected, actual) — and pass the result verbatim>
+```
+
+When every verifier has returned, apply the verdicts:
+
+```bash
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --apply-verify --expect {angle keys}
+```
+
+It rewrites `merged.json` (the pre-verification copy stays as `merged.pre-verify.json`): refuted issues move to `refuted[]` with the verifier's evidence, unverified ones drop one severity level and carry `verified: "unverified"`, the rest are `confirmed` or `not_checked` (a verifier that did not return), and `counts`, `verdict` and `verification` are recomputed; `complete` never changes (a missing angle stays missing). If `verification.invalid_files` is non-empty, name those files in the report: their verdicts were ignored. Read the verified `merged.json`; everything after this step (the report, triage, directives, logging) uses it. Section D gets a last block, **Refuted by verification**, listing each `refuted[]` entry with its evidence, and the report's Run dir line gains `verified: N confirmed / N refuted / N unverified / N not checked`.
 
 ### Step 4: Check Verdict
 
@@ -239,7 +258,7 @@ step below — run its merge command BEFORE printing the Final Summary. Then out
 Every round is logged (the defects found and fixed in round 1 are the ones most worth turning into
 rules). After the loop ends, for each round n = 1..N in order, re-run the Step 3 merge on that
 round's `run_dir` with the same `--change` and `--expect`, `--round n`, and without `--no-log`
-(append `--log-script "{log_script_path}"`, and `--outcomes "{run_dir of round n}/outcomes.json"`
+(append `--apply-verify` so the round's verdicts are re-applied and refuted rows log as `dismissed`, `--log-script "{log_script_path}"`, and `--outcomes "{run_dir of round n}/outcomes.json"`
 when that round ran the fixer, so applied directives log as `fixed`, declined escalations as
 `escalated`, the rest as `open`). Re-running is safe: `merged.json` comes out the same. If
 `log_script_path` is absent or `none`, do not re-run; the log line is `findings not logged: logging disabled`.

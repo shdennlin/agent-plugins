@@ -50,3 +50,36 @@ test('--dry-run with no paths exits 1 and never falls through to live runs', () 
   assert.match(r.stderr, /--dry-run needs at least one merged.json/)
   assert.ok(!fs.existsSync(path.join(out, 'run-1.txt')), 'no live run started')
 })
+
+// --- batch G: verification effect in dry-run (a sibling <name>.pre-verify.json is the pre-verification merge)
+test('dry-run reads <merged>.pre-verify.json beside each merged.json, reports extra before → after, refuted and false refutations, and exits 1 on a false refutation', () => {
+  const out = mkTmp()
+  const hit = { id: 'F1', title: 'None -> TypeError', location: 'src/parse.py:parse_amount', locations: ['src/parse.py:parse_amount'], severity: 'HIGH' }
+  const noise = { id: 'F2', title: 'style nit', location: 'src/report.py:build', locations: ['src/report.py:build'], severity: 'LOW' }
+  write(out, 'clean.pre-verify.json', { issues: [hit, noise], complete: true, verdict: 'FAIL' })
+  const clean = write(out, 'clean.json', { issues: [hit], refuted: [{ ...noise, verified: 'refuted' }], verification: { checked: 2, confirmed: 1, refuted: 1, unverified: 0, not_checked: 0 }, complete: true, verdict: 'FAIL', counts: { CRITICAL: 0, HIGH: 1, MEDIUM: 0, LOW: 0 } })
+  const r = spawnSync(process.execPath, [RUN, '--dry-run', clean, '--out', out], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const s = JSON.parse(fs.readFileSync(path.join(out, 'summary.json'), 'utf8'))
+  assert.equal(s.runs[0].refuted, 1); assert.deepEqual(s.runs[0].false_refutation, []); assert.equal(s.runs[0].before.extra, 1); assert.equal(s.runs[0].extra, 0)
+  assert.equal(s.falseRefutation, 0); assert.equal(s.meanExtraBefore, 1)
+  assert.match(r.stdout, /extra 1 → 0|1 → 0/)
+  assert.match(r.stdout, /false refutation/i)
+  const out2 = mkTmp()
+  write(out2, 'bad.pre-verify.json', { issues: [hit], complete: true, verdict: 'FAIL' })
+  const bad = write(out2, 'bad.json', { issues: [], refuted: [{ ...hit, verified: 'refuted' }], verification: { checked: 1, confirmed: 0, refuted: 1, unverified: 0, not_checked: 0 }, complete: true, verdict: 'PASS', counts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 } })
+  const r2 = spawnSync(process.execPath, [RUN, '--dry-run', bad, '--out', out2], { encoding: 'utf8' })
+  assert.equal(r2.status, 1, 'a false refutation fails the run')
+  assert.match(r2.stdout + r2.stderr, /type-none/)
+  const s2 = JSON.parse(fs.readFileSync(path.join(out2, 'summary.json'), 'utf8'))
+  assert.deepEqual(s2.runs[0].false_refutation, ['type-none']); assert.equal(s2.falseRefutation, 1)
+})
+
+// --- batch G: the command prefix follows the plugin dir's name, so a renamed copy (reviewer-dev) is what gets run
+test('pluginName reads the plugin name from <pluginDir>/.claude-plugin/plugin.json and falls back to reviewer', () => {
+  const { pluginName } = require('./plugin-name.cjs')
+  const d = mkTmp(); fs.mkdirSync(path.join(d, '.claude-plugin')); fs.writeFileSync(path.join(d, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'reviewer-dev' }))
+  assert.equal(pluginName(d), 'reviewer-dev')
+  assert.equal(pluginName(mkTmp()), 'reviewer')
+  assert.match(fs.readFileSync(RUN, 'utf8'), /pluginName\(opts\.pluginDir\)/, 'run.mjs builds its prompt from the plugin name')
+})

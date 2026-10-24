@@ -40,7 +40,7 @@ For each issue found, record:
 - **location**: `file:function`, where `file` is the path exactly as it
   appears in the file list below
 - **category**
-- **pattern** (optional): For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations.
+- **pattern** (optional): For every issue, set `pattern` to the smallest literal substring that identifies the construct, typically the call, operator or expression at fault (e.g. `int(`, `size - 1`, `.strip()`), never the whole line, and no regex; the merge step treats every issue with the same `pattern` as the same defect and joins their locations. When the issue is a violation of a project rule, `pattern` is that rule's first eight words, verbatim, so every angle that reports the same rule folds into one issue.
 - **expected**: what the spec says
 - **actual**: what the implementation does
 - **impact**: what could go wrong

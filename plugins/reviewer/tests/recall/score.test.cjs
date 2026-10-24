@@ -87,3 +87,24 @@ test('a hit seed at the wrong severity counts toward recall but not toward the e
 test('every seed in seeds.json carries an expectedSeverity', () => {
   for (const seed of require('./seeds.json')) assert.match(seed.expectedSeverity || '', /^(CRITICAL|HIGH|MEDIUM|LOW)$/, seed.id)
 })
+
+// --- batch G: verification effect
+const SEEDS_G = [
+  { id: 'type-none', kind: 'type', file: 'src/parse.py', function: 'parse_amount', pattern: 'int(', titleHints: ['TypeError'], expectedSeverity: 'HIGH' },
+  { id: 'boundary-slice', kind: 'boundary', file: 'src/paginate.py', function: 'page', pattern: 'size - 1', titleHints: ['off-by-one'], expectedSeverity: 'MEDIUM' },
+]
+const iss = (id, loc, title, sev = 'HIGH') => ({ id, severity: sev, title, location: loc, locations: [loc], category: 'c' })
+test('a seed hit in the pre-verify merge that verification removed is a false refutation; an extra that verification removed lowers extra', () => {
+  const pre = { issues: [iss('F1', 'src/parse.py:parse_amount', 'TypeError on None'), iss('F2', 'src/paginate.py:page', 'off-by-one in slice'), iss('F3', 'src/report.py:build', 'style nit', 'LOW')], complete: true, verdict: 'FAIL' }
+  const post = { issues: [iss('F2', 'src/paginate.py:page', 'off-by-one in slice')], refuted: [{ ...pre.issues[0], verified: 'refuted' }, { ...pre.issues[2], verified: 'refuted' }], complete: true, verdict: 'FAIL', verification: { checked: 3, confirmed: 1, refuted: 2, unverified: 0, not_checked: 0 } }
+  const s = scoreRun(post, SEEDS_G, { preVerify: pre })
+  assert.deepEqual(s.hits, ['boundary-slice'])
+  assert.deepEqual(s.before, { hits: ['type-none', 'boundary-slice'], extra: 1 })
+  assert.equal(s.extra, 0)
+  assert.equal(s.refuted, 2)
+  assert.deepEqual(s.false_refutation, ['type-none'])
+})
+test('without a pre-verify merge the verification fields are null and nothing else changes', () => {
+  const s = scoreRun({ issues: [iss('F1', 'src/parse.py:parse_amount', 'TypeError on None')] }, SEEDS_G)
+  assert.deepEqual(s.hits, ['type-none']); assert.equal(s.before, null); assert.equal(s.refuted, 0); assert.deepEqual(s.false_refutation, [])
+})

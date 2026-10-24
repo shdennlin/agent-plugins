@@ -32,7 +32,7 @@ function handle(args) {
   }
 
   // angle becomes a filename: restrict it to a plain slug and protect orchestrator-owned files.
-  const RESERVED = ['manifest', 'merged', 'outcomes']
+  const RESERVED = ['manifest', 'merged', 'outcomes', 'verify']
   if (!/^[a-z][a-z0-9_-]*$/i.test(args.angle) || RESERVED.includes(args.angle.toLowerCase())) {
     return fail(`report_review rejected: angle must match [a-z][a-z0-9_-]* and must not be one of ${RESERVED.join(', ')}`)
   }

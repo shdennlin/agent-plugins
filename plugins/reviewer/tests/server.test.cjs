@@ -145,3 +145,26 @@ test('report_review refuses the orchestrator-owned names merged and outcomes as 
     assert.equal(res.isError, true, angle); assert.match(res.content[0].text, /angle/)
   }
 })
+
+// --- batch G: verify_review tool
+const { handleVerifyReview } = require('../mcp/verify-review.cjs')
+test('tools/list exposes verify_review next to report_review', () => {
+  const res = dispatch({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+  assert.deepEqual(res.result.tools.map((t) => t.name).sort(), ['report_review', 'verify_review'])
+})
+test('verify_review validates against merged.json ids and writes verify/<batch>.json', () => {
+  const run = mkRun()
+  fs.writeFileSync(path.join(run, 'merged.json'), JSON.stringify({ issues: [{ id: 'F1' }, { id: 'F2' }] }))
+  const res = handleVerifyReview({ run_dir: run, batch: 'b1', verdicts: [{ id: 'F1', status: 'refuted', evidence: 'guarded' }] })
+  assert.notEqual(res.isError, true, JSON.stringify(res))
+  const w = JSON.parse(fs.readFileSync(path.join(run, 'verify', 'b1.json'), 'utf8'))
+  assert.equal(w.via, 'verify_review'); assert.ok(w.reported_at); assert.equal(w.verdicts[0].id, 'F1')
+  const bad = handleVerifyReview({ run_dir: run, batch: 'b2', verdicts: [{ id: 'F7', status: 'refuted', evidence: 'x' }] })
+  assert.equal(bad.isError, true); assert.match(bad.content[0].text, /F7 not in merged\.json/)
+  const noMerged = handleVerifyReview({ run_dir: mkRun(), batch: 'b1', verdicts: [] })
+  assert.equal(noMerged.isError, true); assert.match(noMerged.content[0].text, /merged\.json/)
+})
+test('report_review refuses verify as an angle name', () => {
+  const res = handleReportReview({ ...validReport(mkRun()), angle: 'verify' })
+  assert.equal(res.isError, true); assert.match(res.content[0].text, /angle/)
+})

@@ -253,4 +253,38 @@ function validateHistoryRow(row) {
   return out
 }
 
-module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath, HISTORY_ROW, HISTORY_LOCATION, OUTCOMES, ENGINES, validateHistoryRow, normalizeChange }
+// --- verify_review: one verifier agent's verdicts on a batch of merged issues (by merged.json id)
+const VERIFY_STATUSES = ['confirmed', 'refuted', 'unverified']
+const VERIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    run_dir: str,
+    batch: nonEmpty,
+    verdicts: { type: 'array', items: {
+      type: 'object',
+      properties: { id: nonEmpty, status: { type: 'string', enum: VERIFY_STATUSES }, evidence: nonEmpty },
+      required: ['id', 'status', 'evidence'],
+      additionalProperties: false,
+    } },
+    via: str,
+    reported_at: str,
+  },
+  required: ['run_dir', 'batch', 'verdicts'],
+  additionalProperties: false,
+}
+// mergedIds: the ids merged.json currently holds; a verdict for any other id is a violation.
+function validateVerify(report, mergedIds) {
+  const out = []
+  if (!typeOk('object', report)) return [': report must be an object']
+  checkShape(report, VERIFY_SCHEMA, '', out)
+  if (typeof report.run_dir === 'string' && !(report.run_dir.startsWith('/') && RUNS_SEGMENT.test(report.run_dir + '/'))) {
+    out.push('run_dir: must be an absolute path inside a /reviews/runs/ or /reviewer/runs/ directory')
+  }
+  if (typeof report.batch === 'string' && !/^[a-z0-9_-]+$/.test(report.batch)) out.push('batch: must match [a-z0-9_-]+ (it becomes verify/<batch>.json)')
+  if (out.length) return out
+  const known = new Set(mergedIds)
+  report.verdicts.forEach((v, i) => { if (!known.has(v.id)) out.push(`verdicts[${i}].id: ${v.id} not in merged.json`) })
+  return out
+}
+
+module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath, HISTORY_ROW, HISTORY_LOCATION, OUTCOMES, ENGINES, validateHistoryRow, normalizeChange, VERIFY_SCHEMA, VERIFY_STATUSES, validateVerify }
