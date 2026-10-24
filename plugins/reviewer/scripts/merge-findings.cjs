@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict'
 // Deterministic merge of per-angle review reports in a result-review run directory.
-//   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>]
+//   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>] [--outcomes <file>]
+//   node merge-findings.cjs --parse-fixer   (stdin: a fixer report; stdout: {applied[], skipped[], mismatch})
 //                           [--expect <angle1,angle2,...>]
 // --expect names the angles that must have reported; one with no <angle>.json is recorded as an
 // invalid report ("no report written") and marks every file not_reviewed.
@@ -29,24 +30,30 @@ const sevRank = (s) => {
   return i === -1 ? SEVERITIES.length : i
 }
 const arr = (v) => (Array.isArray(v) ? v : [])
-const pathPart = (location) => {
-  const s = String(location ?? '')
+// A location is `<path>`, `<path>:<detail>` or (spec runs) `<path> §<section>`; the path part is normalized.
+const locPath = (location) => {
+  let s = String(location ?? '')
+  const j = s.indexOf(' §')
+  if (j !== -1) s = s.slice(0, j)
   const i = s.indexOf(':')
-  return normalizePath(i === -1 ? s : s.slice(0, i))
+  return i === -1 ? s : s.slice(0, i)
 }
+const pathPart = (location) => normalizePath(locPath(location))
 const normTitle = (t) => String(t ?? '').trim().toLowerCase()
 const dedupKey = (location, title) => {
   const s = String(location ?? '')
-  const i = s.indexOf(':')
-  const loc = i === -1 ? normalizePath(s) : normalizePath(s.slice(0, i)) + s.slice(i)
-  return JSON.stringify([loc, normTitle(title)])
+  const p = locPath(s)
+  return JSON.stringify([normalizePath(p) + s.slice(p.length), normTitle(title)])
 }
 const cmpStr = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 const byWorst = (a, b) => sevRank(a.severity) - sevRank(b.severity) || cmpStr(String(a.location), String(b.location))
 
 // Ordered union of locations deduplicated by path part: a `file:function` entry replaces a bare
 // swept path for the same file in place; the first entry seen for a path keeps its position.
-function unionLocations(lists) {
+// Result runs keep one location per file (the one with detail wins); spec runs keep every distinct
+// `<file> §<section>` because the section is the unit the fixer edits.
+function unionLocations(lists, mode) {
+  if (mode === 'spec') return [...new Set(lists.flat().map((l) => String(l).trim()).filter(Boolean))]
   const out = []
   const at = new Map() // pathPart -> index in out
   for (const loc of lists.flat()) {
@@ -126,8 +133,9 @@ function foldByPattern(issues, opts = {}) {
     groups.get(k).push(i)
   }
   // Same-file containment: a group whose key contains a shorter group's key joins it when the two
-  // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone.
-  const keys = [...groups.keys()].sort((x, y) => baseKey(x).length - baseKey(y).length)
+  // groups share a file (`int(s)` and `int(` on a.py). Never across files on containment alone, and
+  // never in spec mode: prose patterns contain one another by accident ("rollback" in "rollback owner").
+  const keys = opts.mode === 'spec' ? [] : [...groups.keys()].sort((x, y) => baseKey(x).length - baseKey(y).length)
   for (const longK of keys) {
     const longG = groups.get(longK)
     if (!longG || !longG.length) continue
@@ -157,7 +165,7 @@ function foldByPattern(issues, opts = {}) {
     for (const l of sorted.flatMap((i) => recLines(i.recommendation))) if (!recs.includes(l)) recs.push(l)
     return {
       ...survivor,
-      locations: unionLocations(sorted.map((i) => i.locations)),
+      locations: unionLocations(sorted.map((i) => i.locations), opts.mode),
       angles: [...new Set(sorted.flatMap((i) => i.angles))].sort(),
       recommendation: recs.join('\n'),
       ...(rationale.length && { rationale: rationale.join('\n') }),
@@ -251,7 +259,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
       invalid.push({ angle, violations: [r[PARSE_ERROR]] })
       continue
     }
-    const violations = validateReport(r, manifestFiles, { verdictRule: false })
+    const violations = validateReport(r, manifestFiles, { verdictRule: false, mode: manifest.mode })
     if (violations.length) invalid.push({ angle, violations })
     if (!r || typeof r !== 'object') continue
 
@@ -332,7 +340,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     for (const [, lines] of added) if (lines.some((l) => re.test(l)) && ++n > HEAD_CAP) return true
     return false
   }
-  const folded = foldByPattern(issues, { genericHead }).sort(byWorst)
+  const folded = foldByPattern(issues, { genericHead, mode: manifest.mode === 'spec' ? 'spec' : 'result' }).sort(byWorst)
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)
@@ -369,10 +377,13 @@ function merge(manifest, reports, diffPatch, opts = {}) {
 }
 
 // Every <run_dir>/*.json except manifest.json and merged.json, stamped with its basename as angle.
+// Files in a run dir that are not angle reports: the setup's manifest, this script's output, and the
+// orchestrator's outcomes file (report_review refuses these names as angles).
+const ORCHESTRATOR_FILES = new Set(['manifest.json', 'merged.json', 'outcomes.json'])
 function loadReports(runDir) {
   return fs
     .readdirSync(runDir)
-    .filter((f) => f.endsWith('.json') && f !== 'manifest.json' && f !== 'merged.json')
+    .filter((f) => f.endsWith('.json') && !ORCHESTRATOR_FILES.has(f))
     .sort()
     .map((f) => {
       const angle = f.slice(0, -'.json'.length)
@@ -398,6 +409,7 @@ function parseArgs(argv) {
     else if (a === '--round') o.round = argv[++i]
     else if (a === '--log-script') o.logScript = argv[++i]
     else if (a === '--no-log') o.log = false
+    else if (a === '--outcomes') o.outcomes = argv[++i]
     else if (a === '--expect') o.expect = String(argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     else if (a.startsWith('--')) throw new Error(`unknown argument: ${a}`)
     else if (o.runDir === null) o.runDir = a
@@ -409,7 +421,53 @@ function parseArgs(argv) {
   return o
 }
 
+// The fixers end their output with a fixed block the orchestrators paste back through
+// `--parse-fixer`; the parsed list feeds history outcomes (applied → fixed, skipped → open).
+//   FIXER-RESULT
+//   APPLIED: <n>
+//   - <title> @ <location>
+//   SKIPPED: <n>
+//   - <title> @ <location> — <reason>
+//   END
+function parseFixerReport(text) {
+  const lines = String(text ?? '').split('\n').map((l) => l.trim())
+  const start = lines.indexOf('FIXER-RESULT')
+  if (start === -1) return null
+  const out = { applied: [], skipped: [], declared: { applied: null, skipped: null }, mismatch: false }
+  let section = null
+  for (const line of lines.slice(start + 1)) {
+    if (line === 'END') break
+    let m
+    if ((m = line.match(/^APPLIED:\s*(\d+)/))) { section = 'applied'; out.declared.applied = Number(m[1]); continue }
+    if ((m = line.match(/^SKIPPED:\s*(\d+)/))) { section = 'skipped'; out.declared.skipped = Number(m[1]); continue }
+    if (!section || !line.startsWith('- ')) continue
+    let body = line.slice(2)
+    let reason
+    if (section === 'skipped') {
+      // the reason comes off first: it may itself contain " @ "
+      const dash = body.indexOf(' — ')
+      if (dash !== -1) { reason = body.slice(dash + 3).trim(); body = body.slice(0, dash) }
+    }
+    const at = body.lastIndexOf(' @ ')
+    if (at === -1) continue
+    const title = body.slice(0, at).trim()
+    const rest = body.slice(at + 3)
+    const entry = { title, location: rest.trim() }
+    if (section === 'skipped') entry.reason = reason ?? ''
+    out[section].push(entry)
+  }
+  out.mismatch = (out.declared.applied !== null && out.declared.applied !== out.applied.length) ||
+    (out.declared.skipped !== null && out.declared.skipped !== out.skipped.length)
+  return out
+}
+
 function main(argv) {
+  if (argv[0] === '--parse-fixer') {
+    const parsed = parseFixerReport(fs.readFileSync(0, 'utf8'))
+    if (parsed === null) { process.stderr.write('merge-findings: no FIXER-RESULT block on stdin\n'); process.exit(1) }
+    process.stdout.write(JSON.stringify(parsed) + '\n')
+    return
+  }
   const die = (msg) => {
     process.stderr.write(`merge-findings: ${msg}\n`)
     process.exit(2)
@@ -440,7 +498,7 @@ function main(argv) {
   process.stdout.write(json + '\n')
   if (!o.log) return
 
-  // v2 rows: the merge is always the Claude engine's result review; pattern and run_id travel along
+  // v3 rows: the merge is always the Claude engine's review (result, or spec when manifest.mode is spec)
   const rows = merged.issues.map((i) => ({
     severity: i.severity,
     title: i.title,
@@ -451,8 +509,11 @@ function main(argv) {
     locations: i.locations,
     pattern: typeof i.pattern === 'string' && i.pattern.trim() ? i.pattern : null,
   }))
+  // outcome: a reviewed finding is open unless the orchestrator's outcomes file (what the fixer applied,
+  // what the human took) says otherwise
   const isNode = /\.c?js$/.test(o.logScript)
-  const logArgs = ['--change', o.change, '--source', 'result', '--round', String(o.round), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
+  const source = manifest.mode === 'spec' ? 'spec' : 'result'
+  const logArgs = ['--change', o.change, '--source', source, '--round', String(o.round), '--outcome', 'open', ...(o.outcomes ? ['--outcomes', o.outcomes] : []), ...(manifest.run_id ? ['--run-id', String(manifest.run_id)] : [])]
   const r = spawnSync(isNode ? process.execPath : o.logScript, isNode ? [o.logScript, ...logArgs] : logArgs, {
     input: JSON.stringify(rows),
     cwd: manifest.working_directory || runDir,
@@ -468,4 +529,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports, foldByPattern, constructHead, normKey }
+module.exports = { merge, loadReports, foldByPattern, constructHead, normKey, parseFixerReport }

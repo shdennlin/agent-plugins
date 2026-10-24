@@ -153,7 +153,7 @@ Task tool:
     - angles: <value from --angles, or "default">
     - fix_all: false
     - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
-    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs>
 
     ## Review Angle Templates (result section)
     <paste the result section content from review-angles.yaml>
@@ -210,7 +210,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/merge-findings.cjs" <run_dir> --change "<cha
 
 (no `--no-log`; the orchestrator's own run used `--no-log`). Repeat its `logged N finding(s)` or `findings not logged: …` line and skip the rest of this step — `merged.json` already holds every finding and location, and re-typing them loses function names and drops locations.
 
-Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `engines`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`), `pattern` (the orchestrator's, else null) — and run, from the git root, with `--run-id` set to the run id from the `Run dir:` line (its last path segment):
+Otherwise (the engine produced at least one finding), convert the merged list to a JSON array — one object per entry with `severity` (upper-case), `title`, `location`, `category`, `engine`, `engines`, `locations` (the orchestrator's `locations` list; an engine finding without one gets `[location]`), `pattern` (the orchestrator's, else null), `outcome` (`open`: no fix loop ran on this route) — and run, from the git root, with `--run-id` set to the run id from the `Run dir:` line (its last path segment):
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change dir or primary spec path, relative to the git root>" --source result --round 1 --run-id "<run id>" <<'FINDINGS_JSON'
@@ -240,7 +240,7 @@ Task tool:
     - angles: <value from --angles, or "default">
     - fix_all: <true if "--fix all", false otherwise>
     - plugin_root: <absolute path of ${CLAUDE_PLUGIN_ROOT}>
-    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh>
+    - log_script_path: <absolute path to ${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs>
 
     ## Review Angle Templates (result section)
     <paste the result section content from review-angles.yaml>

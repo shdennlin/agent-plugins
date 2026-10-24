@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression test for scripts/log-findings.sh — now a wrapper over log-findings.cjs (history row v2):
+# Regression test for scripts/log-findings.cjs (history row v3):
 # rows are validated (engine vocabulary, integer round), completed (v, ts, engines, locations, pattern,
 # run_id) and appended all-or-nothing under <git-root>/.claude/reviewer/history.jsonl. No Claude, no network.
 #
@@ -7,7 +7,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SCRIPT="$HERE/../scripts/log-findings.sh"
+SCRIPT="$HERE/../scripts/log-findings.cjs"
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
 
 TMP="$(mktemp -d)"
@@ -32,7 +32,7 @@ OUT=".claude/reviewer/history.jsonl"
 [[ "$(jq -r '.engine' "$OUT" | paste -sd, -)" == "claude,code-review,claude" ]] || fail "engine column mismatch"
 [[ "$(tail -1 "$OUT" | jq -c '.engines')" == '["claude","code-review"]' ]] || fail "engines[] not persisted"
 [[ "$(jq -r '.category' "$OUT" | paste -sd, -)" == "coverage,correctness,spec-conflict" ]] || fail "category column mismatch"
-jq -e 'select(.source=="result" and .change=="openspec/changes/demo" and .round==1 and .v==2)' "$OUT" >/dev/null \
+jq -e 'select(.source=="result" and .change=="openspec/changes/demo" and .round==1 and .v==3)' "$OUT" >/dev/null \
   || fail "source/normalized change/integer round/v not persisted"
 
 # 2. Rows are normalized (missing engine → claude for result/spec; lowercase severity upper-cased); an
@@ -45,7 +45,7 @@ grep -q "row 1 rejected: title" "$TMP/err.txt" || fail "rejection names the row 
 [[ "$(tail -1 "$OUT" | jq -r '.engine + " " + .severity')" == "claude LOW" ]] || fail "engine default and severity case"
 [[ "$(wc -l <"$OUT" | tr -d ' ')" == "4" ]] || fail "one row appended from the second batch"
 
-# 3. `locations` persists as an array; absent → [location]; bare string → [string]; pattern absent → null.
+# 3. `locations` persists as an array of objects; absent → [location]; bare string → [string]; pattern absent → null.
 "$SCRIPT" --change "openspec/changes/demo" --source result --round 3 <<'JSON' >/dev/null
 [
   {"severity":"MEDIUM","title":"unchecked cast","location":"a.py:parse","category":"correctness","engine":"claude","pattern":"int(","locations":["a.py:parse","b.py:parse","c.py:load"]},
@@ -53,15 +53,15 @@ grep -q "row 1 rejected: title" "$TMP/err.txt" || fail "rejection names the row 
   {"severity":"LOW","title":"bare string locations","location":"y.py","category":"coverage","engine":"claude","locations":"y.py:run"}
 ]
 JSON
-[[ "$(tail -3 "$OUT" | head -1 | jq -c '.locations')" == '["a.py:parse","b.py:parse","c.py:load"]' ]] || fail "locations array not persisted verbatim"
+[[ "$(tail -3 "$OUT" | head -1 | jq -c '.locations')" == '[{"path":"a.py","symbol":"parse"},{"path":"b.py","symbol":"parse"},{"path":"c.py","symbol":"load"}]' ]] || fail "locations array parsed into objects"
 [[ "$(tail -3 "$OUT" | head -1 | jq -r '.pattern')" == 'int(' ]] || fail "pattern not persisted"
-[[ "$(tail -2 "$OUT" | head -1 | jq -c '.locations')" == '["x.py"]' ]] || fail "missing locations should default to [location]"
+[[ "$(tail -2 "$OUT" | head -1 | jq -c '.locations')" == '[{"path":"x.py"}]' ]] || fail "missing locations should default to [location]"
 [[ "$(tail -2 "$OUT" | head -1 | jq -r '.pattern')" == 'null' ]] || fail "missing pattern should persist as null"
-[[ "$(tail -1 "$OUT" | jq -c '.locations')" == '["y.py:run"]' ]] || fail "bare-string locations should be wrapped into an array"
+[[ "$(tail -1 "$OUT" | jq -c '.locations')" == '[{"path":"y.py","symbol":"run"}]' ]] || fail "bare-string locations should be wrapped into an array"
 
 # 4. Unknown --source is rejected (engine is the vocabulary; source is the pipeline).
 if "$SCRIPT" --change c --source code-review <<<'[]' >/dev/null 2>&1; then
   fail "--source code-review should be rejected; engine, not source, carries the engine name"
 fi
 
-echo "ok: log-findings v2 rows via the wrapper (engine vocabulary + normalization, engines[], integer round, normalized change, locations/pattern defaults, row-level rejection, source enum)"
+echo "ok: log-findings v3 rows (engine vocabulary + normalization, engines[], integer round, normalized change, locations/pattern defaults, row-level rejection, source enum)"

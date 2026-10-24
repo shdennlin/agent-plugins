@@ -1,20 +1,28 @@
 #!/usr/bin/env node
-// Rewrite a v1 history.jsonl into schema-v2 rows (mcp/schema.cjs HISTORY_ROW), in place, behind --dry-run.
+// Rewrite a v1 or v2 history.jsonl into schema-v3 rows (mcp/schema.cjs HISTORY_ROW), in place, behind --dry-run.
+// v2 → v3: string locations parsed into objects (log-findings.cjs parseLocation), outcome unknown.
 //   node migrate-history.cjs <history.jsonl> [--dry-run] [--second-engine <name>]
 // Maps: engine '' or 'claude-result' → claude; 'both' → engine claude + engines [claude, <second-engine>]
 // (without --second-engine: [claude] and a stderr count); round → integer; change normalized; locations
-// defaults to [location]; pattern/run_id null; v 2. Rows already at v 2 and rows that cannot validate
+// defaults to [location]; pattern/run_id null; v 3. Rows already at v 3 and rows that cannot validate
 // after mapping (unknown severity, empty title…) are kept verbatim; the latter are counted as unmigratable
-// with their line numbers on stderr and make the exit status 1. A real run writes <file>.v1.bak first and
+// with their line numbers on stderr and make the exit status 1. A real run writes <file>.pre-v3.bak first and
 // refuses to run when that backup already exists. Never run this against a file you have not backed up.
 'use strict'
 const fs = require('fs')
 const { validateHistoryRow, normalizeChange, ENGINES } = require('../mcp/schema.cjs')
+const { parseLocation } = require('./log-findings.cjs')
 
 function migrateRow(row, opts) {
-  const n = { engineEmpty: 0, claudeResult: 0, both: 0, roundInt: 0, changeNorm: 0 }
-  if (row && row.v === 2) return { row, already: true, n }
+  const n = { engineEmpty: 0, claudeResult: 0, both: 0, roundInt: 0, changeNorm: 0, fromV2: 0 }
+  if (row && row.v === 3) return { row, already: true, n }
   const r = { ...row }
+  if (r.v === 2) {
+    n.fromV2 = 1
+    const locs = Array.isArray(r.locations) && r.locations.length ? r.locations : [r.location]
+    const out = { ...r, v: 3, locations: locs.map((l) => (l && typeof l === 'object' ? l : parseLocation(l))), outcome: 'unknown' }
+    return { row: out, already: false, n }
+  }
   let engine = typeof r.engine === 'string' ? r.engine : ''
   let engines
   if (engine === '') { engine = 'claude'; n.engineEmpty = 1 }
@@ -27,9 +35,10 @@ function migrateRow(row, opts) {
   if (change !== r.change) n.changeNorm = 1
   const locs = Array.isArray(r.locations) && r.locations.length ? r.locations.map(String) : (r.location ? [String(r.location)] : [])
   const out = {
-    v: 2, ts: r.ts, change, source: r.source, round, run_id: typeof r.run_id === 'string' ? r.run_id : null,
+    v: 3, ts: r.ts, change, source: r.source, round, run_id: typeof r.run_id === 'string' ? r.run_id : null,
     engine, engines: engines || [engine], severity: r.severity, category: r.category, title: r.title, location: r.location,
-    locations: locs, pattern: typeof r.pattern === 'string' && r.pattern.trim() ? r.pattern : null,
+    locations: locs.map(parseLocation), pattern: typeof r.pattern === 'string' && r.pattern.trim() ? r.pattern : null,
+    outcome: 'unknown',
   }
   return { row: out, already: false, n }
 }
@@ -44,11 +53,11 @@ function main(argv) {
   }
   if (!file) { process.stderr.write('migrate-history: <history.jsonl> is required\n'); return 1 }
   if (secondEngine && !ENGINES.includes(secondEngine) && !/^other:/.test(secondEngine)) { process.stderr.write(`migrate-history: --second-engine must be one of ${ENGINES.join(', ')} or other:<skill>\n`); return 1 }
-  const bak = file + '.v1.bak'
+  const bak = file + '.pre-v3.bak'
   if (!dryRun && fs.existsSync(bak)) { process.stderr.write(`migrate-history: ${bak} already exists; refusing to overwrite a backup\n`); return 1 }
   const text = fs.readFileSync(file, 'utf8')
   const lines = text.split('\n')
-  const totals = { rows: 0, migrated: 0, already: 0, engineEmpty: 0, claudeResult: 0, both: 0, roundInt: 0, changeNorm: 0, unmigratable: 0 }
+  const totals = { rows: 0, migrated: 0, already: 0, engineEmpty: 0, claudeResult: 0, both: 0, roundInt: 0, changeNorm: 0, fromV2: 0, unmigratable: 0 }
   const out = lines.map((line, idx) => {
     if (!line.trim()) return line
     totals.rows++
@@ -62,7 +71,7 @@ function main(argv) {
     return JSON.stringify(m)
   })
   if (totals.both && !secondEngine) process.stderr.write(`migrate-history: ${totals.both} 'both' row(s) kept engines [claude]: pass --second-engine <name> to record the second engine\n`)
-  process.stdout.write(`rows: ${totals.rows}, migrated: ${totals.migrated}, already-v2: ${totals.already}, engine '' → claude: ${totals.engineEmpty}, claude-result → claude: ${totals.claudeResult}, both → engines: ${totals.both} (second engine: ${secondEngine || 'unknown'}), round→int: ${totals.roundInt}, change normalized: ${totals.changeNorm}, unmigratable: ${totals.unmigratable}${dryRun ? ' [dry-run, nothing written]' : ''}\n`)
+  process.stdout.write(`rows: ${totals.rows}, migrated: ${totals.migrated} (v1→v3: ${totals.migrated - totals.fromV2}, v2→v3: ${totals.fromV2}), already-v3: ${totals.already}, engine '' → claude: ${totals.engineEmpty}, claude-result → claude: ${totals.claudeResult}, both → engines: ${totals.both} (second engine: ${secondEngine || 'unknown'}), round→int: ${totals.roundInt}, change normalized: ${totals.changeNorm}, unmigratable: ${totals.unmigratable}${dryRun ? ' [dry-run, nothing written]' : ''}\n`)
   if (!dryRun) { fs.writeFileSync(bak, text); fs.writeFileSync(file, out.join('\n')) }
   return totals.unmigratable ? 1 : 0
 }

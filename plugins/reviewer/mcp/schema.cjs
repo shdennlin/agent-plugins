@@ -128,21 +128,28 @@ function normalizePath(p) {
     .replace(/^\//, '')
 }
 
-// An issue location is `<path>` or `<path>:<detail>`; only the path part is normalized.
-const issueAt = (location, p) => {
-  if (typeof location !== 'string') return false
-  const i = location.indexOf(':')
-  return normalizePath(i === -1 ? location : location.slice(0, i)) === p
+// An issue location is `<path>` or `<path>:<detail>`; in spec mode also `<path> §<section>`.
+// Only the path part is normalized.
+const locationPath = (location, mode) => {
+  let s = location
+  if (mode === 'spec') { const j = s.indexOf(' §'); if (j !== -1) s = s.slice(0, j) }
+  const i = s.indexOf(':')
+  return i === -1 ? s : s.slice(0, i)
 }
+const issueAt = (location, p, mode) => typeof location === 'string' && normalizePath(locationPath(location, mode)) === p
 
 // opts.verdictRule (default true): reject a verdict that contradicts the issues. The report_review
 // tool keeps it (the agent can retry); the merge turns it off because it recomputes the verdict from
 // the issues and a file-written report must not become "invalid" over a label.
+// opts.mode: 'spec' (from manifest.mode) reviews spec documents — `coverage` is not allowed and a
+// location may be `<path> §<section>`; anything else is the result mode.
 function validateReport(report, manifestFiles, opts = {}) {
   const verdictRule = opts.verdictRule !== false
+  const mode = opts.mode === 'spec' ? 'spec' : 'result'
   const out = []
   if (!typeOk('object', report)) return [': report must be an object']
   checkShape(report, REPORT_SCHEMA, '', out)
+  if (mode === 'spec' && report.coverage !== undefined) out.push('coverage: not allowed in spec mode (spec files have no requirement coverage)')
   const shapeOk = out.length === 0 // manifest rules assume a well-formed shape
 
   if (typeof report.run_dir === 'string' && !(report.run_dir.startsWith('/') && RUNS_SEGMENT.test(report.run_dir + '/'))) {
@@ -174,7 +181,7 @@ function validateReport(report, manifestFiles, opts = {}) {
       out.push(`${at}: ${f.path} verdict issues but issue_count ${f.issue_count}`)
       return
     }
-    const n = report.issues.filter((x) => issueAt(x.location, normalizePath(f.path))).length
+    const n = report.issues.filter((x) => issueAt(x.location, normalizePath(f.path), mode)).length
     if (f.issue_count !== n) {
       out.push(`${at}: ${f.path} issue_count ${f.issue_count} but ${n} issue(s) point at it`)
     }
@@ -182,14 +189,33 @@ function validateReport(report, manifestFiles, opts = {}) {
   return out
 }
 
-// --- history.jsonl row, schema version 2 (written only by scripts/log-findings.cjs)
+// --- history.jsonl row, schema version 3 (written only by scripts/log-findings.cjs)
 const ENGINES = ['claude', 'codex', 'code-review', 'spectra-review']
 const OTHER_ENGINE = /^other:[a-z0-9][a-z0-9:_-]*$/
 const nonEmpty = { type: 'string', minLength: 1 }
+// A structured location: the path plus whichever detail the reviewer gave; `raw` keeps the original
+// string when it could not be parsed into one of the forms (see log-findings.cjs parseLocation).
+const HISTORY_LOCATION = {
+  type: 'object',
+  properties: {
+    path: nonEmpty,
+    line: { type: 'integer', minimum: 1 },
+    endLine: { type: 'integer', minimum: 1 },
+    symbol: nonEmpty,
+    section: nonEmpty,
+    raw: nonEmpty,
+  },
+  required: ['path'],
+  additionalProperties: false,
+}
+// What became of the finding: open (reported, not acted on), fixed (the fixer applied it), escalated
+// (handed to a human), dismissed (judged not real / out of scope), residual (still open when the loop
+// ended), unknown (migrated or logged without a fix loop's result).
+const OUTCOMES = ['open', 'fixed', 'escalated', 'dismissed', 'residual', 'unknown']
 const HISTORY_ROW = {
   type: 'object',
   properties: {
-    v: { type: 'integer', enum: [2] },
+    v: { type: 'integer', enum: [3] },
     ts: nonEmpty,
     change: nonEmpty,
     source: { type: 'string', enum: ['spec', 'spec-dual', 'result'] },
@@ -201,10 +227,11 @@ const HISTORY_ROW = {
     category: nonEmpty,
     title: nonEmpty,
     location: nonEmpty,
-    locations: { type: 'array', items: { type: 'string' } },
+    locations: { type: 'array', items: HISTORY_LOCATION, minItems: 1 },
     pattern: { type: ['string', 'null'] },
+    outcome: { type: 'string', enum: OUTCOMES },
   },
-  required: ['v', 'ts', 'change', 'source', 'round', 'run_id', 'engine', 'engines', 'severity', 'category', 'title', 'location', 'locations', 'pattern'],
+  required: ['v', 'ts', 'change', 'source', 'round', 'run_id', 'engine', 'engines', 'severity', 'category', 'title', 'location', 'locations', 'pattern', 'outcome'],
   additionalProperties: false,
 }
 
@@ -226,4 +253,4 @@ function validateHistoryRow(row) {
   return out
 }
 
-module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath, HISTORY_ROW, ENGINES, validateHistoryRow, normalizeChange }
+module.exports = { REPORT_SCHEMA, SEVERITIES, validateReport, normalizePath, HISTORY_ROW, HISTORY_LOCATION, OUTCOMES, ENGINES, validateHistoryRow, normalizeChange }

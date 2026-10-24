@@ -235,8 +235,9 @@ test('CLI writes merged.json and logs through log-findings.sh with locations', (
   assert.equal(rows[0].locations.length, 2)
   assert.equal(rows[0].engine, 'claude')
   assert.deepEqual(rows[0].engines, ['claude'])
-  assert.equal(rows[0].v, 2)
+  assert.equal(rows[0].v, 3)
   assert.equal(rows[0].round, 2)
+  assert.equal(rows[0].outcome, 'open')
   assert.equal(typeof rows[0].run_id, 'string')
   assert.ok('pattern' in rows[0])
 })
@@ -474,4 +475,101 @@ test('head sweep matches the callee after a receiver: line.split( in a.py joins 
   const m = merge(man, [mkRep(['a.py', 'b.py'], { pattern: 'line.split(",")' })], mkPatch([['a.py', 'cells = line.split(",")'], ['b.py', 'return row.split(",")']]))
   assert.deepEqual(m.issues[0].locations, ['a.py:f', 'b.py'])
   assert.deepEqual(m.issues[0].swept_by_head, ['b.py'])
+})
+
+// --- batch F: spec runs (manifest.mode === 'spec')
+test('spec mode: § locations count toward their file and the merge reads manifest.mode', () => {
+  const man = { run_id: 'x', mode: 'spec', files: ['design.md', 'tasks.md'], working_directory: '/tmp/x' }
+  const rep = (angle, location, title) => ({ run_dir: '/tmp/x/openspec/reviews/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'design.md', verdict: 'issues', issue_count: 1 }, { path: 'tasks.md', verdict: 'clean', issue_count: 0 }],
+    issues: [{ severity: 'HIGH', title, location, category: 'c', expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const m = merge(man, [rep('design', 'design.md §3', 'section 3 contradicts the proposal'), rep('consistency', 'design.md §3', 'Section 3 contradicts the proposal')], '')
+  assert.equal(m.invalid_reports.length, 0, JSON.stringify(m.invalid_reports))
+  assert.equal(m.issues.length, 1, 'same location+title across angles dedupes')
+  assert.equal(m.files.find((f) => f.path === 'design.md').verdict, 'issues')
+  assert.equal(m.complete, true)
+})
+test('CLI logs --source spec for a spec run', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir, history } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const mf = path.join(runDir, 'manifest.json')
+  fs.writeFileSync(mf, JSON.stringify({ ...readJson(mf), mode: 'spec' }, null, 2))
+  fs.rmSync(path.join(runDir, 'diff.patch'), { force: true })
+  const r = spawnSync('node', [SCRIPT, runDir, '--change', 'openspec/changes/demo', '--round', '1', '--log-script', LOG_SCRIPT], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.ok(rows.length >= 1)
+  for (const row of rows) assert.equal(row.source, 'spec')
+})
+
+// --- batch F: fixer report parsing (both orchestrators paste the fixer's block)
+const { parseFixerReport } = require('../scripts/merge-findings.cjs')
+test('parseFixerReport reads the fixed APPLIED/SKIPPED block and keeps title + location per directive', () => {
+  const text = `## Fixes Applied\n1. stuff\n\nFIXER-RESULT\nAPPLIED: 2\n- Missing non-goals section @ proposal.md §Non-goals\n- Rate limit undefined @ design.md:40\nSKIPPED: 1\n- Queue semantics @ design.md §3 — new-mechanism: needs a product decision\nEND\n`
+  const r = parseFixerReport(text)
+  assert.deepEqual(r.applied, [{ title: 'Missing non-goals section', location: 'proposal.md §Non-goals' }, { title: 'Rate limit undefined', location: 'design.md:40' }])
+  assert.deepEqual(r.skipped, [{ title: 'Queue semantics', location: 'design.md §3', reason: 'new-mechanism: needs a product decision' }])
+  assert.equal(r.mismatch, false)
+})
+test('parseFixerReport: zero applied, declared counts that disagree with the lines are flagged, missing block is null', () => {
+  const zero = parseFixerReport('FIXER-RESULT\nAPPLIED: 0\nSKIPPED: 1\n- X @ a.md — bogus\nEND')
+  assert.equal(zero.applied.length, 0); assert.equal(zero.skipped.length, 1); assert.equal(zero.mismatch, false)
+  const bad = parseFixerReport('FIXER-RESULT\nAPPLIED: 3\n- X @ a.md\nSKIPPED: 0\nEND')
+  assert.equal(bad.applied.length, 1); assert.equal(bad.mismatch, true)
+  assert.equal(parseFixerReport('no block here'), null)
+  const at = parseFixerReport('FIXER-RESULT\nAPPLIED: 0\nSKIPPED: 1\n- Y @ b.md — conflicts with the owner @ c.md\nEND')
+  assert.deepEqual(at.skipped, [{ title: 'Y', location: 'b.md', reason: 'conflicts with the owner @ c.md' }], 'the reason is split off before the location')
+})
+test('CLI --parse-fixer reads the block on stdin and prints the JSON', () => {
+  const r = spawnSync('node', [SCRIPT, '--parse-fixer'], { input: 'FIXER-RESULT\nAPPLIED: 1\n- T @ a.md:3\nSKIPPED: 0\nEND\n', encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  assert.deepEqual(JSON.parse(r.stdout).applied, [{ title: 'T', location: 'a.md:3' }])
+  const none = spawnSync('node', [SCRIPT, '--parse-fixer'], { input: 'nothing', encoding: 'utf8' })
+  assert.equal(none.status, 1)
+})
+
+test('CLI --outcomes <file> maps the logged rows\' outcome; rows without a match are open', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir, history } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const merged = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
+  const first = merged.issues[0]
+  const map = path.join(runDir, 'outcomes.json')
+  fs.writeFileSync(map, JSON.stringify([{ title: first.title, location: first.location, outcome: 'fixed' }]))
+  const r = spawnSync('node', [SCRIPT, runDir, '--change', 'demo', '--round', '2', '--log-script', LOG_SCRIPT, '--outcomes', map], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.equal(rows.find((x) => x.title === first.title).outcome, 'fixed')
+  for (const x of rows.filter((x) => x.title !== first.title)) assert.equal(x.outcome, 'open')
+  assert.equal(rows[0].v, 3)
+})
+
+// --- batch F final review fixes
+test('outcomes.json in the run dir is orchestrator state, not an angle report', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  fs.writeFileSync(path.join(runDir, 'outcomes.json'), JSON.stringify([{ title: 'x', location: 'a.py:f', outcome: 'fixed' }]))
+  const before = spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' })
+  const m = JSON.parse(before.stdout)
+  assert.ok(!m.invalid_reports.some((r) => r.angle === 'outcomes'), JSON.stringify(m.invalid_reports))
+  assert.ok(!Object.keys(m.via).includes('outcomes'))
+  const again = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
+  assert.deepEqual(again.issues, m.issues, 're-running the merge is stable')
+})
+test('spec mode never folds on containment (prose patterns); a fold unions the members\' locations', () => {
+  const rep = (man, angle, pattern, title, loc) => ({ run_dir: '/tmp/x/openspec/reviews/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: man.files.map((p) => ({ path: p, verdict: p === pathOf(loc) ? 'issues' : 'clean', issue_count: p === pathOf(loc) ? 1 : 0 })),
+    issues: [{ severity: 'HIGH', title, location: loc, category: 'c', pattern, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const pathOf = (loc) => loc.split(/ §|:/)[0]
+  const spec = { run_id: 'x', mode: 'spec', files: ['design.md'], working_directory: '/tmp/x' }
+  const s = merge(spec, [rep(spec, 'design', 'rollback', 'No rollback owner', 'design.md §3'), rep(spec, 'scope', 'rollback owner named', 'Rollback step ordering wrong', 'design.md §5')], '')
+  assert.equal(s.issues.length, 2, 'prose containment is not a fold')
+  const same = merge(spec, [rep(spec, 'design', 'rollback owner', 'No rollback owner', 'design.md §3'), rep(spec, 'scope', 'rollback  owner', 'Rollback owner missing', 'design.md §5')], '')
+  assert.equal(same.issues.length, 1, 'an equal normalized pattern still folds in spec mode')
+  assert.deepEqual(same.issues[0].locations.sort(), ['design.md §3', 'design.md §5'], 'a fold keeps every member location')
+  const code = { run_id: 'x', files: ['a.py'], working_directory: '/tmp/x' }
+  const c = merge(code, [rep(code, 'correctness', 'int(s)', 'unchecked cast', 'a.py:f'), rep(code, 'robustness', 'int(', 'cast may raise', 'a.py:g')], '')
+  assert.equal(c.issues.length, 1); assert.deepEqual(c.issues[0].locations, ['a.py:f'], 'result mode keeps one location per file (unchanged)')
 })

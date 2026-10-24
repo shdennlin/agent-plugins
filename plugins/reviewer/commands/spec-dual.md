@@ -166,11 +166,15 @@ Persist EVERY review round for the rules-harvest loop (`/reviewer:init --from-hi
 problems found and fixed in round 1 are the ones most worth turning into rules, so logging only
 the post-fix residue would lose them. The Workflow result's `history[]` has one row per review
 round, each with `round` and `findings` (that round's union: `title`, `location`, `severity`,
-`category`, `engine`, `engines`). For each row whose `findings` is non-empty, pipe the array
-as JSON to the logging script with that row's round:
+`category`, `engine`, `engines`, `pattern` when a reviewer gave one). For each row whose `findings`
+is non-empty, fold the union first (one entry per defect: two engines naming one issue at one
+location, or sharing a `pattern`, become one row with both engines), then log it with that row's round.
+Every finding already carries its `outcome` from the workflow (`fixed`: the fixer applied it that
+round; `escalated`: rejected by the fixer or stale, in the human's hands; `residual`: still open when
+the loop ended; `open`: not sent to that round's fixer) — pass it through unchanged.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.sh" --change "<change>" --source spec-dual --round <n> <<'FINDINGS_JSON'
+node "${CLAUDE_PLUGIN_ROOT}/scripts/fold-findings.cjs" <<'FINDINGS_JSON' | node -e 'const o=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(JSON.stringify(o.findings))' | node "${CLAUDE_PLUGIN_ROOT}/scripts/log-findings.cjs" --change "<change>" --source spec-dual --round <n>
 <history[n-1].findings as a JSON array>
 FINDINGS_JSON
 ```
@@ -180,5 +184,6 @@ The script auto-detects the target file (`openspec/reviews/history.jsonl` in Spe
 mention it in one line and continue — a logging failure MUST NOT fail
 or repeat the review.
 
-Findings include `category`, `engine` (`claude` or `codex`) and `engines` (both engines when both raised it) — pass them through
-unchanged; the script persists them.
+Findings include `category`, `engine` (`claude` or `codex`), `engines` (both engines when both raised it),
+`pattern` and `outcome` — pass them through unchanged; the fold unions `engines` (an escalated member keeps the
+row escalated) and the logging script persists the rows.

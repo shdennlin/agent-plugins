@@ -113,6 +113,9 @@ const FINDINGS = {
         location:  { type: 'string' },   // file:line or artifact name
         rationale: { type: 'string' },
         category: { type: 'string' },
+        // optional: the shortest literal phrase from the spec text that identifies the defect; the
+        // command folds rows sharing it before logging (same key as the result merge)
+        pattern:  { type: 'string' },
         // Set when this finding is the SAME concern as a prior-round finding listed in the
         // prompt (by the script-assigned id, e.g. "R1-3"), even if reworded or evolved by a fix.
         priorId:  { type: 'string' },
@@ -358,7 +361,15 @@ const engineTag = (cat, f) => {
   const s = seenBy(cat, f)
   return s === 'both' ? { engine: 'claude', engines: ['claude', 'codex'] } : { engine: s, engines: [s] }
 }
-const historyFinding = (cat, f) => ({ title: f.title, location: f.location, severity: f.severity, category: f.category || '', ...engineTag(cat, f) })
+// history v3: every row carries an outcome — open until the fixer applies it (fixed), the human gets it
+// (escalated), or the loop ends with it still open (residual). Rows stay index-aligned with cat.all.
+const historyFinding = (cat, f) => ({ title: f.title, location: f.location, severity: f.severity, category: f.category || '', ...(typeof f.pattern === 'string' && f.pattern ? { pattern: f.pattern } : {}), ...engineTag(cat, f), outcome: 'open' })
+const markOutcome = (row, cat, f, outcome) => { const i = cat.all.indexOf(f); if (i !== -1 && row.findings[i]) row.findings[i].outcome = outcome }
+const markFixResult = (row, cat, ordered, fixResult) => {
+  if (!fixResult || fixResult.down || fixResult.suspect) return
+  for (const a of fixResult.applied || []) { const f = ordered[Number(a.index) - 1]; if (f) markOutcome(row, cat, f, 'fixed') }
+  for (const r of fixResult.rejected || []) { const f = ordered[Number(r.index) - 1]; if (f) markOutcome(row, cat, f, 'escalated') }
+}
 
 // Build ONE directive covering all of a round's findings. Findings on a spec are
 // highly interrelated (the same license/workspace/path decision shows up across
@@ -541,7 +552,9 @@ while (round <= MAX_ROUNDS + 1) {
 
   const stale = live.filter(f => survival.get(f.root) >= STALE)
   const fresh = live.filter(f => survival.get(f.root) < STALE)
+  const staleRows = []
   for (const f of stale) {
+    staleRows.push(f)
     escalated.add(f.root)
     const reason = fixRounds > 0
       ? `survived ${STALE} consecutive review rounds despite fixes`
@@ -566,6 +579,8 @@ while (round <= MAX_ROUNDS + 1) {
                  intersection: cat.both.length, claudeOnly: cat.onlyClaude.length, codexOnly: cat.onlyCodex.length,
                  fresh: fresh.length, linked, escalated: escalated.size, degraded: down.length > 0,
                  enginesDown: down, claudeAgents: r.claudeAgents })   // degraded ⇒ this round was single-engine; the either-engine rule had nothing to union
+  for (const f of staleRows) markOutcome(history[history.length - 1], cat, f, 'escalated')
+  for (const f of cat.all) if (escalated.has(f.root) && !staleRows.includes(f)) markOutcome(history[history.length - 1], cat, f, 'escalated')
 
   // Clear only when both engines ran and NO blockers remain (verdict strings are not consulted).
   if (enginesOk && cat.blockers.length === 0) { cleared = cat; break }
@@ -588,6 +603,7 @@ while (round <= MAX_ROUNDS + 1) {
   if (v.mismatch) history[history.length - 1].fixerReportMismatch = true
   fixResult.suspect = v.suspect
   const rejectedN = escalateRejected(fixResult, blockerOrdered, cat)
+  markFixResult(history[history.length - 1], cat, blockerOrdered, fixResult)
   const gate = fixResult.gate || { ran: false, regressed: false }
   history[history.length - 1].gate = gate
   if (GATES.length && !fixResult.down) gateRan = gateRan && gate.ran
@@ -608,7 +624,10 @@ const intersectionSummary = () => ({
   rounds: history.length,
 })
 
+// whatever is still open on the last logged round when the loop ends is residual
+const markResidual = () => { const row = history[history.length - 1]; if (row) for (const f of row.findings) if (f.outcome === 'open') f.outcome = 'residual' }
 if (!cleared) {
+  markResidual()
   const lastDegraded = history.length > 0 && history[history.length - 1].degraded
   const reason = lastDegraded
     ? 'an engine was DOWN on the final round — the review is NOT trustworthy (see history)'
@@ -632,6 +651,7 @@ if (lows.length) {
   phase('Fix')
   const lowResult = await runFix(lows, cleared, 'fix-low')
   lowsFixed = (lowResult.applied || []).length
+  markFixResult(history[history.length - 1], cleared, lows, lowResult)
   // LOW rejections are informational only (not blockers), but a LOW fix that regresses the
   // project gate is still a gate-regression and must reach the human.
   const lowRejected = (lowResult.rejected || []).length
@@ -647,6 +667,7 @@ if (lows.length) {
 // MEDIUM+ item is waiting on the human (needsHuman) — an escalated blocker is still a blocker.
 const openHuman = needsHuman.filter(h => isBlocker(h.severity))
 const ready = openHuman.length === 0
+markResidual()
 return { ready, enginesClean: true, change: CHANGE, rounds: history.length, fixRounds, lowsFixed, needsHuman, history,
          gateRan: GATES.length ? gateRan : null,
          ...(ready ? {} : { reason: `engines are clean but ${openHuman.length} MEDIUM+ blocker(s) are escalated to the human (see needsHuman)` }),

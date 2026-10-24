@@ -26,14 +26,15 @@ function handle(args) {
     return fail(`report_review rejected: ${manifestPath} has no "files" array`)
   }
 
-  const violations = validateReport(args, manifest.files)
+  const violations = validateReport(args, manifest.files, { mode: manifest.mode })
   if (violations.length > 0) {
     return fail(`report_review rejected (${violations.length} violation(s)), fix and call again:\n${violations.join('\n')}`)
   }
 
   // angle becomes a filename: restrict it to a plain slug and protect orchestrator-owned files.
-  if (!/^[a-z][a-z0-9_-]*$/i.test(args.angle) || args.angle.toLowerCase() === 'manifest') {
-    return fail('report_review rejected: angle must match [a-z][a-z0-9_-]* and must not be "manifest"')
+  const RESERVED = ['manifest', 'merged', 'outcomes']
+  if (!/^[a-z][a-z0-9_-]*$/i.test(args.angle) || RESERVED.includes(args.angle.toLowerCase())) {
+    return fail(`report_review rejected: angle must match [a-z][a-z0-9_-]* and must not be one of ${RESERVED.join(', ')}`)
   }
   // Resolve symlinks in run_dir and keep the write inside a runs directory.
   const realDir = fs.realpathSync(runDir)

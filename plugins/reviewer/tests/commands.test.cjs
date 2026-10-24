@@ -162,7 +162,7 @@ test('no prompt or doc uses the legacy engine names claude-result / both', () =>
 test('spec-dual logs every round from the workflow history; spec rows name the engine', () => {
   const sd = read('commands/spec-dual.md')
   assert.match(sd, /history\[\]/); assert.match(sd, /--round <n>/); assert.match(sd, /engines/)
-  assert.match(read('agents/spec-orchestrator.md'), /`engine` \(always `claude`\)/)
+  assert.match(read('agents/spec-orchestrator.md'), /`source: spec`, `engine: claude`/)
 })
 
 test('spec-dual retains history (not findings) for logging; result -c maps unknown engines to other:', () => {
@@ -208,4 +208,71 @@ test('batch D review fixes: -c is checked up front, init passes plugin_root, no 
     assert.ok(!/in Step 6/.test(read(f)), `${f} still points at a Step 6`)
   }
   assert.ok(!read('commands/init.md').includes('Store the full content'), 'init.md Step 2 still stores the template inline')
+})
+
+// --- batch F: spec on the structured pipeline
+test('the spec angle brief is a template with the shared sentences once; spec-reviewer is a typed brief-receiver', () => {
+  const t = read('templates/spec-angle-prompt.md')
+  for (const ph of ['{angle_label}', '{angle_focus}', '{angle_key}', '{run_dir}', '{file_list}', '{working_directory}', '{codebase_context}', '{project_rules}']) assert.ok(t.includes(ph), `template lacks ${ph}`)
+  assert.match(t, /mcp__plugin_reviewer_review__report_review/)
+  assert.match(t, /§/)
+  assert.ok(!t.includes('`coverage`'), 'spec brief must not ask for a coverage field')
+  const a = read('agents/spec-reviewer.md')
+  assert.match(a, /Not directly invocable/)
+  assert.match(a, /^tools:\n(?:  - .*\n)*  - mcp__plugin_reviewer_review__\*\n/m)
+  assert.match(a, /templates\/spec-angle-prompt\.md/)
+})
+test('spec-orchestrator runs setup, dispatches typed spec-reviewers with the template, and merges with merge-findings.cjs', () => {
+  const o = read('agents/spec-orchestrator.md')
+  assert.match(o, /setup-spec-review\.sh/)
+  assert.match(o, /subagent_type: "reviewer:spec-reviewer"/)
+  assert.match(o, /templates\/spec-angle-prompt\.md/)
+  assert.match(o, /merge-findings\.cjs/)
+  assert.match(o, /--no-log/)
+  assert.ok(!o.includes('Deduplicate — if two issues have the same topic'), 'LLM dedup prose must be gone')
+  assert.ok(!o.includes('Output EXACTLY this structure'), 'inline brief must be gone')
+  assert.ok(!o.includes('log-findings.sh'))
+  const c = body('spec.md')
+  assert.match(c, /plugin_root/)
+  assert.match(c, /log-findings\.cjs/)
+  assert.ok(!c.includes('log-findings.sh'))
+})
+test('both fixers end with the FIXER-RESULT block; the spec fix loop runs on merged.json', () => {
+  for (const f of ['agents/spec-fixer.md', 'agents/result-fixer.md']) {
+    const t = read(f)
+    assert.match(t, /FIXER-RESULT/, f); assert.match(t, /APPLIED: <n>/, f); assert.match(t, /SKIPPED: <n>/, f)
+    assert.match(t, /@ <location>/, f)
+  }
+  const o = read('agents/spec-orchestrator.md')
+  assert.match(o, /merged\.verdict/); assert.match(o, /merged\.complete/)
+  assert.match(o, /--parse-fixer/)
+  assert.match(o, /`locations`/)
+  assert.ok(!o.includes('For each issue in the merged report, decide'), 'triage reads merged.issues')
+  assert.match(read('agents/result-fix-orchestrator.md'), /--parse-fixer/)
+})
+test('spec-dual folds each round through fold-findings.cjs before logging with log-findings.cjs', () => {
+  const sd = read('commands/spec-dual.md')
+  assert.match(sd, /fold-findings\.cjs/); assert.match(sd, /log-findings\.cjs/); assert.ok(!sd.includes('log-findings.sh'))
+})
+test('history v3: orchestrators write outcomes.json from the fixer result and log with --outcomes; -c route and spec-dual carry outcome', () => {
+  for (const f of ['agents/spec-orchestrator.md', 'agents/result-fix-orchestrator.md']) {
+    const t = read(f); assert.match(t, /outcomes\.json/, f); assert.match(t, /--outcomes/, f); assert.match(t, /escalated/, f)
+  }
+  assert.match(body('result.md'), /`outcome`/)
+  const sd = body('spec-dual.md'); assert.match(sd, /`outcome`/); assert.ok(!sd.includes('--outcome '), 'spec-dual rows carry their own outcome from the workflow'); assert.match(sd, /escalated/)
+  assert.match(read('README.md'), /schema v3/)
+})
+test('1.21.0: the log-findings.sh wrapper is gone and no prompt or doc names it', () => {
+  assert.ok(!fs.existsSync(path.join(ROOT, 'scripts', 'log-findings.sh')), 'wrapper still on disk')
+  const files = ['commands', 'agents', 'skills', 'templates'].flatMap((d) => fs.readdirSync(path.join(ROOT, d), { recursive: true }).map((f) => path.join(d, String(f)))).filter((f) => f.endsWith('.md') || f.endsWith('.yaml'))
+  for (const f of [...files, 'README.md', '.codex/INSTALL.md']) assert.ok(!read(f).includes('log-findings.sh'), `${f} still names log-findings.sh`)
+})
+test('fix loops log every round with that round\'s outcomes, so fixed and escalated reach history', () => {
+  for (const f of ['agents/spec-orchestrator.md', 'agents/result-fix-orchestrator.md']) {
+    const t = read(f)
+    const log = t.slice(t.indexOf('## Log Findings'))
+    assert.match(log, /every round/i, f)
+    assert.ok(!/Only the FINAL round is logged/.test(log), `${f} still logs only the final round`)
+    assert.match(log, /--outcomes/, f)
+  }
 })
