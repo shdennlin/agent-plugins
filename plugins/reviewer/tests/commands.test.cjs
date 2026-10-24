@@ -276,3 +276,32 @@ test('fix loops log every round with that round\'s outcomes, so fixed and escala
     assert.match(log, /--outcomes/, f)
   }
 })
+
+// --- batch G: verify stage
+test('the verifier brief is a template and reviewer:verifier is a typed brief-receiver that never edits', () => {
+  const t = read('templates/verify-prompt.md')
+  for (const ph of ['{run_dir}', '{batch}', '{working_directory}', '{mode}', '{issues_json}']) assert.ok(t.includes(ph), `template lacks ${ph}`)
+  assert.match(t, /mcp__plugin_reviewer_review__verify_review/)
+  for (const st of ['confirmed', 'refuted', 'unverified']) assert.match(t, new RegExp(`\\b${st}\\b`))
+  assert.match(t, /verify\/\{batch\}\.json/)
+  const a = read('agents/verifier.md')
+  assert.match(a, /Not directly invocable/)
+  assert.match(a, /^tools:\n(?:  - .*\n)*  - mcp__plugin_reviewer_review__\*\n/m)
+  assert.ok(!/^  - Edit\n/m.test(a) && !/^  - Write\n/m.test(a), 'verifier has no editing tool')
+  assert.match(a, /templates\/verify-prompt\.md/)
+})
+test('both orchestrators verify after the merge: Step 3b, typed verifiers in batches, --apply-verify, refuted section; the -c route applies verification too', () => {
+  for (const f of ['agents/result-fix-orchestrator.md', 'agents/spec-orchestrator.md']) {
+    const o = read(f)
+    assert.match(o, /### Step 3b: Verify/, f)
+    assert.match(o, /subagent_type: "reviewer:verifier"/, f)
+    assert.match(o, /templates\/verify-prompt\.md/, f)
+    assert.match(o, /--apply-verify/, f)
+    assert.match(o, /Refuted by verification/, f)
+    assert.match(o, /8/, f)
+    const log = o.slice(o.indexOf('## Log Findings'))
+    assert.match(log, /--apply-verify/, `${f} logging re-run must apply verification so refuted rows log dismissed`)
+  }
+  assert.match(body('result.md'), /--apply-verify/)
+  const r = read('README.md'); for (const st of ['confirmed', 'refuted', 'unverified']) assert.match(r, new RegExp(`\`${st}\``))
+})

@@ -121,7 +121,26 @@ PASS or FAIL (from `verdict`; N critical, N high, N medium, N low from `counts`)
 
 `complete` is false when any report is invalid or any file is `not_reviewed`. Review-process issues stay report-only: they are never fixer directives.
 
-Output the merged report.
+Do not output the report yet: verify first (Step 3b), then output it from the verified `merged.json`. Refuted issues are never directives.
+
+### Step 3b: Verify
+
+Verification runs on every round that has issues; skip it only when `merged.issues` is empty. Split `merged.issues` into batches of at most 8 in id order (`F1`–`F8`, `F9`–`F16`, …; batch names `b1`, `b2`, …) and spawn one Agent per batch **in parallel**:
+
+```
+Agent tool:
+  subagent_type: "reviewer:verifier"
+  description: "Verify findings — batch {b}"
+  prompt: <the brief: read `{plugin_root}/templates/verify-prompt.md`, replace every `{placeholder}` — {run_dir}, {batch}, {working_directory}, {mode} (`spec`), {issues_json} (the batch's issues from `merged.json`, each with id, severity, title, location, locations, pattern, expected, actual) — and pass the result verbatim>
+```
+
+When every verifier has returned, apply the verdicts:
+
+```bash
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --apply-verify
+```
+
+It rewrites `merged.json` (the pre-verification copy stays as `merged.pre-verify.json`): refuted issues move to `refuted[]` with the verifier's evidence, unverified ones drop one severity level and carry `verified: "unverified"`, the rest are `confirmed` or `not_checked` (a verifier that did not return), and `counts`, `verdict` and `verification` are recomputed. Read the verified `merged.json`; everything after this step (the report, triage, directives, logging) uses it. Section B gets a last block, **Refuted by verification**, listing each `refuted[]` entry with its evidence, and the report's Run dir line gains `verified: N confirmed / N refuted / N unverified / N not checked`.
 
 ### Step 4: Check Verdict
 
@@ -238,7 +257,7 @@ ones most worth turning into rules): for each round n = 1..N in order, re-run th
 round's run dir without `--no-log`:
 
 ```bash
-node "{plugin_root}/scripts/merge-findings.cjs" {run_dir of round n} --change "<the same change id as Step 3>" --round n --expect {angle keys of round n} --log-script "{log_script_path}" --outcomes "{run_dir of round n}/outcomes.json"
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir of round n} --change "<the same change id as Step 3>" --round n --expect {angle keys of round n} --apply-verify --log-script "{log_script_path}" --outcomes "{run_dir of round n}/outcomes.json"
 ```
 
 Omit `--outcomes` for a round whose fixer did not run (the file does not exist). Re-running is

@@ -324,6 +324,10 @@ Result review is usually fine with one engine + TDD + verification. Use Codex on
 
 The exception is a different *question*, not a different model: `/reviewer:result -c` adds a spec-blind bug hunt (the built-in `/code-review` or a review skill such as `spectra-review`) for large refactors where "matches the spec" and "will not break" diverge (see [Why a second engine on result review](#why-a-second-engine-on-result-review)).
 
+## Verification
+
+Every merged finding is checked by a verifier it did not come from before it reaches the report. After the merge, the orchestrator sends batches of at most eight issues to `reviewer:verifier` agents (`templates/verify-prompt.md`); each opens the cited location and returns, through the `verify_review` tool, one status per finding: `confirmed` (the defect is there, quoted), `refuted` (the cited text or code disproves it, quoted) or `unverified` (the location cannot be found or the claim cannot be decided from the files). `merge-findings.cjs --apply-verify` folds the verdicts into `merged.json`: refuted findings move to `refuted[]` and log to history as `dismissed`, unverified ones drop one severity level, and `counts`, `verdict` and a `verification` summary are recomputed (`merged.pre-verify.json` keeps the unverified merge). The report lists the refuted findings with their evidence under "Refuted by verification". Verification never adds a finding and never edits a file.
+
 ## Checkpoint reviews for long implementations
 
 `/reviewer:result` already reviews partial diffs via `--base`. For long changes, don't wait
