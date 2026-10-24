@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Reviewer 架構總覽</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: stacked engineering figures (map, one shared pipeline, spec-dual, history row, measurement), each with a caption; blueprint neutrals, one teal accent for schema-enforced hops, one amber for "LLM judgment lives here". */
+  :root {
+    --bg: #f6f7f5; --fg: #1d2420; --muted: #5d6a63; --line: #c7cec9; --panel: #ffffff;
+    --accent: #0f766e; --accent-soft: #d9efec; --llm: #b45309; --llm-soft: #fdf0dc;
+    --font-body: "IBM Plex Sans", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+    color-scheme: light;
+    padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141917; --fg: #e6ebe8; --muted: #9aa69f; --line: #3a4540; --panel: #1d2420;
+      --accent: #5eead4; --accent-soft: #163a36; --llm: #fbbf24; --llm-soft: #3a2a10; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141917; --fg: #e6ebe8; --muted: #9aa69f; --line: #3a4540; --panel: #1d2420;
+    --accent: #5eead4; --accent-soft: #163a36; --llm: #fbbf24; --llm-soft: #3a2a10; color-scheme: dark;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+    padding-block: 32px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  main { max-width: 1180px; margin: 0 auto; display: grid; gap: 28px; }
+  header { display: grid; gap: 6px; max-width: 70ch; }
+  h1 { font-size: 1.6rem; font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  h2 { font-size: 1.05rem; font-weight: 600; margin: 0 0 8px; text-wrap: balance; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  header p, .lead { margin: 0; color: var(--muted); max-width: 70ch; }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+  .scroll { overflow-x: auto; }
+  svg { display: block; min-width: 720px; max-width: 100%; height: auto; font-family: var(--font-body); }
+  figcaption { margin-top: 12px; font-size: 13px; color: var(--muted); max-width: 72ch; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend i { display: inline-block; width: 28px; height: 0; border-top: 2px solid currentColor; }
+  .legend i.dash { border-top-style: dashed; }
+  .legend i.acc { border-top-color: var(--accent); border-top-width: 3px; }
+  .legend b { display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: var(--llm-soft); border: 1px solid var(--llm); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  td code, p code, li code, figcaption code { font-family: var(--font-mono); font-size: 0.9em; background: var(--accent-soft); color: var(--fg); padding: 1px 5px; border-radius: 3px; }
+  .wrap { overflow-x: auto; }
+  .tag { font-family: var(--font-mono); font-size: 11px; color: var(--llm); border: 1px solid var(--llm); border-radius: 3px; padding: 0 5px; white-space: nowrap; }
+  .tag.acc { color: var(--accent); border-color: var(--accent); }
+  section { display: grid; gap: 10px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .cols > div { min-width: 0; }
+  ul { margin: 0; padding-left: 1.2em; }
+  li { margin: 2px 0; }
+  .state { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .state div { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; background: var(--panel); min-width: 0; }
+  .state .k { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  .state .v { font-weight: 600; margin: 2px 0 4px; }
+  .state p { margin: 0; font-size: 13px; color: var(--muted); }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .tabs a { text-decoration: none; color: var(--muted); font-size: 14px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
+  .tabs a[aria-current="page"] { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .tabs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .view { display: grid; gap: 28px; }
+  .view[hidden] { display: none; }
+  details > summary { cursor: pointer; font-weight: 600; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">plugins/reviewer · main 1.22.1（已合併、已 push、已安裝）· 批次 A–G 完成</div>
+    <h1>Reviewer plugin 現在的架構（A–G 完成，1.22.1）</h1>
+    <p>四個命令、一條共用的流水線、一個迴圈。spec 與 result 走同一套：script 準備材料，幾個獨立的審查員各看一個角度，程式合併，<b>再派一個查證員對每條發現反證</b>，最後記進 history。模型只做判斷，集合運算全是程式。</p>
+  </header>
+
+  
+  <nav class="tabs" aria-label="視圖">
+    <a href="#plain" data-view="plain">白話版：它在做什麼、有沒有效</a>
+    <a href="#mech" data-view="mech">機制：流水線與資料</a>
+    <a href="#evidence" data-view="evidence">證據：量測、script、檔案</a>
+  </nav>
+
+  <div class="view" id="plain">
+
+
+  <!-- ===== 0. state ===== -->
+  <section>
+    <h2>0. 現在在哪裡</h2>
+    <div class="state">
+      <div><div class="k">main @ 6fe49e6</div><div class="v">1.22.1（已安裝）</div><p>A–E 1.20.0、F 1.21.0、G 1.22.0 三次 <code>--no-ff</code> 合併，加一個安全修正 1.22.1（symlinked <code>verify/</code>）。</p></div>
+      <div><div class="k">批次 G</div><div class="v">查證段 + 四個小修補</div><p>merge 之後每條發現過查證員；settle-findings、規則文字當 pattern、spec-dual 位置格式、spec seeded harness。</p></div>
+      <div><div class="k">量測</div><div class="v">result 0.86 · spec 0.94</div><p>查證員不吃 recall（0 誤刪），但 6 次實跑 79 條全 confirmed：誤報過濾還沒證明。</p></div>
+      <div><div class="k">history.jsonl</div><div class="v">schema v3</div><p>OneLegion 的 409 列已遷移；<code>outcome</code> 會寫 fixed / escalated / dismissed；escalated 用 settle-findings 收尾。</p></div>
+    </div>
+  </section>
+
+  <!-- ===== 0b. plain overview ===== -->
+  <section>
+    <h2>0b. 一張圖看懂：一次 review 發生什麼事</h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1180 250" role="img" aria-label="六步：準備材料，幾個審查員各看一個角度，程式合併去重，查證員對每條發現反證，報告與修正，最後寫進 history 並長成下一次的規則。">
+        <defs><marker id="a0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.5" font-size="12">
+          <rect x="20" y="40" width="160" height="90" rx="6" fill="var(--panel)"/>
+          <text x="100" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">1 準備材料</text>
+          <text x="100" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">script 列出要看的檔案</text>
+          <text x="100" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">spec：這個 change 的 .md</text>
+          <text x="100" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">result：diff + spec</text>
+          <line x1="180" y1="85" x2="218" y2="85" marker-end="url(#a0)"/>
+          <rect x="220" y="40" width="160" height="90" rx="6" fill="var(--llm-soft)" stroke="var(--llm)"/>
+          <text x="300" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">2 分頭審</text>
+          <text x="300" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">每個角度一個審查員</text>
+          <text x="300" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">只看自己的題目</text>
+          <text x="300" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">交結構化報告，少一份就不算完</text>
+          <line x1="380" y1="85" x2="418" y2="85" marker-end="url(#a0)"/>
+          <rect x="420" y="40" width="160" height="90" rx="6" fill="var(--panel)"/>
+          <text x="500" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">3 程式合併</text>
+          <text x="500" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">同一個問題講三次 → 一條</text>
+          <text x="500" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">跨檔同構造接起來</text>
+          <text x="500" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">最嚴重的排前面，給編號</text>
+          <line x1="580" y1="85" x2="618" y2="85" marker-end="url(#a0)"/>
+          <rect x="620" y="40" width="160" height="90" rx="6" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+          <text x="700" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">4 查證（新）</text>
+          <text x="700" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">另一個人去翻原檔反證</text>
+          <text x="700" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">證明是假的 → 刪掉、記 dismissed</text>
+          <text x="700" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">查不到 → 降一級</text>
+          <line x1="780" y1="85" x2="818" y2="85" marker-end="url(#a0)"/>
+          <rect x="820" y="40" width="160" height="90" rx="6" fill="var(--llm-soft)" stroke="var(--llm)"/>
+          <text x="900" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">5 報告 / 修</text>
+          <text x="900" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">可驗證的文字錯 → fixer 改</text>
+          <text x="900" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">需要拍板的 → 問你</text>
+          <text x="900" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">只建議，不擋 merge</text>
+          <line x1="980" y1="85" x2="1018" y2="85" marker-end="url(#a0)"/>
+          <rect x="1020" y="40" width="140" height="90" rx="6" fill="var(--panel)"/>
+          <text x="1090" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">6 記下場</text>
+          <text x="1090" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">每條：修了 / 升級 / 刪了</text>
+          <text x="1090" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">反覆出現的 → 規則</text>
+          <text x="1090" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">下次 review 帶著規則</text>
+          <path d="M1090,130 L1090,190 L300,190 L300,132" stroke-dasharray="5 4" marker-end="url(#a0)"/>
+          <text x="695" y="182" text-anchor="middle" fill="currentColor" stroke="none" font-size="11" font-weight="600">飛輪：這次抓到的坑，變成下次審查員手上的檢查項</text>
+          <text x="590" y="230" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">黃底 = 模型在判斷 · 青色 = 有 schema 強制的環節 · 白底 = 純程式</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>spec-dual 是同一條線的變體：第 2 步多一個 Codex 審查員、第 3 步由 Workflow 合併、沒有第 4 步。第 4 步是 1.22.0 新加的，對照 Anthropic Code Review 的 Find → Verify → Rank → Post。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== 9. plain language ===== -->
+  <section>
+    <h2>9. 白話版：reviewer 看哪些面向、跟外面的做法比、到底有沒有效</h2>
+    <p class="lead">這一節不講 script 和 schema。先說 reviewer 在替你看什麼，再對照 Anthropic、CodeRabbit / Greptile、學術研究、spec-driven 工具各自怎麼做，最後對三個 skill 各下一個判斷：有沒有達到當初的預期。</p>
+
+    <h2 style="font-size:0.95rem;margin-top:8px">9a. 它看哪些面向</h2>
+    <div class="cols">
+      <div class="wrap">
+        <table>
+          <tr><th colspan="2">審 spec（/reviewer:spec、spec-dual 共用，7 個角度）</th></tr>
+          <tr><td>範圍與邊界</td><td>這份東西要做什麼、明確不做什麼？有沒有偷渡範圍。</td></tr>
+          <tr><td>完整性與邊角</td><td>空值、失敗、權限、極端輸入有沒有被寫到。</td></tr>
+          <tr><td>任務與完成條件</td><td>每個 task 做完怎麼算做完？能不能驗。</td></tr>
+          <tr><td>平台與工具可行性</td><td>要用的庫、API、環境真的辦得到嗎。</td></tr>
+          <tr><td>設計合理性</td><td>資料流、狀態、錯誤處理站得住腳嗎。</td></tr>
+          <tr><td>內部一致性</td><td>proposal、design、tasks 三份互相講的是同一件事嗎。</td></tr>
+          <tr><td>跨單元組合（需要時）</td><td>幾個獨立的 spec 一起實作時會不會互相打架。</td></tr>
+        </table>
+      </div>
+      <div class="wrap">
+        <table>
+          <tr><th colspan="2">審實作（/reviewer:result，3 個角度）</th></tr>
+          <tr><td>Spec 覆蓋</td><td>spec 說要做的，diff 裡每一條都有對應嗎？checkpoint 有勾嗎。</td></tr>
+          <tr><td>穩健性與安全</td><td>沒驗的輸入、吞掉的錯誤、競態、注入、資源沒釋放。</td></tr>
+          <tr><td>正確性與邏輯</td><td>邊界差一、型別混用、舊值沒更新、兩個檔案對同一件事算法不同。</td></tr>
+          <tr><td colspan="2" style="color:var(--muted)">再加一個可選的第二引擎（<code>-c</code>）：Claude 的 /code-review 或任何 review skill，把它的 finding 併進同一張表。</td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="lead">一句話：spec 階段抓「想錯、漏想、互相矛盾」，result 階段抓「做錯、沒做、做了 spec 沒說的危險事」。每個角度一個獨立的子代理只帶自己的簡報，再由程式合併，這是整個設計的核心賭注。</p>
+
+    <h2 style="font-size:0.95rem;margin-top:14px">9b. 跟外面的做法對照</h2>
+    <div class="wrap">
+    <table>
+      <tr><th>誰 / 什麼</th><th>他們怎麼做、解決什麼問題</th><th>reviewer 對應的地方</th><th>差距</th></tr>
+      <tr>
+        <td><a href="https://code.claude.com/docs/en/code-review">Anthropic Claude Code Review</a>（Team/Enterprise，2026）</td>
+        <td>四段：<b>Find</b>（多個 agent 平行讀 diff 與周邊）→ <b>Verify</b>（對著程式碼再驗一次，刪掉誤報）→ <b>Rank</b>（去重、依嚴重度排）→ <b>Post</b>。永不 approve / block。內部自報「被工程師標為錯的 finding 不到 1%」。預設只看正確性，不管格式與測試覆蓋。</td>
+        <td>Find = 多 angle 平行 ✓；Rank = merge 去重 + worst-first ✓；Post = merged.json 與報告 ✓；verdict 只建議不阻擋 ✓；「沒 finding 不代表沒 bug」= 我們的 <code>complete:false</code> 態度 ✓。</td>
+        <td>1.22.0 補上了 Verify 段（結構對齊）。效果未證明：6 次實跑 79 條全 confirmed，因為 fixture 裡沒有假發現可擋。誤報率仍然沒量過。</td>
+      </tr>
+      <tr>
+        <td>商用 PR reviewer：<a href="https://codereview.withmartian.com/">Martian Code Review Bench</a>、<a href="https://entelligence.ai/code-review-benchmark-2026">Entelligence 2026</a>（CodeRabbit、Greptile、Codex）</td>
+        <td>用真實 bug commit 重播成 PR 當 golden set 評分。F1 大約 50–65%；recall 47–79% 看 repo。多家小型 seeded 測試顯示<b>跨檔缺陷是共同的盲點</b>。評分方式（一題一 bug vs 每個缺陷都算）會翻轉名次。</td>
+        <td>我們有自己的 seeded harness（7 個 bug，含 3 個跨檔、1 個埋在 600 行裡），recall 0.86，原 4 題 1.0；跨檔靠 merge 的 head 掃描補到 2/3 種。</td>
+        <td>規模差兩個量級：7 個合成 bug、一個模型家族、三次。能說「pipeline 沒漏」，不能說「比 CodeRabbit 強」。</td>
+      </tr>
+      <tr>
+        <td>學術：<a href="https://arxiv.org/html/2511.16708">CodeX-Verify</a>（4 個專職 agent）、<a href="https://arxiv.org/html/2605.01885v1">QASecClaw</a>（多 agent 過濾 SAST 誤報）</td>
+        <td>分工的多 agent 抓得多（76% 命中）但誤報一半；多 agent 當過濾器把 Semgrep 的 F1 從 78 拉到 91。結論：<b>分工提 recall，過濾提 precision，兩段要分開做</b>。</td>
+        <td>分工段有了（angle 子代理）。</td>
+        <td>過濾段有了，精度未量：需要埋假發現的 fixture。</td>
+      </tr>
+      <tr>
+        <td>學術：多模型投票的「<a href="https://arxiv.org/abs/2510.21513">popularity trap</a>」、異質團隊研究（2026）</td>
+        <td>同源模型投票會把少數正確答案投掉；異質模型有幫助但常輸給最強的單一成員。<b>多樣性比投票機制重要</b>；union 拉 recall、投票拉 precision。</td>
+        <td>spec-dual 的 Claude + Codex 是異質；合併用 <b>union</b>（任一引擎 MEDIUM+ 就是 blocker），不投票。誤報交給 fixer 的 disposition 和升級給人。</td>
+        <td>方向對，代價是 fixer 要承受更多假 blocker。「Codex 到底多補了幾條 Claude 漏的」有資料（history 的 <code>engines[]</code>）但還沒算過。</td>
+      </tr>
+      <tr>
+        <td>Spec-driven 工具：Kiro、<a href="https://www.glukhov.org/ai-devtools/openspec/">OpenSpec</a>、Spec Kit</td>
+        <td>把人工審查放在需求與設計兩道門。常見坑：spec 看起來精確其實很淺、自動生成的需求把沒人同意的假設寫成規定、實作後 spec 不會自己更新（drift）、agent 不會均勻注意整個 context、要審的 markdown 太多。</td>
+        <td>spec / spec-dual = 人工那道門之前的自動門，專打「淺、假精確、互相矛盾」；result = drift 檢查（code 對 spec）；rules 飛輪把反覆出現的坑變成下一次的檢查項。</td>
+        <td>spec harness 有了（6 seed，首量 0.94）。缺的變成：fixture 小而粗、extra 多；嚴重度一致只有 0.18。</td>
+      </tr>
+      <tr>
+        <td>Google：<a href="https://research.google/people/107902/">ML 解決 review comment</a>（ICSE-SEIP 2024）、<a href="https://newsletter.getdx.com/p/ai-assisted-code-reviews-at-google">AutoCommenter</a></td>
+        <td>衡量標準不是「講了幾條」而是「<b>有多少 comment 真的讓程式碼改了</b>」：7.5% 的 reviewer comment 由 ML 建議直接解決；AutoCommenter 約四成 comment 導致修改。</td>
+        <td>1.21.0 的 history v3 加了 <code>outcome</code>（fixed / escalated / residual / open），第一次能算這個數字。</td>
+        <td>OneLegion 第一輪 --fix 有了 12 fixed / 12 escalated；escalated 現在能用 settle-findings 收尾，outcome 才會變成可統計的數字。</td>
+      </tr>
+    </table>
+    </div>
+
+    <h2 style="font-size:0.95rem;margin-top:14px">9c. 總結判斷：三個 skill 有沒有達到預期</h2>
+    <div class="state">
+      <div>
+        <div class="k">/reviewer:result</div>
+        <div class="v">有，而且是唯一有數字的</div>
+        <p>預期：抓到 spec 與實作的落差和隱藏 bug，不重複報。量到的：原 4 個 seed 從 0.75 到每次全中；7 個 seed 0.86，加了查證段後不變；每次 7 條、extra 0；跨檔同構造 2/3 種抓到；600 行裡的 bug 3/3。沒量到的：誤報率。查證段跑了但沒東西可刪，所以「不吃 recall」有證據，「少誤報」沒有。判斷：<b>達到「抓錯、不重複」的預期；「少誤報」有機制、沒證明</b>。</p>
+      </div>
+      <div>
+        <div class="k">/reviewer:spec</div>
+        <div class="v">架構到位，第一個數字 0.94</div>
+        <p>預期：實作前抓出想錯、漏想、矛盾。現在有自己的 seeded harness：6 個埋好的缺陷 3 次平均 0.94，漏的是 proposal 與 spec 之間的矛盾（2/3）。OneLegion 真實 change 一輪 --fix：24 條，12 條文字修正自動補、12 條決定類全部升級給人，沒有 AI 替 AI 補決定。弱點：extra ~15 條/次（部分是沒合起來的重複）、嚴重度一致只有 0.18。判斷：<b>抓得到，抓太多；下一步是 fold 與嚴重度校準，不是 recall</b>。</p>
+      </div>
+      <div>
+        <div class="k">/reviewer:spec-dual</div>
+        <div class="v">迴圈邏輯驗證完整，雙引擎的增益沒算過</div>
+        <p>預期：兩個不同來源的模型互補，自動修到兩邊都乾淨，修不了的升級給人。24 個 harness scenario 證明 union、升級、gate 回歸、引擎死掉的處理都對；研究也支持異質 + union 的選擇。沒做的：Codex 到底多抓了幾條、假 blocker 讓 fixer 多做了多少工。history 裡 10/16–10/19 的 <code>engines</code> 資料已經可以回答第一題。判斷：<b>機制達標，效益待一次簡單的統計</b>。</p>
+      </div>
+    </div>
+    <p class="lead" style="margin-top:6px">整體：結構現在完整對齊 Find → Verify → Rank → Post，三個 skill 都有自己的量尺。<b>查證員的判斷：不吃 recall（兩個 harness 共 9 次、0 條真 bug 被刪），但誤報過濾未證明</b>（79/79 confirmed，fixture 裡沒有假發現；簡報也把嚴重度、重複、判斷型發現排除在反證之外）。下一個該做的是埋假發現的 fixture，在那之前不要宣稱誤報率。</p>
+    <p class="lead" style="font-size:12px">參考：<a href="https://code.claude.com/docs/en/code-review">Claude Code Review 文件</a> · <a href="https://www.infoq.com/news/2026/04/claude-code-review/">InfoQ 報導</a> · <a href="https://codereview.withmartian.com/">Martian Code Review Bench</a> · <a href="https://entelligence.ai/code-review-benchmark-2026">Entelligence 2026 benchmark</a> · <a href="https://arxiv.org/html/2511.16708">CodeX-Verify</a> · <a href="https://arxiv.org/html/2605.01885v1">QASecClaw</a> · <a href="https://arxiv.org/abs/2510.21513">popularity trap</a> · <a href="https://arxiv.org/pdf/2603.25773">The Specification as Quality Gate</a> · <a href="https://www.glukhov.org/ai-devtools/openspec/">OpenSpec quickstart</a> · <a href="https://newsletter.getdx.com/p/ai-assisted-code-reviews-at-google">AutoCommenter at Google</a></p>
+  </section>
+  </div>
+
+  <div class="view" id="mech">
+  <div class="legend">
+    <span><i></i>寫入 / 呼叫</span>
+    <span><i class="dash"></i>讀取</span>
+    <span><i class="acc"></i>schema 強制的環節</span>
+    <span><b></b>LLM 判斷住在這裡</span>
+  </div>
+
+
+  <!-- ===== 1. map ===== -->
+  <section>
+    <h2>1. 四個命令與它們共用的東西</h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1180 480" role="img" aria-label="四個命令：spec、spec-dual、result、init。spec 與 result 都經 report_review 與 merge-findings.cjs；spec-dual 的 workflow 經 fold-findings.cjs；三者都由 log-findings.cjs 寫 history.jsonl v3；init --from-history 讀 history 寫 rules，形成迴圈。rules 與 angles 由 read-rules.cjs 與 review-angles.yaml 供給。">
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <marker id="a1acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+        </defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.5" font-size="12">
+          <!-- inputs -->
+          <text x="20" y="40" fill="var(--muted)" stroke="none" font-size="11" font-family="var(--font-mono)">輸入（spec 階段）</text>
+          <rect x="20" y="52" width="200" height="40" rx="4" fill="var(--panel)"/>
+          <text x="120" y="77" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">openspec/changes/&lt;name&gt;/*.md</text>
+          <text x="20" y="150" fill="var(--muted)" stroke="none" font-size="11" font-family="var(--font-mono)">輸入（result 階段）</text>
+          <rect x="20" y="162" width="200" height="40" rx="4" fill="var(--panel)"/>
+          <text x="120" y="187" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">git diff（base…HEAD）+ spec</text>
+
+          <!-- commands -->
+          <rect x="330" y="40" width="230" height="56" rx="4" fill="var(--panel)"/>
+          <text x="445" y="62" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">/reviewer:spec</text>
+          <text x="445" y="80" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">6–7 angle · typed spec-reviewer · merge script</text>
+          <rect x="330" y="116" width="230" height="56" rx="4" fill="var(--panel)"/>
+          <text x="445" y="138" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">/reviewer:spec-dual</text>
+          <text x="445" y="156" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">Claude angles + Codex · Workflow 程式合併</text>
+          <rect x="330" y="192" width="230" height="56" rx="4" fill="var(--panel)"/>
+          <text x="445" y="214" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">/reviewer:result [-c 引擎]</text>
+          <text x="445" y="232" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">3 angle · typed result-reviewer · merge script</text>
+          <rect x="330" y="360" width="230" height="56" rx="4" fill="var(--panel)"/>
+          <text x="445" y="382" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">/reviewer:init --from-history</text>
+          <text x="445" y="400" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">分群 finding → apply-rules.cjs 寫規則</text>
+
+          <line x1="220" y1="72" x2="328" y2="68" marker-end="url(#a1)"/>
+          <line x1="220" y1="72" x2="328" y2="144" marker-end="url(#a1)"/>
+          <line x1="220" y1="182" x2="328" y2="220" marker-end="url(#a1)"/>
+
+          <!-- shared -->
+          <text x="700" y="40" fill="var(--muted)" stroke="none" font-size="11" font-family="var(--font-mono)">共用資料與 script</text>
+          <rect x="700" y="52" width="220" height="44" rx="4" fill="var(--panel)"/>
+          <text x="810" y="70" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">review-angles.yaml · check-angles.cjs</text>
+          <text x="810" y="86" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">spec 7 個 angle · result 3 個；未知 key 直接拒絕</text>
+          <rect x="700" y="116" width="220" height="44" rx="4" fill="var(--panel)"/>
+          <text x="810" y="134" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">read-rules.cjs --paths</text>
+          <text x="810" y="150" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">唯一的 rules / history 路徑來源（openspec 或 .claude）</text>
+          <rect x="700" y="300" width="220" height="44" rx="4" fill="var(--panel)"/>
+          <text x="810" y="318" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">history.jsonl（v3）</text>
+          <text x="810" y="334" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">change · source · round · engines[] · locations[] · outcome</text>
+          <rect x="700" y="410" width="220" height="40" rx="4" fill="var(--panel)"/>
+          <text x="810" y="434" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">log-findings.cjs（驗 schema 才寫）</text>
+
+          <!-- reads -->
+          <path d="M698,74 L562,62" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <path d="M698,76 L562,134" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <path d="M698,80 L562,208" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <path d="M698,138 L562,78" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <path d="M698,140 L562,150" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <path d="M698,146 L562,380" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <!-- writes to log -->
+          <path d="M560,90 C 640,90 640,430 698,430" marker-end="url(#a1)"/>
+          <path d="M560,166 C 640,166 640,430 698,430"/>
+          <path d="M560,240 C 640,240 640,430 698,430"/>
+          <text x="612" y="300" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">每一輪各記一次</text>
+          <line x1="810" y1="410" x2="810" y2="346" marker-end="url(#a1)"/>
+          <!-- flywheel -->
+          <path d="M698,322 L562,388" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+          <path d="M560,372 C 610,372 630,170 698,152" marker-end="url(#a1)"/>
+          <text x="600" y="264" text-anchor="middle" fill="currentColor" stroke="none" font-size="11" font-weight="600">飛輪：finding → rule → 下一次 review</text>
+
+          <!-- MCP -->
+          <rect x="960" y="110" width="200" height="72" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+          <text x="1060" y="132" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">.mcp.json → report_review</text>
+          <text x="1060" y="150" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">spec 模式與 result 模式（manifest.mode）</text>
+          <text x="1060" y="166" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">每個檔案都要有 verdict</text>
+          <path d="M562,56 C 760,30 900,30 958,126" stroke="var(--accent)" stroke-width="2" marker-end="url(#a1acc)"/>
+          <path d="M562,230 C 760,260 900,250 958,170" stroke="var(--accent)" stroke-width="2" marker-end="url(#a1acc)"/>
+          <!-- second engine -->
+          <rect x="960" y="210" width="200" height="52" rx="4" fill="var(--panel)"/>
+          <text x="1060" y="230" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">resolve-engine.cjs</text>
+          <text x="1060" y="248" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">-c &lt;level|skill&gt; → review-engines.yaml → Skill 呼叫</text>
+          <path d="M562,244 C 760,290 900,290 958,236" stroke-dasharray="5 4" marker-end="url(#a1)"/>
+        </g>
+      </svg>
+      </div>
+      <figcaption>spec 與 result 現在都經 <code>report_review</code>（同一個 MCP tool，靠 <code>manifest.mode</code> 分 spec / result 兩種驗法）和 <code>merge-findings.cjs</code>。spec-dual 用自己的 Workflow 合併，但記錄前先過 <code>fold-findings.cjs</code>，三個來源寫進同一份 v3 history。路徑、angle 驗證、-c 引擎查表都已是 script，prompt 只呼叫、不自己推。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== 2. shared pipeline ===== -->
+  <section>
+    <h2>2. spec 與 result 共用的一條流水線（細節版）<span class="tag acc">1.20.0 result · 1.21.0 spec · 1.22.0 verify</span></h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1180 620" role="img" aria-label="orchestrator 每輪：setup script 建 run_dir（manifest.json；result 另有 diff.patch），平行派 typed angle 子代理，各帶 templates 的簡報，各自呼叫 report_review 寫 angle.json；merge-findings.cjs 產生 merged.json；orchestrator 讀 merged.json 做 triage，派 fixer；fixer 回 FIXER-RESULT 區塊，orchestrator 經 --parse-fixer 寫 outcomes.json；迴圈結束後每輪再跑一次 merge 帶 --log-script 與 --outcomes 寫 history。">
+        <defs>
+          <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+          <marker id="a3acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+        </defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.5" font-size="12">
+          <!-- run_dir column -->
+          <rect x="990" y="22" width="180" height="560" rx="6" stroke-dasharray="6 4" stroke="var(--muted)"/>
+          <text x="1000" y="42" fill="var(--muted)" stroke="none" font-family="var(--font-mono)" font-size="11">run_dir/</text>
+          <text x="1000" y="56" fill="var(--muted)" stroke="none" font-size="10">openspec/reviews/runs/ 或 .claude/reviewer/runs/</text>
+          <text x="1000" y="70" fill="var(--muted)" stroke="none" font-size="10">mktemp id · 只留最新 10 個</text>
+
+          <!-- command -->
+          <rect x="20" y="270" width="160" height="56" rx="4" fill="var(--panel)"/>
+          <text x="100" y="290" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">commands/{spec,result}.md</text>
+          <text x="100" y="308" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">check-angles · read-rules · plugin_root</text>
+          <line x1="180" y1="298" x2="222" y2="298" marker-end="url(#a3)"/>
+
+          <!-- orchestrator -->
+          <rect x="224" y="80" width="210" height="500" rx="6" fill="var(--llm-soft)" stroke="var(--llm)"/>
+          <text x="329" y="104" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">{spec,result-fix}-orchestrator</text>
+          <text x="329" y="120" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">LLM：只剩判斷工作</text>
+          <text x="240" y="156" fill="currentColor" stroke="none">每輪  跑 setup</text>
+          <text x="240" y="250" fill="currentColor" stroke="none">平行派 typed angle 子代理</text>
+          <text x="240" y="266" fill="var(--muted)" stroke="none" font-size="11">填 templates/*-angle-prompt.md</text>
+          <text x="240" y="400" fill="currentColor" stroke="none">跑 merge → Step 3b 查證</text>
+          <text x="240" y="430" fill="currentColor" stroke="none">讀 merged.json</text>
+          <text x="240" y="446" fill="var(--muted)" stroke="none" font-size="11">語意 fold · render · triage（問你）</text>
+          <text x="240" y="462" fill="var(--muted)" stroke="none" font-size="11">complete=false → FAIL，不派 fixer</text>
+          <text x="240" y="500" fill="currentColor" stroke="none">派 fixer → --parse-fixer</text>
+          <text x="240" y="516" fill="var(--muted)" stroke="none" font-size="11">applied→fixed · skipped→open · 退回→escalated</text>
+          <text x="240" y="556" fill="currentColor" stroke="none">迴圈結束：每輪 merge --log-script</text>
+
+          <!-- setup -->
+          <rect x="520" y="130" width="200" height="56" rx="4" fill="var(--panel)"/>
+          <text x="620" y="152" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="12">setup-{spec,result}-review.sh</text>
+          <text x="620" y="170" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">spec: *.md 清單 · result: diff + submodules</text>
+          <line x1="434" y1="156" x2="518" y2="156" marker-end="url(#a3)"/>
+          <line x1="720" y1="156" x2="988" y2="156" marker-end="url(#a3)"/>
+          <rect x="1004" y="130" width="152" height="60" rx="3" fill="var(--panel)"/>
+          <text x="1080" y="148" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">manifest.json</text>
+          <text x="1080" y="164" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">mode · files · base · skipped_submodules</text>
+          <text x="1080" y="180" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">diff.patch（result 才有）</text>
+
+          <!-- agents -->
+          <g fill="var(--panel)"><rect x="520" y="222" width="200" height="40" rx="4"/><rect x="520" y="282" width="200" height="40" rx="4"/><rect x="520" y="342" width="200" height="40" rx="4"/></g>
+          <g fill="currentColor" stroke="none"><text x="620" y="247" text-anchor="middle">reviewer:{spec,result}-reviewer · angle A</text><text x="620" y="307" text-anchor="middle">… angle B</text><text x="620" y="367" text-anchor="middle">… angle N</text></g>
+          <g stroke="currentColor"><line x1="434" y1="242" x2="518" y2="242" marker-end="url(#a3)"/><line x1="434" y1="302" x2="518" y2="302" marker-end="url(#a3)"/><line x1="434" y1="362" x2="518" y2="362" marker-end="url(#a3)"/></g>
+          <text x="620" y="398" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">每條 issue 帶 severity · location · pattern（可選）</text>
+
+          <!-- report_review -->
+          <rect x="790" y="272" width="150" height="60" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+          <text x="865" y="294" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600" font-family="var(--font-mono)" font-size="12">report_review</text>
+          <text x="865" y="310" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">讀 manifest.mode 選驗法</text>
+          <text x="865" y="324" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">spec: 無 coverage、§ 位置</text>
+          <g stroke="var(--accent)" stroke-width="2"><line x1="720" y1="242" x2="788" y2="290" marker-end="url(#a3acc)"/><line x1="720" y1="302" x2="788" y2="302" marker-end="url(#a3acc)"/><line x1="720" y1="362" x2="788" y2="314" marker-end="url(#a3acc)"/>
+          <line x1="940" y1="290" x2="1002" y2="242" marker-end="url(#a3acc)"/><line x1="940" y1="302" x2="1002" y2="302" marker-end="url(#a3acc)"/><line x1="940" y1="314" x2="1002" y2="362" marker-end="url(#a3acc)"/></g>
+          <g fill="var(--panel)"><rect x="1004" y="222" width="152" height="40" rx="3"/><rect x="1004" y="282" width="152" height="40" rx="3"/><rect x="1004" y="342" width="152" height="40" rx="3"/></g>
+          <g fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11"><text x="1080" y="247" text-anchor="middle">&lt;angleA&gt;.json</text><text x="1080" y="307" text-anchor="middle">&lt;angleB&gt;.json</text><text x="1080" y="367" text-anchor="middle">&lt;angleN&gt;.json</text></g>
+
+          <!-- merge -->
+          <rect x="520" y="410" width="200" height="86" rx="4" fill="var(--panel)"/>
+          <text x="620" y="430" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="12">merge-findings.cjs</text>
+          <text x="620" y="447" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">dedup（location+title）· fold（normKey）</text>
+          <text x="620" y="462" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">result: sweep 加 head 掃描，上限 5 檔</text>
+          <text x="620" y="477" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">spec: 不做包含合併、保留每個 §</text>
+          <text x="620" y="491" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">--expect · not_reviewed · complete</text>
+          <line x1="434" y1="420" x2="518" y2="420" marker-end="url(#a3)"/>
+          <path d="M1002,380 C 900,380 820,420 722,428" stroke-dasharray="5 4" marker-end="url(#a3)"/>
+          <line x1="720" y1="453" x2="988" y2="453" marker-end="url(#a3)"/>
+          <rect x="1004" y="438" width="152" height="28" rx="3" fill="var(--panel)"/>
+          <text x="1080" y="457" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">merged.json</text>
+          <path d="M1080,466 L1080,480 L329,480 L329,436" stroke-dasharray="5 4"/>
+
+          <!-- fixer -->
+          <rect x="790" y="470" width="150" height="60" rx="4" fill="var(--llm-soft)" stroke="var(--llm)"/>
+          <text x="865" y="492" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">{spec,result}-fixer</text>
+          <text x="865" y="508" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">改檔；結尾固定區塊</text>
+          <text x="865" y="522" text-anchor="middle" fill="var(--muted)" stroke="none" font-family="var(--font-mono)" font-size="10">FIXER-RESULT … END</text>
+          <path d="M434,500 L788,500" marker-end="url(#a3)"/>
+          <path d="M865,530 L865,548 L1002,548" marker-end="url(#a3)"/>
+          <rect x="1004" y="534" width="152" height="28" rx="3" fill="var(--panel)"/>
+          <text x="1080" y="553" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">outcomes.json</text>
+          <text x="930" y="565" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">經 --parse-fixer，merge 不把它當報告讀</text>
+
+          <!-- log -->
+          <path d="M434,560 L518,560" marker-end="url(#a3)"/>
+          <rect x="520" y="540" width="200" height="40" rx="4" fill="var(--panel)"/>
+          <text x="620" y="557" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">merge --log-script log-findings.cjs</text>
+          <text x="620" y="572" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">--outcomes run_dir/outcomes.json · 每輪一次</text>
+          <path d="M720,560 L760,560 L760,600 L329,600 L329,582" stroke-dasharray="5 4"/>
+          <text x="545" y="612" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">寫 history.jsonl：source spec|result · outcome fixed|escalated|open</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>兩個命令只差 setup 的輸入和 merge 的兩條規則：result 有 <code>diff.patch</code>，所以能做 pattern sweep（含去掉 receiver 的 construct head、>5 檔即視為泛用而不合併）；spec 審的是 prose，所以不做「一個 pattern 包含另一個就合併」，並保留每個 <code>§</code> 位置。tool 不在時子代理用 heredoc 直接寫檔，merge 標 <code>via: file</code>。任一 angle 沒交報告或任一檔案 not_reviewed，<code>complete</code> 就是 false。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== 2b. verify ===== -->
+  <section>
+    <h2>2b. 查證段：merge 之後、triage 之前 <span class="tag acc">1.22.0</span></h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1180 300" role="img" aria-label="merged.json 的 issue 依編號切成每批最多 8 條，每批一個 reviewer:verifier 子代理帶模板去打開引用位置；各自呼叫 verify_review 寫 verify/<batch>.json；merge --apply-verify 把結果折回 merged.json：refuted 移到 refuted[] 並記 history 為 dismissed，unverified 降一級，confirmed 不動，沒回報的 not_checked；counts 與 verdict 重算，complete 不變。">
+        <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="a4acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker></defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.5" font-size="12">
+          <rect x="20" y="40" width="170" height="60" rx="4" fill="var(--panel)"/>
+          <text x="105" y="64" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">merged.json</text>
+          <text x="105" y="82" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">每條 issue 有編號 F1…Fn</text>
+          <line x1="190" y1="70" x2="248" y2="70" marker-end="url(#a4)"/>
+          <text x="219" y="60" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">每批 ≤8</text>
+          <g fill="var(--llm-soft)" stroke="var(--llm)"><rect x="250" y="30" width="200" height="40" rx="4"/><rect x="250" y="80" width="200" height="40" rx="4"/></g>
+          <text x="350" y="54" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">查證員 · 第 1 批</text>
+          <text x="350" y="104" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">查證員 · 第 2 批 …</text>
+          <text x="350" y="140" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">不是寫這些發現的人；必須打開引用位置</text>
+          <text x="350" y="154" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">每條回：成立 / 不成立 / 查不到，附一行證據</text>
+          <rect x="520" y="55" width="150" height="50" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/>
+          <text x="595" y="76" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="12" font-weight="600">verify_review</text>
+          <text x="595" y="94" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">編號要存在、狀態只有三種</text>
+          <g stroke="var(--accent)" stroke-width="2"><line x1="450" y1="50" x2="518" y2="72" marker-end="url(#a4acc)"/><line x1="450" y1="100" x2="518" y2="88" marker-end="url(#a4acc)"/></g>
+          <rect x="740" y="55" width="150" height="50" rx="4" fill="var(--panel)"/>
+          <text x="815" y="76" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">verify/&lt;batch&gt;.json</text>
+          <text x="815" y="94" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">tool 不在時手寫，merge 再驗一次</text>
+          <line x1="670" y1="80" x2="738" y2="80" stroke="var(--accent)" stroke-width="2" marker-end="url(#a4acc)"/>
+          <rect x="960" y="30" width="200" height="100" rx="4" fill="var(--panel)"/>
+          <text x="1060" y="50" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">merge --apply-verify</text>
+          <text x="1060" y="68" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">不成立 → 移出報告，history 記 dismissed</text>
+          <text x="1060" y="84" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">查不到 → 降一級（LOW 不動）</text>
+          <text x="1060" y="100" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">成立 → 不動；沒回報 → 標 not_checked</text>
+          <text x="1060" y="116" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">數量與 verdict 重算；complete 不變</text>
+          <line x1="890" y1="80" x2="958" y2="80" marker-end="url(#a4)"/>
+          <path d="M1060,130 L1060,200 L105,200 L105,102" stroke-dasharray="5 4" marker-end="url(#a4)"/>
+          <text x="582" y="192" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">改寫 merged.json（舊版留在 merged.pre-verify.json）→ 報告、triage、fixer、記錄全部用查證後的版本</text>
+          <text x="582" y="240" text-anchor="middle" fill="currentColor" stroke="none" font-size="11" font-weight="600">查證員從不新增發現、從不改檔；被刪掉的發現連同證據記進 history，餵給 init --from-history</text>
+          <text x="582" y="270" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">不查證的：-c 第二引擎的發現、spec-dual workflow 的發現</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>1.22.1 另補了一個洞：<code>verify/</code> 若事先被放成指向外部的 symlink，批次檔會寫到 run dir 外面；現在先 lstat 再 realpath 確認。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== 3. spec-dual ===== -->
+  <section>
+    <h2>3. spec-dual 一輪在做什麼 <span class="tag">workflows/spec-dual.workflow.js（spec-dual-loop）</span></h2>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1180 520" role="img" aria-label="spec-dual：command 讀 angles 與 rules 經 args 進 Workflow。第一輪每個 Claude angle 一個 agent 與一個 Codex agent 平行；程式做 union、blocker 計數、跨輪 id 鏈、stale 升級；fixer 用 disposition 修或退回；第二輪起三組 agent。每輪 history 列帶 outcome；command 把每輪的 findings 經 fold-findings.cjs 再 log-findings.cjs 記錄。">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        </defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.5" font-size="12">
+          <rect x="20" y="40" width="190" height="88" rx="4" fill="var(--llm-soft)" stroke="var(--llm)"/>
+          <text x="115" y="62" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">commands/spec-dual.md</text>
+          <text x="115" y="80" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">angles 段 + rules JSON → args</text>
+          <text x="115" y="96" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">Workflow 名 spec-dual-loop</text>
+          <text x="115" y="112" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">（同名會蓋掉 slash command）</text>
+          <line x1="210" y1="84" x2="268" y2="84" marker-end="url(#a2)"/>
+
+          <rect x="270" y="20" width="890" height="400" rx="6" stroke-dasharray="6 4" stroke="var(--muted)"/>
+          <text x="282" y="40" fill="var(--muted)" stroke="none" font-size="11" font-family="var(--font-mono)">Workflow tool，純程式，無 require：fold 規則複製自 merge 的 normKey 契約</text>
+
+          <text x="290" y="70" fill="currentColor" stroke="none" font-weight="600">第 1 輪</text>
+          <g fill="var(--panel)">
+            <rect x="290" y="80" width="150" height="26" rx="3"/><rect x="290" y="112" width="150" height="26" rx="3"/><rect x="290" y="144" width="150" height="26" rx="3"/>
+            <rect x="290" y="176" width="150" height="26" rx="3"/><rect x="290" y="208" width="150" height="26" rx="3"/><rect x="290" y="240" width="150" height="26" rx="3"/>
+          </g>
+          <g fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">
+            <text x="365" y="97" text-anchor="middle">claude:scope:1</text><text x="365" y="129" text-anchor="middle">claude:completeness:1</text>
+            <text x="365" y="161" text-anchor="middle">claude:tasks:1</text><text x="365" y="193" text-anchor="middle">claude:platform:1</text>
+            <text x="365" y="225" text-anchor="middle">claude:design:1</text><text x="365" y="257" text-anchor="middle">claude:consistency:1</text>
+          </g>
+          <rect x="290" y="290" width="150" height="26" rx="3" fill="var(--panel)"/>
+          <text x="365" y="307" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">codex:1</text>
+          <text x="365" y="332" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">所有 angle + rules 一個 prompt；無 category → cross-cutting</text>
+
+          <rect x="500" y="120" width="190" height="130" rx="4" fill="var(--panel)"/>
+          <text x="595" y="142" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">程式合併</text>
+          <text x="595" y="162" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">兩引擎 union，不是投票</text>
+          <text x="595" y="178" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">blocker = 任一引擎 MEDIUM+</text>
+          <text x="595" y="194" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">跨輪 id 鏈、stale → escalated</text>
+          <text x="595" y="210" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">死掉的 angle → degraded</text>
+          <text x="595" y="226" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">history[n].findings 帶 engine/engines</text>
+          <text x="595" y="242" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">pattern 透傳 · outcome 預設 open</text>
+          <g stroke="currentColor"><line x1="440" y1="93" x2="498" y2="150" marker-end="url(#a2)"/><line x1="440" y1="253" x2="498" y2="200" marker-end="url(#a2)"/><line x1="440" y1="303" x2="498" y2="230" marker-end="url(#a2)"/></g>
+
+          <rect x="750" y="120" width="180" height="130" rx="4" fill="var(--llm-soft)" stroke="var(--llm)"/>
+          <text x="840" y="142" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">fix:round1</text>
+          <text x="840" y="160" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">一個 fixer 拿全部 fresh blocker</text>
+          <text x="840" y="176" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">applied[] → 該列 outcome fixed</text>
+          <text x="840" y="192" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">rejected[] → escalated · needsHuman</text>
+          <text x="840" y="208" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">Spectra gate 前後比對</text>
+          <text x="840" y="224" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">regression → 不自動回退</text>
+          <line x1="690" y1="180" x2="748" y2="180" marker-end="url(#a2)"/>
+
+          <text x="990" y="70" fill="currentColor" stroke="none" font-weight="600">第 2 輪起</text>
+          <g fill="var(--panel)"><rect x="960" y="80" width="190" height="26" rx="3"/><rect x="960" y="112" width="190" height="26" rx="3"/><rect x="960" y="144" width="190" height="26" rx="3"/><rect x="960" y="190" width="190" height="26" rx="3"/></g>
+          <g fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="10">
+            <text x="1055" y="97" text-anchor="middle">claude:scope+design:2</text>
+            <text x="1055" y="129" text-anchor="middle">claude:completeness+consistency:2</text>
+            <text x="1055" y="161" text-anchor="middle">claude:tasks+platform:2</text>
+            <text x="1055" y="207" text-anchor="middle">codex:2</text>
+          </g>
+          <path d="M930,180 L958,180 L958,150" marker-end="url(#a2)"/>
+          <path d="M1055,224 L1055,300 L595,300 L595,252" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+          <text x="820" y="292" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">再合併；兩引擎都 MEDIUM-clean 才 cleared，最後一輪未修的 → residual</text>
+
+          <rect x="500" y="340" width="190" height="60" rx="4" fill="var(--panel)"/>
+          <text x="595" y="362" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">回傳</text>
+          <text x="595" y="380" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">ready · needsHuman · history[]（每輪 findings）</text>
+          <line x1="595" y1="252" x2="595" y2="338" marker-end="url(#a2)"/>
+
+          <!-- logging tail -->
+          <path d="M595,400 L595,460 L330,460" marker-end="url(#a2)"/>
+          <rect x="20" y="440" width="310" height="40" rx="4" fill="var(--panel)"/>
+          <text x="175" y="457" text-anchor="middle" fill="currentColor" stroke="none" font-family="var(--font-mono)" font-size="11">fold-findings.cjs | log-findings.cjs --round n</text>
+          <text x="175" y="472" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="10">每輪一次；同位置同標題或同 pattern 的兩引擎列合成一列</text>
+          <text x="470" y="498" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">history.jsonl --source spec-dual · outcome 由 workflow 逐筆給定</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Workflow 腳本不能 <code>require</code>，所以 fold 在 Workflow 外面做：command 把每輪 <code>history[n].findings</code> 丟給 <code>fold-findings.cjs</code>（鍵 = pattern 的 normKey，或位置 + 標題全部有意義字詞），再交給 <code>log-findings.cjs</code>。outcome 不靠 command 猜輪次，而是 workflow 依 fixer 的 applied / rejected、stale 升級、迴圈結束狀態逐筆標好。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== 4. history row ===== -->
+  <section>
+    <h2>4. history.jsonl 一列長什麼樣（schema v3）</h2>
+    <div class="cols">
+      <div class="wrap">
+        <table>
+          <tr><th>欄位</th><th>值</th><th>誰決定</th></tr>
+          <tr><td><code>v</code></td><td>3</td><td>log-findings.cjs</td></tr>
+          <tr><td><code>change</code></td><td>正規化：去 <code>./</code>、尾斜線</td><td>normalizeChange</td></tr>
+          <tr><td><code>source</code></td><td>spec · spec-dual · result</td><td>merge（看 manifest.mode）或 command</td></tr>
+          <tr><td><code>round</code></td><td>整數 ≥ 1</td><td>每輪一次記錄</td></tr>
+          <tr><td><code>run_id</code></td><td>run dir 名或 null</td><td>manifest</td></tr>
+          <tr><td><code>engine</code> / <code>engines[]</code></td><td>claude · codex · code-review · spectra-review · other:&lt;skill&gt;</td><td>封閉字彙；同意 = engines 列兩個</td></tr>
+          <tr><td><code>pattern</code></td><td>最短識別構造的字面或 null</td><td>reviewer 給，merge 用來 fold</td></tr>
+          <tr><td><code>locations[]</code></td><td><code>{path, line?, endLine?, symbol?, section?, raw?}</code></td><td>parseLocation：<code>a.py:12</code>、<code>a.py:12-20</code>、<code>a.py:fn</code>、<code>design.md §3</code></td></tr>
+          <tr><td><code>outcome</code></td><td>open · fixed · escalated · dismissed · residual · unknown</td><td>fixer 的 FIXER-RESULT → outcomes.json；查證員 refuted → dismissed；遷移列 = unknown；人裁完用 <code>settle-findings.cjs</code> 改 escalated</td></tr>
+        </table>
+      </div>
+      <div>
+        <p class="lead">舊檔用 <code>migrate-history.cjs</code> 一次處理 v1、v2、混合：先 <code>--dry-run</code> 看摘要（<code>v1→v3: N, v2→v3: N, already-v3: N, unmigratable: N</code>），再真跑；真跑前寫 <code>&lt;file&gt;.pre-v3.bak</code>，備份已存在就拒絕。</p>
+        <p class="lead" style="margin-top:10px">v2 時代的 <code>both</code> 標籤要用 <code>--second-engine spectra-review</code> 才知道第二個引擎是誰。OneLegion 的檔還沒跑；指令已交付，由你執行。</p>
+        <p class="lead" style="margin-top:10px">這些欄位是 <code>/reviewer:init --from-history</code> 分群的材料：<code>pattern</code> 與結構化 <code>locations</code> 讓「同一個構造反覆出現」能用程式算，而不是讓模型看標題猜。</p>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  <div class="view" id="evidence">
+
+
+  <!-- ===== 5. where logic lives ===== -->
+  <section>
+    <h2>5. 哪個邏輯住在哪一層</h2>
+    <div class="wrap">
+    <table>
+      <tr><th>工作</th><th>spec</th><th>spec-dual</th><th>result</th></tr>
+      <tr><td>angle 來源 / 驗證</td><td colspan="3"><code>review-angles.yaml</code>；command 先跑 <code>check-angles.cjs --section</code>，未知 key 直接停</td></tr>
+      <tr><td>project rules</td><td><code>read-rules.cjs</code> 依 angle→artifact 塞進簡報</td><td>同左，經 args；Codex 也拿到</td><td>無（result 不看 rules）</td></tr>
+      <tr><td>run dir</td><td><code>setup-spec-review.sh</code>（manifest.mode spec）</td><td>無</td><td><code>setup-result-review.sh</code>（diff、base、submodules、retention）</td></tr>
+      <tr><td>每個 reviewer 的簡報</td><td><code>templates/spec-angle-prompt.md</code> → <code>reviewer:spec-reviewer</code></td><td>Workflow 內建 prompt</td><td><code>templates/result-angle-prompt.md</code> → <code>reviewer:result-reviewer</code></td></tr>
+      <tr><td>每個 reviewer 的輸出</td><td>schema 強制 JSON（MCP tool，spec 模式）</td><td>schema 強制 JSON（Workflow <code>agent(…, {schema})</code>）</td><td>schema 強制 JSON（MCP tool，result 模式）</td></tr>
+      <tr><td>合併</td><td>程式（<code>merge-findings.cjs</code>，無 sweep、無包含合併）</td><td>程式（workflow.js union）+ <code>fold-findings.cjs</code> 記錄前</td><td>程式（<code>merge-findings.cjs</code>，sweep + head + fold）</td></tr>
+      <tr><td>觸發修正</td><td>orchestrator triage，AskUserQuestion 問你</td><td>fixer 自己回 disposition，退的升級給人</td><td>review-only 或 <code>--fix</code> 迴圈</td></tr>
+      <tr><td>fixer 回報</td><td colspan="3">固定 <code>FIXER-RESULT / APPLIED / SKIPPED / END</code> 區塊（spec-dual 用 Workflow 的 applied[]/rejected[] index）</td></tr>
+      <tr><td>第二引擎</td><td>無</td><td>Codex（<code>codex:codex-rescue</code>）</td><td><code>-c</code> → <code>resolve-engine.cjs</code> 查 <code>review-engines.yaml</code></td></tr>
+      <tr><td>記錄</td><td>merge <code>--log-script</code>，每輪，<code>--source spec</code></td><td>command 每輪 fold → log，<code>--source spec-dual</code></td><td>merge <code>--log-script</code>，每輪，<code>--source result</code></td></tr>
+      <tr><td>測試</td><td colspan="3">node --test 200（含 recall 單元測試）· shell 4（兩個 setup、log-findings、review-engines）· two-engine harness 24 scenario · recall harness 7 seed</td></tr>
+    </table>
+    </div>
+    <p class="lead">A 之前的表上，spec 是唯一合併靠 LLM、又沒測試的命令。現在三個命令都是「模型只讀與判斷，程式負責集合運算」，差別只剩合併的規則。</p>
+  </section>
+
+  <!-- ===== 6. scripts ===== -->
+  <section>
+    <h2>6. 確定性那一層：十一個 script 各管一件事</h2>
+    <details><summary>script 一覽（十一個）</summary>
+    <div class="wrap">
+    <table>
+      <tr><th>script</th><th>輸入 → 輸出</th><th>誰呼叫</th></tr>
+      <tr><td><code>check-angles.cjs</code></td><td><code>--section spec|result --angles a,b</code> → 驗過的 angle 陣列；未知 key exit 1</td><td>spec、result、spec-dual 的 command</td></tr>
+      <tr><td><code>read-rules.cjs</code></td><td>規則 JSON；<code>--paths</code> → git_root、rules_target、rules_kind、history_path</td><td>所有 command、init agent</td></tr>
+      <tr><td><code>apply-rules.cjs</code></td><td>模板 + 目標 yaml → 逐行插入缺少的規則；<code>--dry-run</code> 列 added</td><td>init-reviewer</td></tr>
+      <tr><td><code>resolve-engine.cjs</code></td><td><code>--token &lt;level|skill&gt; --manifest</code> → skill、args、base、skip_reason</td><td>result 的 -c 路線</td></tr>
+      <tr><td><code>setup-result-review.sh</code></td><td>base 解析、diff.patch、submodule 展開、manifest、runs 保留 10</td><td>result-fix-orchestrator 每輪</td></tr>
+      <tr><td><code>setup-spec-review.sh</code></td><td>路徑下所有 .md（排序去重，`..` 與 repo root 都解乾淨）→ manifest.mode spec</td><td>spec-orchestrator 每輪</td></tr>
+      <tr><td><code>merge-findings.cjs</code></td><td>run_dir → merged.json（issue 帶編號）；<code>--apply-verify</code> 折入 verify/*.json；<code>--log-script</code>、<code>--outcomes</code> 寫 history；<code>--parse-fixer</code> 解 FIXER-RESULT</td><td>兩個 orchestrator、result 的 -c 路線</td></tr>
+      <tr><td><code>settle-findings.cjs</code></td><td><code>--run-id|--change [--title] --list</code> 列出；<code>--set fixed|dismissed|residual</code> 就地改 escalated/open 列的 outcome；多筆要 <code>--all-matching</code>；<code>--dry-run</code></td><td>你，人裁決後</td></tr>
+      <tr><td><code>fold-findings.cjs</code></td><td>findings 陣列 → 每缺陷一列（union engines，escalated 優先）</td><td>spec-dual command</td></tr>
+      <tr><td><code>log-findings.cjs</code></td><td>列陣列 → 補齊 v3、解析 locations、套 outcome、逐列驗證、附加到 history</td><td>merge、spec-dual command、result -c 手寫列</td></tr>
+      <tr><td><code>migrate-history.cjs</code></td><td>v1/v2 → v3，<code>--dry-run</code>、<code>.pre-v3.bak</code>、unmigratable 保留原文</td><td>你，手動</td></tr>
+    </table>
+    </div>
+    </details>
+  </section>
+
+  <!-- ===== 7. measurement ===== -->
+  <section>
+    <h2>7. 量尺：兩個 seeded harness 現在怎麼說 <span class="tag">tests/recall · tests/spec-recall · sonnet ×3</span></h2>
+    <p class="lead"><code>tests/recall/run.mjs</code> 建一個埋了七個已知 bug 的 scratch repo，headless 跑 <code>/reviewer:result</code> 三次，對 <code>merged.json</code> 評分；每個 seed 還帶 <code>expectedSeverity</code>，算嚴重度命中率。E 批次前後各量一次。</p>
+    <div class="wrap">
+    <table>
+      <tr><th>seed</th><th>kind</th><th>E 之前（4 seed）</th><th>E 之後（4 seed）</th><th>E 修正後（7 seed）</th></tr>
+      <tr><td>type-none</td><td>type</td><td>3/3</td><td>3/3</td><td>3/3</td></tr>
+      <tr><td>boundary-slice</td><td>boundary</td><td>3/3</td><td>3/3</td><td>3/3</td></tr>
+      <tr><td>dataflow-stale</td><td>dataflow</td><td>3/3</td><td>3/3</td><td>3/3</td></tr>
+      <tr><td>crossfile-cast</td><td>crossfile</td><td>0/3（partial）</td><td><b>3/3</b>（swept_by_head）</td><td>3/3</td></tr>
+      <tr><td>crossfile-split</td><td>crossfile</td><td>—</td><td>—</td><td><b>3/3</b>（去 receiver 後 <code>split(</code> 掃到）</td></tr>
+      <tr><td>crossfile-rate</td><td>crossfile</td><td>—</td><td>—</td><td>0/3（agent 把 <code>TAX_RATE / 100</code> 當 pattern，prompt 端問題）</td></tr>
+      <tr><td>buried-range（600 行 hunk 末尾）</td><td>boundary</td><td>—</td><td>—</td><td><b>3/3</b></td></tr>
+      <tr><td>mean recall</td><td></td><td>0.75</td><td>1.0</td><td>0.86（原 4 seed 1.0）</td></tr>
+      <tr><td>issues / run</td><td></td><td>8 / 7 / 4</td><td>6 / 8 / 6</td><td>7 / 7 / 7</td></tr>
+      <tr><td>嚴重度完全一致 / 差一級內</td><td></td><td>—</td><td>—</td><td>0.50 / 1.00</td></tr>
+    </table>
+    </div>
+    <h2 style="font-size:0.95rem;margin-top:10px">1.22.0：加了查證段再量一次</h2>
+    <div class="cols">
+      <div class="wrap">
+        <table>
+          <tr><th colspan="2">result · 7 seed · 3 run</th></tr>
+          <tr><td>recall</td><td>0.86 / 0.86 / 0.86（與 1.21.0 相同）</td></tr>
+          <tr><td>crossfile-rate</td><td>仍 partial ×3（prompt 端）</td></tr>
+          <tr><td>extra 查證前 → 後</td><td>0 → 0</td></tr>
+          <tr><td>查證員</td><td>8/8 confirmed ×3，refuted 0，誤刪 0</td></tr>
+          <tr><td>嚴重度 exact / within 1</td><td>0.50 / 1.00</td></tr>
+        </table>
+      </div>
+      <div class="wrap">
+        <table>
+          <tr><th colspan="2">spec · 6 seed · 3 run（第一次量）</th></tr>
+          <tr><td>recall</td><td>1.00 / 0.83 / 1.00，平均 0.94</td></tr>
+          <tr><td>漏的</td><td>consistency-contradiction 2/3（proposal「CSV only」vs spec「JSON and CSV」）</td></tr>
+          <tr><td>extra 查證前 → 後</td><td>16 → 16、15 → 15、15 → 15</td></tr>
+          <tr><td>查證員</td><td>27/27、27/27、25/25 confirmed，refuted 0</td></tr>
+          <tr><td>嚴重度 exact / within 1</td><td>0.18 / 0.82</td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="lead">兩張表說的是同一件事：查證員跑得通、一條真 bug 都沒刪掉；但它也一條都沒 refute，因為兩個 fixture 埋的全是真缺陷，79/79 confirmed 是正確答案，測不出它會不會擋誤報。spec 那 ~15 條 extra 有一部分是同一缺陷不同措辭沒合起來（1.22.1 已修掉句尾標點那種）。</p>
+    <figure>
+      <div class="scroll">
+      <svg viewBox="0 0 1040 200" role="img" aria-label="三條鏈：跨檔同構造已修，fold key 去掉引數與 receiver 並用 head 掃描；buried seed 一開始沒埋進 diff，review 抓到後把 filler 放進 feature commit；crossfile-rate 仍 partial，根因是 agent 把運算式當 pattern。">
+        <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.5" font-size="12">
+          <text x="170" y="16" text-anchor="middle" fill="var(--accent)" stroke="none" font-family="var(--font-mono)" font-size="11">已修：跨檔同構造</text>
+          <rect x="10" y="26" width="320" height="40" rx="4" fill="var(--panel)"/><text x="170" y="51" text-anchor="middle" fill="currentColor" stroke="none">int(s) ≠ int(raw)、line.split( ≠ row.split(</text>
+          <line x1="170" y1="66" x2="170" y2="88" marker-end="url(#a5)"/>
+          <rect x="10" y="90" width="320" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="170" y="115" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">key 去引數、去 receiver；head 掃描上限 5 檔</text>
+          <text x="170" y="160" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">crossfile-cast 與 crossfile-split 3/3</text>
+
+          <text x="520" y="16" text-anchor="middle" fill="var(--accent)" stroke="none" font-family="var(--font-mono)" font-size="11">已修：buried seed 沒埋對</text>
+          <rect x="360" y="26" width="320" height="40" rx="4" fill="var(--panel)"/><text x="520" y="51" text-anchor="middle" fill="currentColor" stroke="none">filler 兩個 commit 都有，diff 只有 4 行</text>
+          <line x1="520" y1="66" x2="520" y2="88" marker-end="url(#a5)"/>
+          <rect x="360" y="90" width="320" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="520" y="115" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">filler 搬進 feature commit，hunk ≥ 500 行</text>
+          <text x="520" y="160" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">重量後仍 3/3：第一個真的「注意力稀釋」數字</text>
+
+          <text x="870" y="16" text-anchor="middle" fill="var(--llm)" stroke="none" font-family="var(--font-mono)" font-size="11">未修：crossfile-rate</text>
+          <rect x="710" y="26" width="320" height="40" rx="4" fill="var(--panel)"/><text x="870" y="51" text-anchor="middle" fill="currentColor" stroke="none">cart.py 與 pricing.py 的 TAX_RATE 仍兩條</text>
+          <line x1="870" y1="66" x2="870" y2="88" marker-end="url(#a5)"/>
+          <rect x="710" y="90" width="320" height="40" rx="4" fill="var(--llm-soft)" stroke="var(--llm)" stroke-width="2"/><text x="870" y="115" text-anchor="middle" fill="currentColor" stroke="none" font-weight="600">agent 填 TAX_RATE / 100，不是共用識別字</text>
+          <text x="870" y="160" text-anchor="middle" fill="var(--muted)" stroke="none" font-size="11">下一個 lever 在簡報的 pattern 說明，不在 merge</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>merge 層能做的都做了：recall 從 0.75 到原 4 seed 全中，issue 數不再膨脹。剩下的 partial 是 reviewer 填 pattern 的習慣問題，要改模板文字再量。</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===== 8. files ===== -->
+  <section>
+    <h2>8. 檔案</h2>
+    <details><summary>檔案一覽</summary>
+    <div class="wrap">
+    <table>
+      <tr><th>路徑</th><th>職責</th></tr>
+      <tr><td><code>commands/{spec,spec-dual,result,init}.md</code></td><td>真正的入口：解析參數、跑 check-angles 與 read-rules、派 agent 或 Workflow。</td></tr>
+      <tr><td><code>skills/*/SKILL.md</code></td><td>Codex 的指路 stub（3–4 行），不重複 flag；<code>.codex/INSTALL.md</code> 列各命令在 Codex 下的能力。</td></tr>
+      <tr><td><code>agents/spec-orchestrator.md</code>、<code>result-fix-orchestrator.md</code></td><td>每輪：setup → 填模板派 typed reviewer → merge → triage → fixer → parse-fixer → outcomes.json；結束後每輪 log。</td></tr>
+      <tr><td><code>agents/spec-reviewer.md</code>、<code>result-reviewer.md</code>、<code>verifier.md</code></td><td>typed 簡報接收者，工具含 <code>mcp__plugin_reviewer_review__*</code>；沒有簡報就沒事做。verifier 沒有 Edit/Write。</td></tr>
+      <tr><td><code>agents/spec-fixer.md</code>、<code>result-fixer.md</code></td><td>照 directive 改檔，結尾固定 FIXER-RESULT 區塊；spec-fixer 有 disposition 判斷。</td></tr>
+      <tr><td><code>agents/init-reviewer.md</code></td><td>只剩判斷：從 history 分群成規則；寫入交給 apply-rules.cjs。</td></tr>
+      <tr><td><code>templates/spec-angle-prompt.md</code>、<code>result-angle-prompt.md</code>、<code>verify-prompt.md</code></td><td>三份簡報的唯一來源；orchestrator 填 placeholder，Codex companion 直接照它做。違反規則的發現以規則前八個字當 pattern。</td></tr>
+      <tr><td><code>templates/review-angles.yaml</code>、<code>review-engines.yaml</code>、<code>reviewer-rules.yaml</code></td><td>angle 定義；第二引擎的 levels / scope / base_arg / severity_map；init 的規則範本。</td></tr>
+      <tr><td><code>workflows/spec-dual.workflow.js</code></td><td>spec-dual 的全部機制，675 行純 JS；history 列帶 pattern 與 outcome。</td></tr>
+      <tr><td><code>mcp/schema.cjs</code>、<code>server.cjs</code>、<code>report-review.cjs</code>、<code>verify-review.cjs</code>、<code>.mcp.json</code></td><td>report 與 verify 兩個契約、HISTORY_ROW v3、stdio server、兩個 tool handler。零依賴。</td></tr>
+      <tr><td><code>scripts/</code>（十一個）</td><td>見第 6 節。</td></tr>
+      <tr><td><code>tests/</code></td><td>node --test 235、shell 4、two-engine harness 24 scenario、fixtures、<code>tests/recall/</code>（7 個程式 bug）與 <code>tests/spec-recall/</code>（6 個 spec 缺陷）兩個 seeded harness；只有 runner 呼叫 Claude，而且要用改名複本（已安裝的 plugin 會遮住 <code>--plugin-dir</code> 的 typed agent 與 MCP tool）。</td></tr>
+    </table>
+    </div>
+    </details>
+  </section>
+  </div>
+</main>
+<script>
+  (function () {
+    var views = ['plain', 'mech', 'evidence'];
+    function show(name) {
+      if (views.indexOf(name) === -1) name = 'plain';
+      views.forEach(function (v) {
+        document.getElementById(v).hidden = (v !== name);
+        var a = document.querySelector('.tabs a[data-view="' + v + '"]');
+        if (a) { if (v === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+      });
+    }
+    function fromHash() { show((location.hash || '#plain').slice(1)); }
+    window.addEventListener('hashchange', fromHash);
+    fromHash();
+  })();
+</script>
+
+</body>
+</html>

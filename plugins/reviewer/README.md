@@ -2,6 +2,8 @@
 
 Structured spec and implementation review with iterative fix loops and parallel multi-angle review.
 
+Architecture overview (plain-language, mechanism and evidence views, as of 1.22.1): open `docs/architecture.html` in a browser.
+
 ## Commands
 
 | Command | Purpose |
