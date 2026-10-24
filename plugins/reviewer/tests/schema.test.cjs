@@ -114,3 +114,15 @@ test('result mode (default) does not treat § as a path separator', () => {
   const r = good(); r.issues[0].location = 'src/a.py §3'
   assert.match(validateReport(r, FILES).join('\n'), /src\/a\.py issue_count 1 but 0 issue/)
 })
+
+// --- batch G: verify_review contract
+const { validateVerify, VERIFY_SCHEMA } = require('../mcp/schema.cjs')
+const goodVerify = () => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', batch: 'b1', verdicts: [{ id: 'F1', status: 'confirmed', evidence: 'line 3 does it' }, { id: 'F2', status: 'refuted', evidence: 'guarded at line 9' }] })
+test('a complete verify report validates against the merged ids', () => assert.deepEqual(validateVerify(goodVerify(), ['F1', 'F2', 'F3']), []))
+test('verify: unknown id, status outside the enum, empty evidence and a bad batch name are rejected', () => {
+  const u = goodVerify(); u.verdicts[0].id = 'F9'; assert.match(validateVerify(u, ['F1', 'F2']).join('\n'), /verdicts\[0\]\.id: F9 not in merged\.json/)
+  const s = goodVerify(); s.verdicts[1].status = 'maybe'; assert.match(validateVerify(s, ['F1', 'F2']).join('\n'), /verdicts\[1\]\.status/)
+  const e = goodVerify(); e.verdicts[0].evidence = ''; assert.match(validateVerify(e, ['F1', 'F2']).join('\n'), /evidence/)
+  const b = goodVerify(); b.batch = 'Bad Name'; assert.match(validateVerify(b, ['F1', 'F2']).join('\n'), /batch/)
+  assert.deepEqual([...VERIFY_SCHEMA.required].sort(), ['batch', 'run_dir', 'verdicts'])
+})

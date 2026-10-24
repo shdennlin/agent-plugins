@@ -3,6 +3,7 @@
 // Deterministic merge of per-angle review reports in a result-review run directory.
 //   node merge-findings.cjs <run_dir> --change <rel> [--round <N>] [--no-log] [--log-script <abs>] [--outcomes <file>]
 //   node merge-findings.cjs --parse-fixer   (stdin: a fixer report; stdout: {applied[], skipped[], mismatch})
+//   node merge-findings.cjs <run_dir> --apply-verify [...]   folds verify/*.json into merged.json (refuted[], verification)
 //                           [--expect <angle1,angle2,...>]
 // --expect names the angles that must have reported; one with no <angle>.json is recorded as an
 // invalid report ("no report written") and marks every file not_reviewed.
@@ -341,6 +342,8 @@ function merge(manifest, reports, diffPatch, opts = {}) {
     return false
   }
   const folded = foldByPattern(issues, { genericHead, mode: manifest.mode === 'spec' ? 'spec' : 'result' }).sort(byWorst)
+  // stable ids: the verifier names issues by them and verify/<batch>.json refers back to them
+  folded.forEach((i, k) => { i.id = `F${k + 1}` })
 
   const files = manifestFiles.map((p) => {
     const np = normalizePath(p)
@@ -380,6 +383,48 @@ function merge(manifest, reports, diffPatch, opts = {}) {
 // Files in a run dir that are not angle reports: the setup's manifest, this script's output, and the
 // orchestrator's outcomes file (report_review refuses these names as angles).
 const ORCHESTRATOR_FILES = new Set(['manifest.json', 'merged.json', 'outcomes.json'])
+// Verification: fold verify/*.json (one file per verifier batch) into a merged result. Refuted issues
+// leave `issues` for `refuted[]`; unverified ones drop one severity level (LOW stays LOW); the rest are
+// confirmed or not_checked. counts and verdict are recomputed; complete is untouched (verification never
+// adds or removes files). Returns { merged, unknown: [ids the verifier named that merged.json lacks] }.
+function applyVerify(merged, verifyReports) {
+  const byId = new Map()
+  const unknown = []
+  const known = new Set(merged.issues.map((i) => i.id))
+  for (const rep of verifyReports) for (const v of arr(rep.verdicts)) {
+    if (!known.has(v.id)) { unknown.push(v.id); continue }
+    if (!byId.has(v.id)) byId.set(v.id, v)
+  }
+  const issues = []
+  const refuted = []
+  const summary = { checked: 0, confirmed: 0, refuted: 0, unverified: 0, not_checked: 0 }
+  for (const i of merged.issues) {
+    const v = byId.get(i.id)
+    if (!v) { summary.not_checked++; issues.push({ ...i, verified: 'not_checked' }); continue }
+    summary.checked++
+    summary[v.status]++
+    if (v.status === 'refuted') { refuted.push({ ...i, verified: 'refuted', evidence: v.evidence }); continue }
+    if (v.status === 'unverified') {
+      const k = SEVERITIES.indexOf(i.severity)
+      const severity = k === -1 ? i.severity : SEVERITIES[Math.min(k + 1, SEVERITIES.length - 1)]
+      issues.push({ ...i, severity, verified: 'unverified', evidence: v.evidence })
+      continue
+    }
+    issues.push({ ...i, verified: 'confirmed', evidence: v.evidence })
+  }
+  issues.sort(byWorst)
+  const counts = Object.fromEntries(SEVERITIES.map((sv) => [sv, issues.filter((i) => i.severity === sv).length]))
+  return {
+    merged: { ...merged, issues, refuted, counts, verdict: counts.CRITICAL + counts.HIGH > 0 ? 'FAIL' : 'PASS', verification: summary },
+    unknown,
+  }
+}
+function loadVerifyReports(runDir) {
+  const dir = path.join(runDir, 'verify')
+  if (!fs.existsSync(dir)) return []
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')))
+}
+
 function loadReports(runDir) {
   return fs
     .readdirSync(runDir)
@@ -410,12 +455,14 @@ function parseArgs(argv) {
     else if (a === '--log-script') o.logScript = argv[++i]
     else if (a === '--no-log') o.log = false
     else if (a === '--outcomes') o.outcomes = argv[++i]
+    else if (a === '--apply-verify') o.applyVerify = true
     else if (a === '--expect') o.expect = String(argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean)
     else if (a.startsWith('--')) throw new Error(`unknown argument: ${a}`)
     else if (o.runDir === null) o.runDir = a
     else throw new Error(`unexpected argument: ${a}`)
   }
   if (!o.runDir) throw new Error('<run_dir> is required')
+  if (o.applyVerify && !o.change && !o.outcomes) o.log = false   // a bare --apply-verify rewrites merged.json only
   if (o.log && !o.change) throw new Error('--change is required unless --no-log')
   if (!o.round) throw new Error('--round needs a value')
   return o
@@ -492,14 +539,27 @@ function main(argv) {
     // no diff.patch: the pattern sweep simply finds nothing
   }
 
-  const merged = merge(manifest, reports, diff, { expect: o.expect })
+  let merged = merge(manifest, reports, diff, { expect: o.expect })
+  if (o.applyVerify) {
+    const verifyReports = loadVerifyReports(runDir)
+    if (!verifyReports.length) {
+      process.stderr.write('merge-findings: verification: none (no verify/*.json in the run dir)\n')
+    } else {
+      fs.writeFileSync(path.join(runDir, 'merged.pre-verify.json'), JSON.stringify(merged, null, 2) + '\n')
+      const r = applyVerify(merged, verifyReports)
+      merged = r.merged
+      if (r.unknown.length) process.stderr.write(`merge-findings: verification: ${r.unknown.length} verdict(s) for ids merged.json does not hold, skipped: ${r.unknown.join(', ')}\n`)
+    }
+  }
   const json = JSON.stringify(merged, null, 2)
   fs.writeFileSync(path.join(runDir, 'merged.json'), json + '\n')
   process.stdout.write(json + '\n')
+  if (o.applyVerify && !merged.verification) process.stdout.write('verification: none\n')
   if (!o.log) return
 
   // v3 rows: the merge is always the Claude engine's review (result, or spec when manifest.mode is spec)
-  const rows = merged.issues.map((i) => ({
+  // refuted issues are logged too, as dismissed: the rules loop must see what the verifier threw out
+  const toRow = (i, extra = {}) => ({
     severity: i.severity,
     title: i.title,
     location: i.location,
@@ -508,7 +568,9 @@ function main(argv) {
     engines: ['claude'],
     locations: i.locations,
     pattern: typeof i.pattern === 'string' && i.pattern.trim() ? i.pattern : null,
-  }))
+    ...extra,
+  })
+  const rows = [...merged.issues.map((i) => toRow(i)), ...arr(merged.refuted).map((i) => toRow(i, { outcome: 'dismissed' }))]
   // outcome: a reviewed finding is open unless the orchestrator's outcomes file (what the fixer applied,
   // what the human took) says otherwise
   const isNode = /\.c?js$/.test(o.logScript)
@@ -529,4 +591,4 @@ function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2))
 
-module.exports = { merge, loadReports, foldByPattern, constructHead, normKey, parseFixerReport }
+module.exports = { merge, loadReports, foldByPattern, constructHead, normKey, parseFixerReport, applyVerify }

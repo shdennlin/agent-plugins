@@ -573,3 +573,87 @@ test('spec mode never folds on containment (prose patterns); a fold unions the m
   const c = merge(code, [rep(code, 'correctness', 'int(s)', 'unchecked cast', 'a.py:f'), rep(code, 'robustness', 'int(', 'cast may raise', 'a.py:g')], '')
   assert.equal(c.issues.length, 1); assert.deepEqual(c.issues[0].locations, ['a.py:f'], 'result mode keeps one location per file (unchanged)')
 })
+
+// --- batch G: stable ids and --apply-verify
+test('merged issues carry sequential ids F1..Fn in worst-first order', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const m = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
+  assert.deepEqual(m.issues.map((i) => i.id), m.issues.map((_, k) => `F${k + 1}`))
+})
+test('applyVerify: refuted dropped to refuted[], unverified one level down, confirmed kept, others not_checked; counts and verdict recomputed', () => {
+  const { applyVerify } = require('../scripts/merge-findings.cjs')
+  const man = { run_id: 'x', files: ['a.py', 'b.py', 'c.py', 'd.py'], working_directory: '/tmp/x' }
+  const rep = (file, sev, title) => ({ run_dir: '/tmp/x/.claude/reviewer/runs/r', angle: title, via: 'report_review', verdict: 'FAIL',
+    files: man.files.map((p) => ({ path: p, verdict: p === file ? 'issues' : 'clean', issue_count: p === file ? 1 : 0 })),
+    issues: [{ severity: sev, title, location: `${file}:f`, category: 'c', pattern: title, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const before = merge(man, [rep('a.py', 'HIGH', 'high one'), rep('b.py', 'HIGH', 'high two'), rep('c.py', 'MEDIUM', 'med'), rep('d.py', 'LOW', 'low')], '')
+  assert.deepEqual(before.issues.map((i) => i.id), ['F1', 'F2', 'F3', 'F4'])
+  const [a, b, c] = before.issues
+  const { merged: after, unknown } = applyVerify(before, [{ batch: 'b1', verdicts: [
+    { id: a.id, status: 'refuted', evidence: 'the cited line guards the call' },
+    { id: b.id, status: 'unverified', evidence: 'location not found' },
+    { id: c.id, status: 'confirmed', evidence: 'line 12 does what the finding says' },
+    { id: 'F999', status: 'refuted', evidence: 'nope' },
+  ] }])
+  assert.deepEqual(unknown, ['F999'])
+  assert.ok(!after.issues.some((i) => i.id === a.id), 'refuted issue left issues[]')
+  assert.equal(after.refuted[0].id, a.id); assert.equal(after.refuted[0].verified, 'refuted'); assert.match(after.refuted[0].evidence, /guards/)
+  const bb = after.issues.find((i) => i.id === b.id)
+  assert.equal(bb.verified, 'unverified'); assert.equal(bb.severity, 'MEDIUM', 'HIGH → MEDIUM')
+  assert.equal(after.issues.find((i) => i.id === c.id).verified, 'confirmed')
+  assert.equal(after.issues.find((i) => i.id === 'F4').verified, 'not_checked')
+  assert.deepEqual(after.verification, { checked: 3, confirmed: 1, refuted: 1, unverified: 1, not_checked: 1 })
+  assert.deepEqual(after.counts, { CRITICAL: 0, HIGH: 0, MEDIUM: 2, LOW: 1 })
+  assert.equal(after.verdict, 'PASS', 'the only HIGHs were refuted or downgraded')
+  assert.equal(after.complete, before.complete)
+})
+test('--apply-verify CLI rewrites merged.json from verify/*.json and keeps merged.pre-verify.json; verify/ is never an angle', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const before = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
+  fs.mkdirSync(path.join(runDir, 'verify'))
+  fs.writeFileSync(path.join(runDir, 'verify', 'b1.json'), JSON.stringify({ run_dir: runDir, batch: 'b1', via: 'verify_review', verdicts: [{ id: before.issues[0].id, status: 'refuted', evidence: 'the cited line guards the call' }] }))
+  const r = spawnSync('node', [SCRIPT, runDir, '--apply-verify'], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const after = JSON.parse(fs.readFileSync(path.join(runDir, 'merged.json'), 'utf8'))
+  assert.ok(fs.existsSync(path.join(runDir, 'merged.pre-verify.json')))
+  assert.equal(after.issues.length, before.issues.length - 1); assert.equal(after.refuted.length, 1)
+  assert.equal(after.verification.refuted, 1)
+  assert.ok(!Object.keys(after.via).includes('verify') && !after.invalid_reports.some((x) => /verify/.test(x.angle)), 'verify/ is not an angle')
+})
+test('--apply-verify: LOW unverified stays LOW; no verify files is a no-op; a verdict for an unknown id is reported and skipped', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const none = spawnSync('node', [SCRIPT, runDir, '--apply-verify'], { encoding: 'utf8' })
+  assert.equal(none.status, 0, none.stderr); assert.match(none.stdout, /verification: none/)
+  const before = JSON.parse(fs.readFileSync(path.join(runDir, 'merged.json'), 'utf8'))
+  const low = before.issues.find((i) => i.severity === 'LOW') || before.issues[before.issues.length - 1]
+  fs.mkdirSync(path.join(runDir, 'verify'), { recursive: true })
+  fs.writeFileSync(path.join(runDir, 'verify', 'b1.json'), JSON.stringify({ run_dir: runDir, batch: 'b1', verdicts: [{ id: low.id, status: 'unverified', evidence: 'x' }, { id: 'F999', status: 'refuted', evidence: 'nope' }] }))
+  const r = spawnSync('node', [SCRIPT, runDir, '--apply-verify'], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stderr + r.stdout, /F999/)
+  const after = JSON.parse(fs.readFileSync(path.join(runDir, 'merged.json'), 'utf8'))
+  const l = after.issues.find((i) => i.id === low.id)
+  assert.equal(l.severity, low.severity === 'LOW' ? 'LOW' : l.severity)
+  if (low.severity === 'LOW') assert.equal(l.severity, 'LOW')
+})
+test('--apply-verify with --log-script logs refuted rows as dismissed', (t) => {
+  if (!hasJq) return t.skip('jq not installed')
+  const { repo, runDir, history } = tempRepo()
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const before = JSON.parse(spawnSync('node', [SCRIPT, runDir, '--no-log'], { encoding: 'utf8' }).stdout)
+  fs.mkdirSync(path.join(runDir, 'verify'))
+  fs.writeFileSync(path.join(runDir, 'verify', 'b1.json'), JSON.stringify({ run_dir: runDir, batch: 'b1', verdicts: [{ id: before.issues[0].id, status: 'refuted', evidence: 'not there' }] }))
+  const r = spawnSync('node', [SCRIPT, runDir, '--apply-verify', '--change', 'demo', '--round', '1', '--log-script', LOG_SCRIPT], { encoding: 'utf8' })
+  assert.equal(r.status, 0, r.stderr)
+  const rows = fs.readFileSync(history, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.equal(rows.length, before.issues.length, 'refuted rows are logged too')
+  const ref = rows.find((x) => x.title === before.issues[0].title)
+  assert.equal(ref.outcome, 'dismissed')
+  for (const x of rows.filter((x) => x !== ref)) assert.equal(x.outcome, 'open')
+})
