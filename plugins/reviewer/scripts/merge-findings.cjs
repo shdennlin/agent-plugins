@@ -382,7 +382,7 @@ function merge(manifest, reports, diffPatch, opts = {}) {
 // Every <run_dir>/*.json except manifest.json and merged.json, stamped with its basename as angle.
 // Files in a run dir that are not angle reports: the setup's manifest, this script's output, and the
 // orchestrator's outcomes file (report_review refuses these names as angles).
-const ORCHESTRATOR_FILES = new Set(['manifest.json', 'merged.json', 'outcomes.json'])
+const ORCHESTRATOR_FILES = new Set(['manifest.json', 'merged.json', 'merged.pre-verify.json', 'outcomes.json'])
 // Verification: fold verify/*.json (one file per verifier batch) into a merged result. Refuted issues
 // leave `issues` for `refuted[]`; unverified ones drop one severity level (LOW stays LOW); the rest are
 // confirmed or not_checked. counts and verdict are recomputed; complete is untouched (verification never
