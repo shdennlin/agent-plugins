@@ -464,7 +464,7 @@ if (scenario === 'fanout') {
   assert(typeof locPat === 'string', 'FINDINGS.location carries a pattern regex')
   const re = locPat ? new RegExp(JSON.parse('"' + locPat.replace(/\\\\/g, '\\\\') + '"')) : /$^/
   for (const good of ['design.md §Rollback', 'tasks.md:12', 'tasks.md:3-5', 'spec.md:Requirement_1', 'specs/a/spec.md']) assert(re.test(good), 'location regex accepts ' + good)
-  for (const bad of ['design.md + tasks.md', '§Rollback', 'a.md:1,2', 'design.md:12 vs tasks.md:3']) assert(!re.test(bad), 'location regex rejects ' + bad)
+  for (const bad of ['design.md + tasks.md', '§Rollback', 'a.md:1,2', 'design.md:12 vs tasks.md:3', 'a.md+b.md', 'design.md,tasks.md', 'a.md;b.md']) assert(!re.test(bad), 'location regex rejects ' + bad)
   for (const c of calls.filter(c => /^(claude:|codex:)/.test(c.label))) assert(/ONE file/.test(c.prompt), c.label + ' prompt states the one-file location format')
 }
 if (scenario === 'angledown') {

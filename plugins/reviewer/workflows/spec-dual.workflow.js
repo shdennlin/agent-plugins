@@ -111,7 +111,7 @@ const FINDINGS = {
         severity:  { enum: SEVS },
         title:     { type: 'string' },
         // ONE file per finding: <file>, <file>:<line>, <file>:<line>-<line>, <file>:<symbol> or <file> §<heading>
-        location:  { type: 'string', pattern: '^[^\\s:§]+(?::\\d+(?:-\\d+)?|:[A-Za-z_][\\w.]*| §.+)?$' },
+        location:  { type: 'string', pattern: '^[^\\s:§,;+]+(?::\\d+(?:-\\d+)?|:[A-Za-z_][\\w.]*| §.+)?$' },
         rationale: { type: 'string' },
         category: { type: 'string' },
         // optional: the shortest literal phrase from the spec text that identifies the defect; the

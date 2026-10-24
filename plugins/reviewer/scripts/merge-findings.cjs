@@ -72,7 +72,8 @@ function unionLocations(lists, mode) {
 // One issue per pattern (the construct at fault), whatever the titles or files. Patterns shorter than
 // MIN_PATTERN characters are too generic to identify a construct and never fold.
 const MIN_PATTERN = 3
-const foldKey = (p) => (typeof p === 'string' && p.trim().length >= MIN_PATTERN ? p.trim() : null)
+// trailing sentence punctuation is not part of the construct (`Exports are CSV only.` = `Exports are CSV only`)
+const foldKey = (p) => { if (typeof p !== 'string') return null; const t = p.trim().replace(/[.,;:]+$/, ''); return t.length >= MIN_PATTERN ? t : null }
 
 // The construct a pattern names, independent of the statement around it: `return int(s)`, `x = int(raw)`
 // and `int(` all have the head `int(`. Operator/expression patterns are kept whole. Bare identifiers and

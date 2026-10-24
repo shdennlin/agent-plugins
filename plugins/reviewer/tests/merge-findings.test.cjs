@@ -717,3 +717,7 @@ test('malformed or invalid verify files never crash the merge: they are listed a
   assert.equal(after.verification.confirmed, 0)
   assert.match(r.stderr, /broken\.json/)
 })
+test('normKey ignores trailing sentence punctuation so a quoted phrase with and without a final period folds', () => {
+  assert.equal(normKey('Exports are CSV only.'), normKey('Exports are CSV only'))
+  assert.equal(normKey('return int(s);'), normKey('return int(s)'))
+})
