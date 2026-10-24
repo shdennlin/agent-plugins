@@ -169,7 +169,7 @@ round, each with `round` and `findings` (that round's union: `title`, `location`
 `category`, `engine`, `engines`, `pattern` when a reviewer gave one). For each row whose `findings`
 is non-empty, fold the union first (one entry per defect: two engines naming one issue at one
 location, or sharing a `pattern`, become one row with both engines), then log it with that row's round.
-Every finding already carries its `outcome` from the workflow (`fixed`: the fixer applied it that
+Every finding names one file in a parseable form (the logging script turns it into structured locations) and already carries its `outcome` from the workflow (`fixed`: the fixer applied it that
 round; `escalated`: rejected by the fixer or stale, in the human's hands; `residual`: still open when
 the loop ended; `open`: not sent to that round's fixer) — pass it through unchanged.
 

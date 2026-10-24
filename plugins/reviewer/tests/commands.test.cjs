@@ -313,3 +313,9 @@ test('init --from-history reads dismissed rows as refuted findings and escalated
   assert.match(body('init.md'), /dismissed/); assert.match(body('init.md'), /escalated/)
   assert.match(read('README.md'), /settle-findings\.cjs/)
 })
+test('spec-dual findings name ONE file in a parseable location and carry a pattern', () => {
+  const w = read('workflows/spec-dual.workflow.js')
+  assert.match(w, /ONE file/)
+  assert.match(w, /location:\s*\{ type: 'string', pattern: /)
+  assert.match(body('spec-dual.md'), /structured locations/)
+})

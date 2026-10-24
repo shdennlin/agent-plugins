@@ -110,7 +110,8 @@ const FINDINGS = {
         id:        { type: 'string' },
         severity:  { enum: SEVS },
         title:     { type: 'string' },
-        location:  { type: 'string' },   // file:line or artifact name
+        // ONE file per finding: <file>, <file>:<line>, <file>:<line>-<line>, <file>:<symbol> or <file> §<heading>
+        location:  { type: 'string', pattern: '^[^\\s:§]+(?::\\d+(?:-\\d+)?|:[A-Za-z_][\\w.]*| §.+)?$' },
         rationale: { type: 'string' },
         category: { type: 'string' },
         // optional: the shortest literal phrase from the spec text that identifies the defect; the
@@ -213,8 +214,15 @@ const ANGLES_SENTENCE = ANGLE_LIST.length ? ANGLE_LIST.map(a => a.label).join(',
 const promptHead = () =>
   `Review the spec/proposal/design under "${CHANGE}" (relative to git root). ` +
   `Do NOT modify any files — report findings only. `
+const LOCATION_RULE =
+  '\n\n## Location format\n' +
+  '`location` names ONE file in one of these forms: `<file>`, `<file>:<line>`, `<file>:<line>-<line>`, ' +
+  '`<file>:<symbol>` or `<file> §<heading>` (the path as given in the spec folder, e.g. `design.md §Rollback`, `tasks.md:12`). ' +
+  'A finding that spans files names the primary one here and the others in `rationale`. ' +
+  'Set `pattern` to the shortest literal phrase from the spec text that identifies the defect.\n'
 const promptTail = engine =>
   (CONTEXT ? `\n\n## Codebase context\n${CONTEXT}\n` : '') +
+  LOCATION_RULE +
   ledgerBlock(false) +
   `\n(Engine: ${engine}.)`
 // Codex engine and the legacy single-agent Claude path: every angle in one prompt.

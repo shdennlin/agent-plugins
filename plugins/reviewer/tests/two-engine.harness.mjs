@@ -459,6 +459,13 @@ if (scenario === 'fanout') {
   const o2 = Object.fromEntries(result.history[1].findings.map(f => [f.title, f.outcome]))
   assert(o2['Task 7 lacks done criteria'] === 'fixed', 'the clearing round LOW fixed by fix-low logs fixed (got ' + JSON.stringify(o2) + ')')
   for (const h of result.history) for (const f of h.findings) assert(['open', 'fixed', 'escalated', 'residual'].includes(f.outcome), 'every history finding carries an outcome')
+  // batch G: one parseable location per finding, enforced by the FINDINGS schema regex
+  const locPat = (src.match(/location:\s*\{ type: 'string', pattern: '((?:[^'\\]|\\.)*)'/) || [])[1]
+  assert(typeof locPat === 'string', 'FINDINGS.location carries a pattern regex')
+  const re = locPat ? new RegExp(JSON.parse('"' + locPat.replace(/\\\\/g, '\\\\') + '"')) : /$^/
+  for (const good of ['design.md §Rollback', 'tasks.md:12', 'tasks.md:3-5', 'spec.md:Requirement_1', 'specs/a/spec.md']) assert(re.test(good), 'location regex accepts ' + good)
+  for (const bad of ['design.md + tasks.md', '§Rollback', 'a.md:1,2', 'design.md:12 vs tasks.md:3']) assert(!re.test(bad), 'location regex rejects ' + bad)
+  for (const c of calls.filter(c => /^(claude:|codex:)/.test(c.label))) assert(/ONE file/.test(c.prompt), c.label + ' prompt states the one-file location format')
 }
 if (scenario === 'angledown') {
   assert(result.history[0].degraded === true, 'a dead angle degrades the round')

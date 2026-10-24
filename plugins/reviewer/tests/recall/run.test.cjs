@@ -74,3 +74,12 @@ test('dry-run reads <merged>.pre-verify.json beside each merged.json, reports ex
   const s2 = JSON.parse(fs.readFileSync(path.join(out2, 'summary.json'), 'utf8'))
   assert.deepEqual(s2.runs[0].false_refutation, ['type-none']); assert.equal(s2.falseRefutation, 1)
 })
+
+// --- batch G: the command prefix follows the plugin dir's name, so a renamed copy (reviewer-dev) is what gets run
+test('pluginName reads the plugin name from <pluginDir>/.claude-plugin/plugin.json and falls back to reviewer', () => {
+  const { pluginName } = require('./plugin-name.cjs')
+  const d = mkTmp(); fs.mkdirSync(path.join(d, '.claude-plugin')); fs.writeFileSync(path.join(d, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'reviewer-dev' }))
+  assert.equal(pluginName(d), 'reviewer-dev')
+  assert.equal(pluginName(mkTmp()), 'reviewer')
+  assert.match(fs.readFileSync(RUN, 'utf8'), /pluginName\(opts\.pluginDir\)/, 'run.mjs builds its prompt from the plugin name')
+})

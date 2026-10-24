@@ -18,6 +18,7 @@ const require = createRequire(import.meta.url)
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const { buildFixture, SEEDS } = require('./fixture.cjs')
 const { scoreRun } = require('./score.cjs')
+const { pluginName } = require('./plugin-name.cjs')
 
 // ---- args ---------------------------------------------------------------------------------
 const opts = { runs: 3, model: 'sonnet', angles: 'coverage,robustness,correctness',
@@ -66,7 +67,7 @@ function toRun(n, mergedFile, extra = {}) {
 function liveRun(n) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `recall-run${n}-`))
   const { repo } = buildFixture(tmp)
-  const prompt = `/reviewer:result docs/spec.md --base main --angles ${opts.angles}`
+  const prompt = `/${pluginName(opts.pluginDir)}:result docs/spec.md --base main --angles ${opts.angles}`
   const t0 = Date.now()
   const r = spawnSync('claude', ['-p', prompt, '--plugin-dir', opts.pluginDir, '--model', opts.model,
     '--output-format', 'text', '--max-turns', '60'], { cwd: repo, encoding: 'utf8', timeout: 20 * 60 * 1000 })
