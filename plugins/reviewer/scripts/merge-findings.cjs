@@ -18,7 +18,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
-const { SEVERITIES, validateReport, normalizePath } = require('../mcp/schema.cjs')
+const { SEVERITIES, validateReport, validateVerify, normalizePath } = require('../mcp/schema.cjs')
 
 // Loader-stamped metadata, kept off the report's own keys so validateReport is unaffected.
 const ANGLE = Symbol('angle') // file basename; wins over report.angle
@@ -387,7 +387,7 @@ const ORCHESTRATOR_FILES = new Set(['manifest.json', 'merged.json', 'merged.pre-
 // leave `issues` for `refuted[]`; unverified ones drop one severity level (LOW stays LOW); the rest are
 // confirmed or not_checked. counts and verdict are recomputed; complete is untouched (verification never
 // adds or removes files). Returns { merged, unknown: [ids the verifier named that merged.json lacks] }.
-function applyVerify(merged, verifyReports) {
+function applyVerify(merged, verifyReports, invalidFiles = []) {
   const byId = new Map()
   const unknown = []
   const known = new Set(merged.issues.map((i) => i.id))
@@ -415,14 +415,25 @@ function applyVerify(merged, verifyReports) {
   issues.sort(byWorst)
   const counts = Object.fromEntries(SEVERITIES.map((sv) => [sv, issues.filter((i) => i.severity === sv).length]))
   return {
-    merged: { ...merged, issues, refuted, counts, verdict: counts.CRITICAL + counts.HIGH > 0 ? 'FAIL' : 'PASS', verification: summary },
+    merged: { ...merged, issues, refuted, counts, verdict: counts.CRITICAL + counts.HIGH > 0 ? 'FAIL' : 'PASS', verification: { ...summary, invalid_files: invalidFiles } },
     unknown,
   }
 }
-function loadVerifyReports(runDir) {
+// verify/*.json may be hand-written (the tool's fallback), so each file is parsed and validated here
+// exactly as the tool would: a file that fails is listed in verification.invalid_files and verifies nothing.
+function loadVerifyReports(runDir, mergedIds) {
   const dir = path.join(runDir, 'verify')
-  if (!fs.existsSync(dir)) return []
-  return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')))
+  const out = { reports: [], invalid: [] }
+  if (!fs.existsSync(dir)) return out
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json')).sort()) {
+    const file = `verify/${f}`
+    let rep
+    try { rep = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch (e) { out.invalid.push({ file, violations: [`invalid JSON: ${e.message}`] }); continue }
+    const v = validateVerify(rep, mergedIds)
+    if (v.length) { out.invalid.push({ file, violations: v }); continue }
+    out.reports.push(rep)
+  }
+  return out
 }
 
 function loadReports(runDir) {
@@ -539,14 +550,27 @@ function main(argv) {
     // no diff.patch: the pattern sweep simply finds nothing
   }
 
-  let merged = merge(manifest, reports, diff, { expect: o.expect })
+  // --apply-verify re-merges from the angle reports, so the expected angles of the merge it is
+  // re-doing must survive: take them from the existing merged.json (its angles plus the angles that
+  // wrote no report) in addition to --expect, or a missing angle would silently become complete.
+  let expect = o.expect
   if (o.applyVerify) {
-    const verifyReports = loadVerifyReports(runDir)
-    if (!verifyReports.length) {
+    for (const name of ['merged.json', 'merged.pre-verify.json']) {
+      try {
+        const prev = JSON.parse(fs.readFileSync(path.join(runDir, name), 'utf8'))
+        expect = [...new Set([...expect, ...arr(prev.angles), ...arr(prev.invalid_reports).map((r) => r.angle)])].filter((a) => typeof a === 'string' && a)
+      } catch { /* no previous merge */ }
+    }
+  }
+  let merged = merge(manifest, reports, diff, { expect })
+  if (o.applyVerify) {
+    const { reports: verifyReports, invalid } = loadVerifyReports(runDir, merged.issues.map((i) => i.id))
+    for (const bad of invalid) process.stderr.write(`merge-findings: verification: ${bad.file} ignored: ${bad.violations.join('; ')}\n`)
+    if (!verifyReports.length && !invalid.length) {
       process.stderr.write('merge-findings: verification: none (no verify/*.json in the run dir)\n')
     } else {
       fs.writeFileSync(path.join(runDir, 'merged.pre-verify.json'), JSON.stringify(merged, null, 2) + '\n')
-      const r = applyVerify(merged, verifyReports)
+      const r = applyVerify(merged, verifyReports, invalid)
       merged = r.merged
       if (r.unknown.length) process.stderr.write(`merge-findings: verification: ${r.unknown.length} verdict(s) for ids merged.json does not hold, skipped: ${r.unknown.join(', ')}\n`)
     }

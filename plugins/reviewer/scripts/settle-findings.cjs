@@ -57,8 +57,8 @@ function main(argv) {
     process.stdout.write(matches.map((i, k) => fmt(parsed[i], k + 1)).join('\n') + (matches.length ? '\n' : ''))
     return 0
   }
-  if (o.title && matches.length > 1 && !o.all) {
-    process.stderr.write(`settle-findings: ${matches.length} rows match --title ${JSON.stringify(o.title)}; pass --all-matching to settle them all:\n${matches.map((i, k) => '  ' + fmt(parsed[i], k + 1)).join('\n')}\n`)
+  if (matches.length > 1 && !o.all) {
+    process.stderr.write(`settle-findings: ${matches.length} rows match${o.title ? ` --title ${JSON.stringify(o.title)}` : ''}; pass --all-matching to settle them all:\n${matches.map((i, k) => '  ' + fmt(parsed[i], k + 1)).join('\n')}\n`)
     return 1
   }
   let settled = 0, left = 0

@@ -44,9 +44,12 @@ test('--set rewrites only matching escalated/open rows in place; already-settled
   for (const i of [1, 2, 3]) assert.deepEqual(after[i], before[i])
   for (const x of after) assert.deepEqual(validateHistoryRow(x), [])
 })
-test('a title matching two rows is refused unless --all-matching; --dry-run writes nothing; a bad outcome is refused', () => {
+test('--set over several rows (with or without --title) is refused unless --all-matching; --dry-run writes nothing; a bad outcome is refused', () => {
   const { dir, history } = repo()
   const bytes = fs.readFileSync(history)
+  const whole = run(['--change', 'openspec/changes/x', '--set', 'dismissed'], dir)
+  assert.equal(whole.status, 1, 'a change-wide --set without --all-matching is refused'); assert.match(whole.stderr, /3 rows match/i)
+  assert.ok(bytes.equals(fs.readFileSync(history)))
   const r = run(['--run-id', 'r1', '--title', 'rollback', '--set', 'residual'], dir)
   assert.equal(r.status, 1); assert.match(r.stderr, /2 rows match/i); assert.match(r.stderr, /No rollback owner named/)
   assert.ok(bytes.equals(fs.readFileSync(history)))

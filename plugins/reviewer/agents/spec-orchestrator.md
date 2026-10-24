@@ -137,10 +137,10 @@ Agent tool:
 When every verifier has returned, apply the verdicts:
 
 ```bash
-node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --apply-verify
+node "{plugin_root}/scripts/merge-findings.cjs" {run_dir} --apply-verify --expect {angle keys}
 ```
 
-It rewrites `merged.json` (the pre-verification copy stays as `merged.pre-verify.json`): refuted issues move to `refuted[]` with the verifier's evidence, unverified ones drop one severity level and carry `verified: "unverified"`, the rest are `confirmed` or `not_checked` (a verifier that did not return), and `counts`, `verdict` and `verification` are recomputed. Read the verified `merged.json`; everything after this step (the report, triage, directives, logging) uses it. Section B gets a last block, **Refuted by verification**, listing each `refuted[]` entry with its evidence, and the report's Run dir line gains `verified: N confirmed / N refuted / N unverified / N not checked`.
+It rewrites `merged.json` (the pre-verification copy stays as `merged.pre-verify.json`): refuted issues move to `refuted[]` with the verifier's evidence, unverified ones drop one severity level and carry `verified: "unverified"`, the rest are `confirmed` or `not_checked` (a verifier that did not return), and `counts`, `verdict` and `verification` are recomputed; `complete` never changes (a missing angle stays missing). If `verification.invalid_files` is non-empty, name those files in the report: their verdicts were ignored. Read the verified `merged.json`; everything after this step (the report, triage, directives, logging) uses it. Section B gets a last block, **Refuted by verification**, listing each `refuted[]` entry with its evidence, and the report's Run dir line gains `verified: N confirmed / N refuted / N unverified / N not checked`.
 
 ### Step 4: Check Verdict
 
