@@ -309,3 +309,7 @@ test('rule violations carry the rule text as pattern in every brief, so angles f
   for (const f of ['templates/spec-angle-prompt.md', 'templates/result-angle-prompt.md']) assert.match(read(f), /first eight words/, f)
   assert.match(read('workflows/spec-dual.workflow.js'), /first eight words/)
 })
+test('init --from-history reads dismissed rows as refuted findings and escalated rows as open decisions', () => {
+  assert.match(body('init.md'), /dismissed/); assert.match(body('init.md'), /escalated/)
+  assert.match(read('README.md'), /settle-findings\.cjs/)
+})

@@ -53,6 +53,8 @@ What it does:
   With --from-history, reads the review findings history (openspec/reviews/history.jsonl
   or .claude/reviewer/history.jsonl), clusters findings that recur across 2+ changes into
   candidate rules, asks you to confirm each, and injects only the confirmed ones.
+  Rows whose outcome is dismissed were refuted by verification or by you and never become
+  rules; rows still escalated are decisions waiting on a human, listed separately.
   The same pass flags existing rules for retirement (finding class never seen in history,
   or superseded by a new rule) — removals are confirmed separately before applying.
 
