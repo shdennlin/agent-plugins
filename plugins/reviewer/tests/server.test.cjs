@@ -168,3 +168,13 @@ test('report_review refuses verify as an angle name', () => {
   const res = handleReportReview({ ...validReport(mkRun()), angle: 'verify' })
   assert.equal(res.isError, true); assert.match(res.content[0].text, /angle/)
 })
+
+test('verify_review refuses a verify/ directory that is a symlink out of the run dir (no write through it)', () => {
+  const run = mkRun()
+  fs.writeFileSync(path.join(run, 'merged.json'), JSON.stringify({ issues: [{ id: 'F1' }] }))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'reviewer-outside-'))
+  fs.symlinkSync(outside, path.join(run, 'verify'))
+  const res = handleVerifyReview({ run_dir: run, batch: 'b1', verdicts: [{ id: 'F1', status: 'confirmed', evidence: 'x' }] })
+  assert.equal(res.isError, true); assert.match(res.content[0].text, /symlink/)
+  assert.ok(!fs.existsSync(path.join(outside, 'b1.json')), 'nothing written through the symlink')
+})

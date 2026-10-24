@@ -23,7 +23,11 @@ function handle(args) {
   const realDir = fs.realpathSync(runDir)
   if (!/\/(reviews|reviewer)\/runs\//.test(realDir + '/')) return fail('verify_review rejected: run_dir resolves outside a /reviews/runs/ or /reviewer/runs/ directory')
   const dir = path.join(realDir, 'verify')
+  // verify/ must be a real directory inside the run dir: a symlinked verify/ would make this a write
+  // anywhere the link points
+  try { if (fs.lstatSync(dir).isSymbolicLink()) return fail(`verify_review rejected: ${dir} is a symlink`) } catch (e) { if (e.code !== 'ENOENT') throw e }
   fs.mkdirSync(dir, { recursive: true })
+  if (fs.realpathSync(dir) !== dir) return fail(`verify_review rejected: ${dir} resolves outside the run dir`)
   const target = path.join(dir, `${args.batch}.json`)
   try { if (fs.lstatSync(target).isSymbolicLink()) return fail(`verify_review rejected: ${target} is a symlink`) } catch (e) { if (e.code !== 'ENOENT') throw e }
   const out = { ...args, via: 'verify_review', reported_at: new Date().toISOString() }
