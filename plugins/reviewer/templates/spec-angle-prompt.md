@@ -31,7 +31,8 @@ Review the spec ONLY through your assigned angle. For each issue found, record:
 - **category**: scope | design | spec | tasks | codebase | cross-cutting
 - **pattern** (optional): the shortest literal phrase from the spec text that identifies the defect
   (a requirement fragment, a heading, a field name), never a whole paragraph and no regex; the merge
-  step treats every issue with the same `pattern` as the same defect
+  step treats every issue with the same `pattern` as the same defect.
+  When the issue is a violation of a project rule, `pattern` is that rule's first eight words, verbatim, so every angle that reports the same rule folds into one issue.
 - **expected**: what the spec should say (what is missing or unclear)
 - **actual**: what it says now
 - **impact**: why it matters if not addressed

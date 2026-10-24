@@ -494,6 +494,8 @@ if (scenario === 'composition') {
   assert(fix1 && /Unit A assumes Linux/.test(fix1.prompt), 'the cross-cutting finding reaches the fixer')
 }
 if (scenario === 'rules') {
+  for (const c of calls.filter(c => /^(claude:|codex:)/.test(c.label) && /## Project Rules/.test(c.prompt))) assert(/first eight words/.test(c.prompt), c.label + ' prompt tells the engine to use the rule text as pattern')
+
   const P = l => (calls.find(c => c.label === l) || {}).prompt || ''
   assert(/## Project Rules/.test(P('claude:scope:1')) && P('claude:scope:1').includes('RULE-PROPOSAL') && !P('claude:scope:1').includes('RULE-SPECS'), 'scope angle gets proposal rules only')
   assert(!/## Project Rules/.test(P('claude:platform:1')) && !/## Project Rules/.test(P('claude:consistency:1')), 'angles with no artifact area get no rules section')

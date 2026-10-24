@@ -305,3 +305,7 @@ test('both orchestrators verify after the merge: Step 3b, typed verifiers in bat
   assert.match(body('result.md'), /--apply-verify/)
   const r = read('README.md'); for (const st of ['confirmed', 'refuted', 'unverified']) assert.match(r, new RegExp(`\`${st}\``))
 })
+test('rule violations carry the rule text as pattern in every brief, so angles fold', () => {
+  for (const f of ['templates/spec-angle-prompt.md', 'templates/result-angle-prompt.md']) assert.match(read(f), /first eight words/, f)
+  assert.match(read('workflows/spec-dual.workflow.js'), /first eight words/)
+})

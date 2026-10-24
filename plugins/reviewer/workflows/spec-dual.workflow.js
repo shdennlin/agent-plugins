@@ -88,7 +88,7 @@ function rulesBlock(areas) {
   const body = present.length === 1
     ? RULES[present[0]].map(r => `- ${r}`).join('\n')
     : present.map(a => `### ${a}\n` + RULES[a].map(r => `- ${r}`).join('\n')).join('\n')
-  return `\n\n## Project Rules (additional criteria — treat violations as findings)\n${body}\n`
+  return `\n\n## Project Rules (additional criteria — treat violations as findings)\n${body}\n\nWhen a finding is a violation of one of these rules, set its \`pattern\` to that rule's first eight words, verbatim, so both engines' reports of the same rule fold into one row.\n`
 }
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']

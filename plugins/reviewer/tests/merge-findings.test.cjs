@@ -657,3 +657,15 @@ test('--apply-verify with --log-script logs refuted rows as dismissed', (t) => {
   assert.equal(ref.outcome, 'dismissed')
   for (const x of rows.filter((x) => x !== ref)) assert.equal(x.outcome, 'open')
 })
+
+// --- batch G: rule-derived findings fold on the rule text
+test('two angles reporting the same project rule with different titles fold into one issue when pattern is the rule text', () => {
+  const man = { run_id: 'x', mode: 'spec', files: ['design.md'], working_directory: '/tmp/x' }
+  const RULE = 'Every architecture decision that changes behaviour (data flow,'
+  const rep = (angle, title) => ({ run_dir: '/tmp/x/openspec/reviews/runs/r', angle, via: 'report_review', verdict: 'FAIL',
+    files: [{ path: 'design.md', verdict: 'issues', issue_count: 1 }],
+    issues: [{ severity: 'MEDIUM', title, location: 'design.md §Decisions', category: 'design', pattern: RULE, expected: 'e', actual: 'a', impact: 'i', recommendation: 'r' }] })
+  const m = merge(man, [rep('scope', 'Behaviour/scope decisions without a rejected alternative'), rep('design', 'Behaviour-changing decisions without alternatives considered')], '')
+  assert.equal(m.issues.length, 1)
+  assert.deepEqual(m.issues[0].angles, ['design', 'scope']); assert.equal(m.issues[0].folded, 1)
+})
