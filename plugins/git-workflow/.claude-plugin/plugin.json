@@ -1,9 +1,0 @@
-{
-  "name": "git-workflow",
-  "version": "1.2.1",
-  "description": "Git workflow automation commands with Conventional Commits support",
-  "author": {
-    "name": "shdennlin"
-  },
-  "keywords": ["git", "merge", "commit", "status", "sync", "submodules", "workflow", "conventional-commits"]
-}
