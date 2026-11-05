@@ -7,7 +7,10 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-const { render } = require('../bin/keepalive-cache')
+const { execFileSync } = require('child_process')
+const { render, paint } = require('../bin/keepalive-cache')
+
+const SCRIPT = path.join(__dirname, '..', 'bin', 'keepalive-cache')
 
 const NOW = Date.UTC(2026, 9, 4, 15, 0)
 const MIN = 60_000
@@ -79,4 +82,32 @@ test('an armed compact stays visible while a turn runs (a /goal)', () => {
   const file = transcript([assistantAt(NOW - 5 * MIN), { type: 'user', timestamp: new Date(NOW).toISOString() }])
   const state = { v: 1, phase: 'active', ttlSec: 3600, lastPingAt: 0, compactArmed: true, compactAt: null }
   assert.equal(render(file, state, 3600, NOW), 'HOT ✂armed')
+})
+
+// Output colours: plain text unless --color, and never when NO_COLOR is set.
+test('paint dims HOT, yellows the rest and resets', () => {
+  assert.equal(paint('HOT'), '\x1b[33m\x1b[90mHOT\x1b[33m\x1b[0m')
+  assert.equal(paint('🟡19:55 kp 2/2'), '\x1b[33m🟡19:55 kp 2/2\x1b[0m')
+})
+
+function cli(args, env, rows) {
+  const file = transcript(rows)
+  return execFileSync('node', [SCRIPT, ...args], {
+    input: JSON.stringify({ session_id: 'colour-test', transcript_path: file }),
+    env: { PATH: process.env.PATH, HOME: os.tmpdir(), ...env },
+    encoding: 'utf8',
+  })
+}
+
+test('the command prints plain text by default and paints only with --color', () => {
+  const rows = [assistantAt(Date.now() - 5 * MIN), { type: 'user', timestamp: new Date().toISOString() }]
+  assert.equal(cli([], {}, rows), 'HOT')
+  assert.equal(cli(['--color'], {}, rows), paint('HOT'))
+})
+
+test('NO_COLOR wins over --color', () => {
+  const rows = [assistantAt(Date.now() - 5 * MIN), { type: 'user', timestamp: new Date().toISOString() }]
+  assert.equal(cli(['--color'], { NO_COLOR: '1' }, rows), 'HOT')
+  // an empty NO_COLOR does not count as set (no-color.org)
+  assert.equal(cli(['--color'], { NO_COLOR: '' }, rows), paint('HOT'))
 })
