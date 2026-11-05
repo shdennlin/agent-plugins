@@ -9,6 +9,8 @@
 //
 // stdin: the Claude Code status line JSON (session_id, transcript_path).
 // argv:  --ttl <seconds>  TTL to assume before the mod has read one (default 3600)
+//        --color          paint the output with ANSI colours (yellow, HOT dimmed). Off by default, so the
+//                         output is plain text for any host; ignored when NO_COLOR is set (no-color.org).
 'use strict'
 
 const fs = require('fs')
@@ -35,11 +37,13 @@ function main() {
   const state = readState(input.session_id)
   const fallbackTtl = Number.isFinite(ttlArg) && ttlArg > SAFETY_MARGIN ? ttlArg : 3600
   const out = render(input.transcript_path, state, fallbackTtl, Date.now())
-  if (out) process.stdout.write(paint(out))
+  const colour = process.argv.includes('--color') && !process.env.NO_COLOR
+  if (out) process.stdout.write(colour ? paint(out) : out)
 }
 
-// The status line widget is set to preserveColors, so the colors come from here: yellow like the neighbouring
-// cache figure, and HOT dimmed. Kept out of render() so that stays plain text.
+// Only with --color (and no NO_COLOR): yellow like the neighbouring cache figure, and HOT dimmed. A host that
+// keeps the colours (ccstatusline with preserveColors) shows them; the default is plain text. Kept out of
+// render() so that stays plain text.
 function paint(text) {
   return `${YELLOW}${text.replace(/^HOT/, `${DIM}HOT${YELLOW}`)}${RESET}`
 }

@@ -16,7 +16,7 @@ The plugin writes its state to `~/.claude/keepalive/<session_id>.json`. `bin/kee
 - An armed compact adds `✂03:12` (the clock time it is due), or `✂armed` while nothing is scheduled yet, for example during a `/goal` turn: `HOT ✂armed`. It clears once the compact has run, when you send a plain prompt, or with `/keepalive compact off`.
 - With no state file it prints what ccstatusline's built-in Cache Timer prints.
 
-The command prints its own ANSI colours (yellow, `HOT` dimmed), so a host that strips colours shows the same text without them. It reads the JSON Claude Code passes to every status line command (`session_id`, `transcript_path`), so it works with any of the setups below. It needs `node` on the `PATH` the status line runs with. `--ttl <seconds>` is the TTL assumed until the plugin has read the session's own (default 3600).
+The output is plain text, so any host can show it. Add `--color` for ANSI colours (yellow, `HOT` dimmed) when the host passes them through; `NO_COLOR` turns them off again. It reads the JSON Claude Code passes to every status line command (`session_id`, `transcript_path`), so it works with any of the setups below. It needs `node` on the `PATH` the status line runs with. `--ttl <seconds>` is the TTL assumed until the plugin has read the session's own (default 3600).
 
 **All three need a refresh interval.** Claude Code redraws the status line only on events, and nothing happens while you are idle. Set `statusLine.refreshInterval` in `~/.claude/settings.json` (30 seconds is enough); ccstatusline's **Refresh interval** menu item writes the same setting.
 
@@ -29,11 +29,11 @@ In `~/.config/ccstatusline/settings.json`, replace the `cache-timer` item with a
   "id": "keepalive-cache",
   "type": "custom-command",
   "preserveColors": true,
-  "commandPath": "/absolute/path/to/plugins/cache-keepalive/bin/keepalive-cache --ttl 3600"
+  "commandPath": "/absolute/path/to/plugins/cache-keepalive/bin/keepalive-cache --ttl 3600 --color"
 }
 ```
 
-`preserveColors` lets the script's own colours through (ccstatusline then ignores the item's `color`); without it the whole field takes the item's colour and `HOT` is no longer dimmed. Keep ccstatusline's custom-command cache TTL at `0` (the default), or the field shows stale output.
+`--color` plus `preserveColors` let the script's own colours through (ccstatusline then ignores the item's `color`). Leave both out for plain text that takes the item's `color`, with `HOT` not dimmed. Keep ccstatusline's custom-command cache TTL at `0` (the default), or the field shows stale output.
 
 ## Your own status line script
 
