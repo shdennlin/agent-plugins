@@ -87,7 +87,7 @@ When the pings run out while you are away, keepalive can ask on Telegram whether
 Keepalive works without a status line: `/keepalive status`, the expired band and a toast when it turns itself off. For an always-visible state, `bin/keepalive-cache` is a drop-in for ccstatusline's Cache Timer, or a status line command of its own:
 
 ```
-🟢58:54 kp 1/2 ✂03:12
+58:54 kp 1/2 ✂03:12
 ```
 
 The countdown, `kp used/cap` and `✂` (an armed compact, with the time it is due) are explained in [docs/status-line.md](docs/status-line.md), with the ccstatusline setup and the `engineStatus` option for sessions with no status line. Set `statusLine.refreshInterval` (30 seconds is enough), or the field only redraws on events.

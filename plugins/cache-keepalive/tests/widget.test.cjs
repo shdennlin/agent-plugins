@@ -26,13 +26,13 @@ const assistantAt = ms => ({
 
 test('without a state file it matches the built-in cache-timer', () => {
   const file = transcript([assistantAt(NOW - 10 * MIN)])
-  assert.equal(render(file, null, 3600, NOW), '🟢49:55')
+  assert.equal(render(file, null, 3600, NOW), '49:55')
 })
 
 test('a ping restarts the countdown (AC11)', () => {
   const file = transcript([assistantAt(NOW - 58 * MIN)])
   const state = { v: 1, phase: 'armed', ttlSec: 3600, lastPingAt: NOW - 1 * MIN, pings: 1, max: 2 }
-  assert.equal(render(file, state, 3600, NOW), '🟢58:55 kp 1/2')
+  assert.equal(render(file, state, 3600, NOW), '58:55 kp 1/2')
   assert.equal(render(file, null, 3600, NOW), '🔴1:55')
 })
 
@@ -48,9 +48,9 @@ test('tags follow the phase', () => {
 
 test('a running turn shows HOT only while the mod says active', () => {
   const file = transcript([assistantAt(NOW - 5 * MIN), { type: 'user', timestamp: new Date(NOW).toISOString() }])
-  assert.equal(render(file, null, 3600, NOW), '🔥HOT')
-  assert.equal(render(file, { v: 1, phase: 'active', ttlSec: 3600, lastPingAt: 0 }, 3600, NOW), '🔥HOT')
-  assert.equal(render(file, { v: 1, phase: 'armed', ttlSec: 3600, lastPingAt: 0, pings: 0, max: 2 }, 3600, NOW), '🟢54:55 kp 0/2')
+  assert.equal(render(file, null, 3600, NOW), 'HOT')
+  assert.equal(render(file, { v: 1, phase: 'active', ttlSec: 3600, lastPingAt: 0 }, 3600, NOW), 'HOT')
+  assert.equal(render(file, { v: 1, phase: 'armed', ttlSec: 3600, lastPingAt: 0, pings: 0, max: 2 }, 3600, NOW), '54:55 kp 0/2')
 })
 
 test('sidechain rows are ignored', () => {
@@ -78,5 +78,5 @@ test('an armed compact shows its time, or "✂ armed" while none is scheduled', 
 test('an armed compact stays visible while a turn runs (a /goal)', () => {
   const file = transcript([assistantAt(NOW - 5 * MIN), { type: 'user', timestamp: new Date(NOW).toISOString() }])
   const state = { v: 1, phase: 'active', ttlSec: 3600, lastPingAt: 0, compactArmed: true, compactAt: null }
-  assert.equal(render(file, state, 3600, NOW), '🔥HOT ✂armed')
+  assert.equal(render(file, state, 3600, NOW), 'HOT ✂armed')
 })

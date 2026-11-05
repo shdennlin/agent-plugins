@@ -17,7 +17,12 @@ const path = require('path')
 
 const SAFETY_MARGIN = 5
 const INITIAL_TAIL_BYTES = 32768
-const GLYPH = { hot: '🔥', fresh: '🟢', draining: '🟡', urgent: '🔴', cold: '❄️' }
+// Only states that need you get an icon: draining, urgent, cold. Hot (a turn is running) and fresh are
+// the normal case, so they stay plain text and never compete with the rest of the status line.
+const GLYPH = { hot: '', fresh: '', draining: '🟡', urgent: '🔴', cold: '❄️' }
+const YELLOW = '\x1b[33m'
+const DIM = '\x1b[90m'
+const RESET = '\x1b[0m'
 
 function main() {
   let input = {}
@@ -30,7 +35,13 @@ function main() {
   const state = readState(input.session_id)
   const fallbackTtl = Number.isFinite(ttlArg) && ttlArg > SAFETY_MARGIN ? ttlArg : 3600
   const out = render(input.transcript_path, state, fallbackTtl, Date.now())
-  if (out) process.stdout.write(out)
+  if (out) process.stdout.write(paint(out))
+}
+
+// The status line widget is set to preserveColors, so the colors come from here: yellow like the neighbouring
+// cache figure, and HOT dimmed. Kept out of render() so that stays plain text.
+function paint(text) {
+  return `${YELLOW}${text.replace(/^HOT/, `${DIM}HOT${YELLOW}`)}${RESET}`
 }
 
 // fallbackTtl applies until the mod has read the session's real TTL.
@@ -180,4 +191,4 @@ function argValue(name) {
 
 if (require.main === module) main()
 
-module.exports = { render, keepTag, compactTag, scanTail }
+module.exports = { render, paint, keepTag, compactTag, scanTail }
