@@ -570,7 +570,7 @@ describe('compact before expiry', () => {
     const c = compacting(on, w)
     await start($)
     await turn($)
-    const r = (await $.command.run({ command: 'keepalive', args: 'compact' } as never)) as { text: string }
+    const r = (await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)) as { text: string }
     expect(r.text).toContain('Armed')
     // A /goal's continuations are turns of their own: the arming must outlast them.
     await turn($)
@@ -595,7 +595,7 @@ describe('compact before expiry', () => {
     const c = compacting(on, w)
     await start($)
     await turn($)
-    await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+    await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
     const r = (await $.command.run({ command: 'keepalive', args: 'compact off' } as never)) as { text: string }
     expect(r.text).toContain('disarmed')
     await w.clock.advance(3 * 60 * MIN)
@@ -607,7 +607,7 @@ describe('compact before expiry', () => {
     compacting(on, w)
     await start($)
     await turn($)
-    await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+    await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
     const r = (await $.command.run({ command: 'keepalive', args: 'status' } as never)) as { text: string }
     expect(r.text).toContain('compact before expiry: armed')
   })
@@ -618,7 +618,7 @@ describe('compact before expiry', () => {
     await start($)
     await turn($)
     await $.command.run({ command: 'keepalive', args: 'done' } as never)
-    const r = (await $.command.run({ command: 'keepalive', args: 'compact' } as never)) as { text: string }
+    const r = (await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)) as { text: string }
     expect(r.text).toContain('no pings')
     expect(stateOf(w)).toMatchObject({ phase: 'stopped' })
     await w.clock.advance(49 * MIN)
@@ -633,7 +633,7 @@ describe('compact before expiry', () => {
     const c = compacting(on, w)
     await start($)
     await turn($)
-    await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+    await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
     const r = (await $.command.run({ command: 'keepalive', args: 'done' } as never)) as { text: string }
     expect(r.text).toContain('armed compact still runs')
     await w.clock.advance(55 * MIN)
@@ -646,7 +646,7 @@ describe('compact before expiry', () => {
     compacting(on, w)
     await start($)
     await turn($)
-    const r = (await $.command.run({ command: 'keepalive', args: 'compact' } as never)) as { text: string }
+    const r = (await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)) as { text: string }
     // 2 pings at +55 and +110, compact 50 min before the cache expires. Local time varies, so only the shape.
     expect(r.text).toMatch(/compact at about \d\d:\d\d \(after the remaining pings\)/)
   })
@@ -658,7 +658,7 @@ describe('compact before expiry', () => {
       const c = compacting(on, w)
       await start($)
       await turn($)
-      await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+      await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
       await $.turn.start({ text: 'goal', turnId: 't2' })
       await $.turn.complete({ reason, answer: '', durationMs: 1000, isAborted: false, turnId: 't2' } as never)
       expect(stateOf(w)).toMatchObject({ phase: 'capped', compactArmed: true })
@@ -686,7 +686,7 @@ describe('compact before expiry', () => {
     await start($)
     await turn($)
     expect(stateOf(w)).toMatchObject({ compactArmed: false, compactAt: null })
-    await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+    await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
     // 2 pings (+55, +110), then compact 10 min before that cache expires: +110 + 50 = +160 min.
     expect(stateOf(w)).toMatchObject({ compactArmed: true, compactAt: T0 + 160 * MIN })
     await $.command.run({ command: 'keepalive', args: 'compact off' } as never)
@@ -705,7 +705,7 @@ describe('compact before expiry', () => {
   })
 
   // brb raises the ping cap, compact only adds the last step: the order must not matter.
-  for (const order of [['brb 180', 'compact'], ['compact', 'brb 180']] as const) {
+  for (const order of [['brb 180', 'compact pings'], ['compact pings', 'brb 180']] as const) {
     test(`/keepalive ${order[0]} then ${order[1]}: 4 pings, then one compact`, async ($, on) => {
       const w = world(on)
       const c = compacting(on, w)
@@ -725,6 +725,185 @@ describe('compact before expiry', () => {
       expect(w.forks).toBe(4)
     })
   }
+
+  describe('timed compact: /keepalive compact [minutes], no pings', () => {
+    const run = async ($: Engine, args: string) => ((await $.command.run({ command: 'keepalive', args } as never)) as { text: string }).text
+    const submit = ($: Engine, prompt: string, source?: string) =>
+      ($ as never as { classic: { UserPromptSubmit: (e: object) => Promise<unknown> } }).classic.UserPromptSubmit(source === undefined ? { prompt } : { prompt, source })
+
+    test('bare compact: no pings, compacts 30 min after the last turn, warns about the loss', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      const text = await run($, 'compact')
+      expect(text).toContain('no pings')
+      expect(text).toContain('lossy')
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 30 * MIN })
+      await w.clock.advance(29 * MIN)
+      expect(c.calls).toBe(0)
+      await w.clock.advance(1 * MIN)
+      expect(c.calls).toBe(1)
+      expect(w.forks).toBe(0)
+      expect(stateOf(w)).toMatchObject({ phase: 'active', compactArmed: false })
+      expect(w.toasts.at(-1)).toContain('Compacted before the cache expired')
+    })
+
+    test('compact 45 counts from the last turn end, and survives later turns (each restarts the clock)', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact 45')
+      await w.clock.advance(20 * MIN)
+      await turn($) // a /goal continuation: the countdown restarts from here
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 65 * MIN })
+      await w.clock.advance(44 * MIN)
+      expect(c.calls).toBe(0)
+      await w.clock.advance(1 * MIN)
+      expect(c.calls).toBe(1)
+      expect(w.forks).toBe(0)
+    })
+
+    test('"1h" is 60 minutes: too long for a 1h cache, refused', async ($, on) => {
+      const w = world(on)
+      compacting(on, w)
+      await start($)
+      await turn($)
+      expect(await run($, 'compact 1h')).toContain('Too long')
+      expect(await run($, 'compact 50')).toContain('Too long')
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: false })
+    })
+
+    test('nonsense minutes get the usage line', async ($, on) => {
+      const w = world(on)
+      compacting(on, w)
+      await start($)
+      await turn($)
+      expect(await run($, 'compact soon')).toContain('Usage')
+      expect(await run($, 'compact 0')).toContain('Usage')
+    })
+
+    test('c and d are aliases for compact and done', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      expect(await run($, 'd')).toContain('stopped')
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped' })
+      expect(await run($, 'c 20')).toContain('no pings')
+      expect(stateOf(w)).toMatchObject({ compactArmed: true, compactAt: T0 + 20 * MIN })
+      await w.clock.advance(20 * MIN)
+      expect(c.calls).toBe(1)
+      expect(await run($, 'C off')).toContain('disarmed')
+    })
+
+    test('c p is compact pings: pings first, then compact', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'c p')
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: true, compactAt: T0 + 160 * MIN })
+      await w.clock.advance(31 * MIN)
+      expect(c.calls).toBe(0)
+    })
+
+    test('p is an alias for ping', async ($, on) => {
+      const w = world(on)
+      compacting(on, w)
+      await start($)
+      await turn($)
+      expect(await run($, 'p')).toContain('Pinged manually')
+      expect(w.forks).toBe(1)
+    })
+
+    test('compact pings keeps the old behaviour (pings first)', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact pings')
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: true })
+      await w.clock.advance(31 * MIN)
+      expect(c.calls).toBe(0)
+    })
+
+    test('compact off after a timed arm goes back to pinging', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped' })
+      await run($, 'compact off')
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: false })
+      await w.clock.advance(31 * MIN)
+      expect(c.calls).toBe(0)
+      await w.clock.advance(24 * MIN)
+      expect(w.forks).toBe(1)
+    })
+
+    test('arming while a turn runs schedules it when the turn ends', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await $.turn.start({ text: 'goal', turnId: 't1' })
+      expect(await run($, 'compact')).toContain('after the current turn ends')
+      await $.turn.complete({ reason: 'stop', answer: 'x', durationMs: 1000, isAborted: false, turnId: 't1' } as never)
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true })
+      await w.clock.advance(30 * MIN)
+      expect(c.calls).toBe(1)
+    })
+
+    test('a refused compaction clears the flag and leaves a note for /keepalive status', async ($, on) => {
+      const w = world(on)
+      on('session.compact', async () => ({ skip: 'context too large' }) as never)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await w.clock.advance(30 * MIN)
+      expect(stateOf(w)).toMatchObject({ compactArmed: false })
+      expect(await run($, 'status')).toContain('last compact note: Compact skipped: context too large')
+    })
+
+    describe('which prompts mean you are back', () => {
+      async function armedTimed($: Engine, on: On) {
+        const w = world(on)
+        compacting(on, w)
+        on('classic.UserPromptSubmit', async () => ({}) as never)
+        await start($)
+        await turn($)
+        await run($, 'compact')
+        return w
+      }
+      test('a prompt you typed cancels it and restores pinging', async ($, on) => {
+        const w = await armedTimed($, on)
+        await submit($, 'I am back', 'user')
+        expect(stateOf(w)).toMatchObject({ compactArmed: false, phase: 'armed' })
+        expect(w.toasts.at(-1)).toContain('Armed compact cancelled')
+      })
+      for (const text of [
+        '<task-notification>\n<task-id>x</task-id></task-notification>',
+        'Another Claude session sent a message:\n<agent-message from="a">hi</agent-message>',
+        'Base directory for this skill: /x/.claude/skills/spectra-apply',
+        '<command-message>spectra-apply</command-message>',
+      ]) {
+        test(`${text.slice(0, 30).replace(/\n/g, ' ')}… with no source does not`, async ($, on) => {
+          const w = await armedTimed($, on)
+          await submit($, text)
+          await submit($, text, 'user')
+          expect(stateOf(w)).toMatchObject({ compactArmed: true, phase: 'stopped' })
+          expect(w.toasts).toEqual([])
+        })
+      }
+      test('a kept prompt is recorded so /keepalive status can show who it claimed to be', async ($, on) => {
+        await armedTimed($, on)
+        await submit($, '<task-notification>x</task-notification>')
+        expect(await run($, 'status')).toContain('last compact note: kept: no source prompt')
+      })
+    })
+  })
 
   describe('brb break-even note', () => {
     const brb = async ($: Engine, on: On, model: string, minutes: number) => {
@@ -763,7 +942,7 @@ describe('compact before expiry', () => {
       on('classic.UserPromptSubmit', async () => ({}) as never)
       await start($)
       await turn($)
-      await $.command.run({ command: 'keepalive', args: 'compact' } as never)
+      await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
       return w
     }
     test('a plain prompt you typed clears it and says so', async ($, on) => {

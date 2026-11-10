@@ -31,6 +31,10 @@ export type KeepaliveSession = {
   tgAskMessageId: number | null
   /** /keepalive compact: compact once, when the pings run out. Survives turns (a /goal's continuations); cleared when it fires or on `compact off`. */
   isCompactArmed: boolean
+  /** /keepalive compact [minutes]: with isCompactArmed, no pings; compact this many minutes after the last turn ends. Null = the pings-first mode. Cleared with the flag. */
+  compactAfterMin: number | null
+  /** Why the last armed compact ended (ran, skipped, refused, cancelled by a prompt), so a miss can be diagnosed afterwards. */
+  lastCompactNote: string | null
 }
 
 declare module 'claude-code' {

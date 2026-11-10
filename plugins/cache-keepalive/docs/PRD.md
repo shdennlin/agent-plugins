@@ -189,11 +189,12 @@ Written to `<CLAUDE_CONFIG_DIR or ~/.claude>/keepalive/<session_id>.json` on eve
 
 ### 6.5 Commands
 
-Command names allow only letters, digits, `_` and `-`, so the PRD's earlier `/keepalive:done` is impossible. One command takes a verb:
+Command names allow only letters, digits, `_` and `-`, so the PRD's earlier `/keepalive:done` is impossible. One command takes a verb (`c`, `d` and `p` are short forms of `compact`, `done` and `ping`):
 
 | Command | Behavior |
 |---|---|
 | `/keepalive done` | Stop for this idle stretch, until the next `turn.start` |
+| `/keepalive compact [minutes\|pings\|off]` | Arm a one-time compact: no pings, N minutes after the last turn (`pings`: pings first, then compact). See [compact.md](compact.md) |
 | `/keepalive brb <minutes>` | Cap for this idle stretch = `ceil(minutes / (TTL − lead))`, at least one more than pings sent |
 | `/keepalive status` | Phase, TTL, context, pings, next ping and expiry, totals across sessions |
 
