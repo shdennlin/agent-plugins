@@ -82,8 +82,15 @@ The context lives in this conversation; a subagent cannot see it. Do everything 
    - Existing path on disk → **file/module**
    - Identifier-like token (no spaces, matches code symbols) → **symbol**
    - Anything else → **question**
-2. Resolve `${CLAUDE_PLUGIN_ROOT}/templates/html-explainer.md` to an absolute path (the agent cannot expand the variable).
-3. Launch the explain agent:
+2. Resolve `${CLAUDE_PLUGIN_ROOT}/templates/html-explainer.md` and `${CLAUDE_PLUGIN_ROOT}/agents/explain-agent.md` to absolute paths (a subagent cannot expand the variable).
+3. Choose the dispatch mode:
+   - **Fork** — the current conversation already contains investigation of this target (files read, call chains traced, findings stated about it). A fork inherits that context, so it does not redo the work, and it shares the parent's prompt cache. It always runs on the session model and does NOT load `explain-agent.md` as its system prompt, so the prompt must point it at that file.
+   - **Fresh agent** — otherwise (target not yet discussed, or little conversation). Keeps the cheap sonnet agent with a clean context.
+
+   When unsure, use the fresh agent.
+4. Launch it.
+
+**Fresh agent:**
 
 ```
 Task tool:
@@ -99,7 +106,23 @@ Task tool:
     Output slug: <slug>
 ```
 
-4. Report the agent's output back to the user verbatim (one-paragraph conclusion + written file path).
+**Fork:**
+
+```
+Task tool:
+- subagent_type: "fork"
+- description: "Investigate and explain code state"
+- prompt: |
+    Read <absolute path to agents/explain-agent.md> and follow its Behavior and Constraints sections (ignore its frontmatter). Reuse the findings already in this conversation instead of re-investigating; only investigate what is still missing.
+
+    Target: <target verbatim>
+    Target kind: <file/module | symbol | question>
+    Audience: <audience string, default "developer">
+    HTML template path: <absolute path to templates/html-explainer.md>
+    Output slug: <slug>
+```
+
+5. Report the agent's output back to the user verbatim (one-paragraph conclusion + written file path).
 
 ## Examples
 

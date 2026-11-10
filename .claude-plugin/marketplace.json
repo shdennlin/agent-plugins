@@ -61,7 +61,7 @@
       "name": "digest",
       "source": "./plugins/digest",
       "description": "Summarize AI-generated branches, PRs, and diffs into icon-rich cards, explain code state with git archaeology as self-contained HTML explainers, plus multi-project weekly recall digests",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": {
         "name": "shdennlin"
       },
