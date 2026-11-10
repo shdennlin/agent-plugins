@@ -40,7 +40,7 @@ Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: o
 | `/keepalive brb <minutes or hours>` | Keep warm for longer this idle stretch, e.g. `brb 180` allows 4 pings and `brb 24h` 27. Resets at your next prompt |
 | `/keepalive brb reset` | Back to the configured `maxPings` for this idle stretch. Pings already sent are not taken back |
 | `/keepalive done` | Stop pinging for this idle stretch. Resets at your next prompt |
-| `/keepalive c` / `d` / `p` | Short forms of `compact`, `done` and `ping` |
+| `/keepalive c` / `d` / `p` / `s` | Short forms of `compact`, `done`, `ping` and `status` |
 | `/keepalive compact [minutes]` | No pings; compact once, `compactAfterMinutes` (30) or the given minutes after the last turn ends ([below](#compact-before-expiry)). `compact pings` (or `c p`) pings first and compacts when they run out; `compact off` cancels |
 | `/keepalive ping` | Fire a ping immediately instead of waiting for the schedule, for testing. Refused unless `armed` |
 
@@ -69,7 +69,7 @@ Set in `/config` (or `pluginConfigs["cache-keepalive"].options` in settings):
 Compacting is lossy: the summary drops detail, so nothing compacts unless you arm it, and the reply states the context size when you do. `/keepalive compact` (or `/keepalive compact 45`) stops the pings and compacts once, that many minutes after the last turn ends, while the cache is still warm; every new turn (a `/goal` step) restarts the countdown. `/keepalive compact pings` is the older mode: keepalive pings as usual, and once the pings run out it compacts `compactLeadMinutes` (10) before the cache expires. The summary request reads the cache instead of rewriting the whole prefix (98% of a 142k prefix read from cache, measured once), and your next prompt rewrites a small summary instead of the old context.
 
 - **One time.** It clears when it fires, with `/keepalive compact off`, or when you type a plain prompt (a toast says so). A slash command, a `/goal` continuation, a background task's notification or another session's message does not clear it. `/keepalive status` shows `last compact note` (why the last armed compact ended, or which prompt it ignored).
-- Aliases: `/keepalive c` is `compact`, `d` is `done`, `p` is `ping`, and `c p` is `compact pings`.
+- Aliases: `/keepalive c` is `compact`, `d` is `done`, `p` is `ping`, `s` is `status`, and `c p` is `compact pings`.
 - With `compact pings`, `/keepalive done` skips the pings: the compact then runs about 50 minutes after the last turn on a 1h TTL. `done` ends at your next turn, so for a `/goal` use plain `/keepalive compact` (timed mode survives turns) or `maxPings: 0`.
 - A late timer (the Mac slept), a cancelled compaction or a ping that misses the cache means no compact; the cache just expires.
 

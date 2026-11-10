@@ -809,6 +809,13 @@ describe('compact before expiry', () => {
       expect(c.calls).toBe(0)
     })
 
+    test('s is an alias for status', async ($, on) => {
+      world(on)
+      await start($)
+      await turn($)
+      expect(await run($, 's')).toContain('phase:')
+    })
+
     test('p is an alias for ping', async ($, on) => {
       const w = world(on)
       compacting(on, w)

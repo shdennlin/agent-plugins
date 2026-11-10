@@ -189,7 +189,7 @@ Written to `<CLAUDE_CONFIG_DIR or ~/.claude>/keepalive/<session_id>.json` on eve
 
 ### 6.5 Commands
 
-Command names allow only letters, digits, `_` and `-`, so the PRD's earlier `/keepalive:done` is impossible. One command takes a verb (`c`, `d` and `p` are short forms of `compact`, `done` and `ping`):
+Command names allow only letters, digits, `_` and `-`, so the PRD's earlier `/keepalive:done` is impossible. One command takes a verb (`c`, `d`, `p` and `s` are short forms of `compact`, `done`, `ping` and `status`):
 
 | Command | Behavior |
 |---|---|

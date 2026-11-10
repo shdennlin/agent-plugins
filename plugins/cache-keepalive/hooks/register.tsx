@@ -32,7 +32,7 @@ function breakEvenPings(model: string): number | null {
   return /(fable|mythos|opus|sonnet|haiku)/.test(model) ? 20 : null
 }
 // Short forms for the commands typed most.
-const VERB_ALIASES: Record<string, string> = { c: 'compact', d: 'done', p: 'ping' }
+const VERB_ALIASES: Record<string, string> = { c: 'compact', d: 'done', p: 'ping', s: 'status' }
 const TG_POLL_MS = 10_000
 const TG_API = 'https://api.telegram.org'
 const KEYCHAIN_SERVICE = 'claude-code.cache-keepalive'
@@ -124,7 +124,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'keepalive',
       description: 'Prompt-cache keepalive: done, brb <minutes|hours|reset>, compact [minutes|pings|off], ping, status',
-      argumentHint: 'done | brb <minutes|hours|reset> | compact [minutes|pings|off] | ping | status (d = done, c = compact, p = ping)',
+      argumentHint: 'done | brb <minutes|hours|reset> | compact [minutes|pings|off] | ping | status (d = done, c = compact, p = ping, s = status)',
     })
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
     stateDir = `${configDir}/keepalive`
@@ -683,7 +683,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     return lines.join('\n')
   }
 
-  return paint('Usage: /keepalive done | brb <minutes|hours|reset> | compact [minutes|pings|off] | ping | status (d = done, c = compact, p = ping)', 'red')
+  return paint('Usage: /keepalive done | brb <minutes|hours|reset> | compact [minutes|pings|off] | ping | status (d = done, c = compact, p = ping, s = status)', 'red')
 }
 
 type Stats = { pings: number; hits: number }

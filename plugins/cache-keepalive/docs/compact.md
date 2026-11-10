@@ -24,7 +24,7 @@ For a 200k+ session, this means the engine pre-empts keepalive's own pings and `
 
 ## Aliases
 
-`/keepalive c` is `compact`, `d` is `done`, `p` is `ping`, and `c p` is `compact pings`. `/keepalive c 45`, `/keepalive c off` and the rest work the same.
+`/keepalive c` is `compact`, `d` is `done`, `p` is `ping`, `s` is `status`, and `c p` is `compact pings`. `/keepalive c 45`, `/keepalive c off` and the rest work the same.
 
 ## Timed mode in one picture
 
