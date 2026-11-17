@@ -214,25 +214,31 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // Shared by both triggers. After either, the prefix is a fresh summary that
+  // no request has written to the cache yet, so a ping would pay a full
+  // rewrite, read as a miss and turn keepalive off for good. Phase goes to
+  // active (no ping) until the next turn writes the new cache and re-arms.
+  // Cancel the timers first: compaction takes about a minute at 140k tokens,
+  // long enough to overlap a ping or expiry timer due during it.
   // The engine's own compaction (over the context threshold, a prompt too
-  // long, or idle ahead of the cache TTL, added 2.1.299): not a turn, so
-  // turn.complete never tells the mod. Without this it would keep pinging a
-  // prefix that no longer exists, read the miss as a ttl-mismatch, and turn
-  // itself off for the rest of the session. Cancel first: compaction takes
-  // about a minute at 140k tokens, long enough to overlap a ping or expiry
-  // timer due during it.
+  // long, or idle ahead of the cache TTL, added 2.1.299) and the user's
+  // /compact are not turns, so turn.complete never tells the mod. Our own
+  // /keepalive compact carries trigger 'plugin' and is handled in compact().
+  // Hooks must be function literals, hence two handlers over one helper.
+  // Cancel the timers first: compaction takes about a minute at 140k tokens,
+  // long enough to overlap a ping or expiry timer due during it.
   on('session.compact', { trigger: 'auto' }, async ($, e, next) => {
     if (e.agentId !== undefined) return next(e) // a subagent's or fork's own transcript
     cancelTimers()
     const result = await next(e)
-    if (result.skip !== undefined) {
-      await rearm($) // vetoed: nothing changed, restore the schedule
-      return result
-    }
-    const tokens = result.tokensAfter ?? (await read($, session)).contextTokens
-    await closeAsk($, 'Compacted automatically before the cache expired.')
-    await save($, v => ({ ...v, phase: 'active', contextTokens: tokens, isCompactArmed: false }))
-    $.ui.toast('Compacted automatically before the cache expired.')
+    await afterCompact($, result, 'Compacted automatically before the cache expired.')
+    return result
+  })
+  on('session.compact', { trigger: 'manual' }, async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
+    cancelTimers()
+    const result = await next(e)
+    await afterCompact($, result, 'Compacted: keepalive resumes after your next turn.')
     return result
   })
 
@@ -484,7 +490,9 @@ async function compact($: Engine) {
   $.ui.toast(text)
 }
 
-async function ping($: Engine) {
+// isManual: /keepalive ping. It restarts the countdown but does not spend one
+// of the automatic pings, so testing it never shortens the idle stretch.
+async function ping($: Engine, isManual = false) {
   const s = await read($, session)
   if (s.phase !== 'armed' || s.ttlSec === null) return
   const startedAt = await $.clock.now()
@@ -525,11 +533,26 @@ async function ping($: Engine) {
     return
   }
   await save($, v => {
-    const pingsSent = v.pingsSent + 1
+    const pingsSent = isManual ? v.pingsSent : v.pingsSent + 1
     return { ...v, pingsSent, lastPingAt: startedAt, phase: pingsSent >= v.maxPings ? 'capped' : 'armed' }
   })
   await rearm($)
   if ((await read($, session)).phase === 'capped') await askOnTelegram($)
+}
+
+// After the engine's or the user's compaction the prefix is a fresh summary no
+// request has written to the cache yet, so a ping would pay a full rewrite, read
+// as a miss and turn keepalive off for good. Phase goes to active (no ping)
+// until the next turn writes the new cache and re-arms. An off session stays off.
+async function afterCompact($: Engine, result: { skip?: string; tokensAfter?: number }, message: string) {
+  if (result.skip !== undefined) {
+    await rearm($) // vetoed: nothing changed, restore the schedule
+    return
+  }
+  const tokens = result.tokensAfter ?? (await read($, session)).contextTokens
+  await closeAsk($, message)
+  await save($, v => ({ ...v, phase: v.phase === 'off' ? 'off' : 'active', contextTokens: tokens, isCompactArmed: false }))
+  $.ui.toast(message)
 }
 
 async function expire($: Engine) {
@@ -648,9 +671,9 @@ async function runCommand($: Engine, args: string): Promise<string> {
 
   if (verb === 'ping') {
     if (s.phase !== 'armed') return paint(`Nothing to ping: phase is ${s.phase}.`, 'yellow')
-    await ping($)
+    await ping($, true)
     const after = await read($, session)
-    if (after.pingsSent > s.pingsSent) return `Pinged manually: ${pingCount(after.pingsSent)} sent, phase ${after.phase}.`
+    if (after.lastPingAt > s.lastPingAt) return `Pinged manually: phase ${after.phase}, ${after.pingsSent}/${after.maxPings} automatic pings used.`
     if (after.phase === 'off') return paint(`Ping failed: keepalive is off (${after.offReason}).`, 'red')
     if (after.phase === 'expired') return paint('Ping skipped: the cache already expired.', 'yellow')
     return paint('Ping ran but did not count; check /keepalive status.', 'yellow')

@@ -193,20 +193,28 @@ describe('scheduling', () => {
     expect(w.forks).toBeGreaterThanOrEqual(1)
   })
 
-  test('/keepalive ping fires immediately and reschedules instead of doubling up', async ($, on) => {
+  test('/keepalive ping fires immediately, restarts the countdown, and does not use up the cap', async ($, on) => {
     const w = world(on)
     await start($)
     await turn($)
     expect(w.forks).toBe(0)
+    await w.clock.advance(10 * MIN)
     const r = (await $.command.run({ command: 'keepalive', args: 'ping' } as never)) as { text: string }
     expect(w.forks).toBe(1)
-    expect(r.text).toBe('Pinged manually: 1 ping sent, phase armed.')
-    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 1 })
+    expect(r.text).toBe('Pinged manually: phase armed, 0/2 automatic pings used.')
+    // the countdown restarts from the manual ping, the cap stays untouched
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0, lastPingAt: T0 + 10 * MIN })
 
     // the original +55 timer must have been cancelled by the manual ping's
-    // own rearm, or this would fire twice instead of once.
-    await w.clock.advance(55 * MIN)
+    // own rearm; the next automatic ping is 55 min after the manual one.
+    await w.clock.advance(54 * MIN)
+    expect(w.forks).toBe(1)
+    await w.clock.advance(1 * MIN)
     expect(w.forks).toBe(2)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 1 })
+
+    await w.clock.advance(55 * MIN)
+    expect(w.forks).toBe(3)
     expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 2 })
   })
 
@@ -1137,6 +1145,40 @@ describe("the engine's own auto compaction (idle or over threshold)", () => {
 
     await w.clock.advance(1 * MIN)
     expect(w.forks).toBe(1) // the ping at +55 still fires, as if nothing happened
+  })
+
+  test('a manual /compact also cancels the ping: the new prefix is not cached yet', async ($, on) => {
+    const w = world(on)
+    on('session.compact', async () => ({ messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 291_000, tokensAfter: 44_000 }) as never)
+    await start($)
+    await turn($)
+    await w.clock.advance(10 * MIN)
+    await $.session.compact({ trigger: 'manual', messages: FAKE_TRANSCRIPT } as never)
+    expect(stateOf(w)).toMatchObject({ phase: 'active', contextTokens: 44_000 })
+    expect(w.toasts.at(-1)).toContain('keepalive resumes after your next turn')
+
+    // no ping at +55 into a cache nobody wrote, so no ttl-mismatch
+    await w.clock.advance(2 * 60 * MIN)
+    expect(w.forks).toBe(0)
+    expect(stateOf(w)).toMatchObject({ phase: 'active' })
+
+    // the next turn writes the new cache and arms again
+    await turn($)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0 })
+    await w.clock.advance(55 * MIN)
+    expect(w.forks).toBe(1)
+  })
+
+  test('a vetoed manual /compact restores the schedule', async ($, on) => {
+    const w = world(on)
+    on('session.compact', async () => ({ skip: 'off' }) as never)
+    await start($)
+    await turn($)
+    await w.clock.advance(10 * MIN)
+    await $.session.compact({ trigger: 'manual', messages: FAKE_TRANSCRIPT } as never)
+    expect(stateOf(w)).toMatchObject({ phase: 'armed' })
+    await w.clock.advance(45 * MIN)
+    expect(w.forks).toBe(1)
   })
 
   test("a subagent's or fork's own auto compaction is left alone", async ($, on) => {

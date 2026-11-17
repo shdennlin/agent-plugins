@@ -42,7 +42,7 @@ Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: o
 | `/keepalive done` | Stop pinging for this idle stretch. Resets at your next prompt |
 | `/keepalive c` / `d` / `p` / `s` | Short forms of `compact`, `done`, `ping` and `status` |
 | `/keepalive compact [minutes]` | No pings; compact once, `compactAfterMinutes` (30) or the given minutes after the last turn ends ([below](#compact-before-expiry)). `compact pings` (or `c p`) pings first and compacts when they run out; `compact off` cancels |
-| `/keepalive ping` | Fire a ping immediately instead of waiting for the schedule, for testing. Refused unless `armed` |
+| `/keepalive ping` | Fire a ping immediately and restart the countdown; it does not use up the automatic pings. Refused unless `armed` |
 
 In a terminal the replies are coloured (a past-break-even warning in yellow, errors in red, the phase in `status` by state); other surfaces get plain text. Typing `/keepalive brb ` offers `180` as a dim completion; Right arrow accepts. When you come back to an expired cache, a one-line band above the prompt says how much the next request will rewrite; your next prompt or Dismiss clears it.
 
@@ -75,7 +75,7 @@ Compacting is lossy: the summary drops detail, so nothing compacts unless you ar
 
 Flow chart, timeline and the edge cases: [docs/compact.md](docs/compact.md).
 
-**Claude Code 2.1.299+ also compacts idle sessions on its own**, at about 200k context tokens and 54 minutes idle, ahead of the same 1h cache TTL. Keepalive detects this (it is not a turn, so `turn.complete` never fires) and resets its own state instead of pinging a prefix that no longer exists. Below 200k tokens, or before 54 minutes idle, only keepalive's own pings and `compactBeforeExpiry` apply. If you want pings to preserve the full context instead of letting the engine summarize it out from under you, turn the built-in behaviour off with `"idleCompaction": false` in settings.json, or raise its threshold with `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`.
+**Claude Code 2.1.299+ also compacts idle sessions on its own**, at about 200k context tokens and 54 minutes idle, ahead of the same 1h cache TTL. Keepalive detects this (it is not a turn, so `turn.complete` never fires) and resets its own state instead of pinging a prefix that no longer exists. The same goes for your own `/compact`: the summary is not cached until the next turn, so keepalive stops pinging (phase `active`) and re-arms after that turn. Below 200k tokens, or before 54 minutes idle, only keepalive's own pings and `compactBeforeExpiry` apply. If you want pings to preserve the full context instead of letting the engine summarize it out from under you, turn the built-in behaviour off with `"idleCompaction": false` in settings.json, or raise its threshold with `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`.
 
 ## Cost
 
