@@ -35,6 +35,10 @@ export type KeepaliveSession = {
   compactAfterMin: number | null
   /** /keepalive brb: epoch ms the user said they are away until, or null. With a timed compact it only moves the compact later (to this time, if past last turn + N); it never switches the compact to the pings-first mode. Survives the engine's own turns (a monitor event, a /goal step); cleared by a prompt you type, by `brb reset`, and once it has passed. */
   brbUntil: number | null
+  /** Monitors and shells still running at the last turn end (from the Stop hook's background_tasks); subagents and workflows are not counted. */
+  bgTasks: number
+  /** The armed compact's "a background task is still running" warning was shown; reset when the tasks end, a compact fires or you type a prompt. */
+  isBgWarned: boolean
   /** Why the last armed compact ended (ran, skipped, refused, cancelled by a prompt), so a miss can be diagnosed afterwards. */
   lastCompactNote: string | null
 }

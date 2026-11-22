@@ -54,6 +54,8 @@ const INITIAL: KeepaliveSession = {
   isCompactArmed: false,
   compactAfterMin: null,
   brbUntil: null,
+  bgTasks: 0,
+  isBgWarned: false,
   lastCompactNote: null,
 }
 
@@ -158,7 +160,25 @@ export const register: Register = (on, options) => {
     // why turn.start can leave brbUntil alone.
     const text = e.prompt.trimStart()
     const isTyped = (e.source === undefined || e.source === 'user') && !isEngineDelivered(text) && text !== '' && !text.startsWith('/')
-    if (isTyped && s.brbUntil !== null) await save($, v => ({ ...v, brbUntil: null }))
+    if (isTyped && (s.brbUntil !== null || s.isBgWarned)) await save($, v => ({ ...v, brbUntil: null, isBgWarned: false }))
+    return next(e)
+  })
+
+  // The end of a turn: how much background work is still in flight (a Monitor, a
+  // shell). SubagentStop carries the same list, so only this event counts it.
+  // The armed compact runs anyway (that is what armed means); the toast, once per
+  // stretch, says so and points at brb for the full context.
+  on('classic.Stop', async ($, e, next) => {
+    const bg = (e.background_tasks ?? []).filter(t => t.type === 'monitor' || t.type === 'shell').length
+    const s = await read($, session)
+    if (bg !== s.bgTasks) await save($, v => ({ ...v, bgTasks: bg, ...(bg === 0 ? { isBgWarned: false } : {}) }))
+    const now = await $.clock.now()
+    const isBrb = s.brbUntil !== null && s.brbUntil > now
+    if (bg > 0 && s.isCompactArmed && !s.isBgWarned && !isBrb) {
+      await save($, v => ({ ...v, isBgWarned: true }))
+      const at = s.compactAfterMin !== null ? ` at about ${clockTime(Math.max(s.lastActivityAt, now) + s.compactAfterMin * 60_000)}` : ''
+      $.ui.toast(`A background task is still running; the armed compact runs${at} anyway. /keepalive brb <time> keeps the full context.`)
+    }
     return next(e)
   })
 
@@ -483,7 +503,7 @@ async function compact($: Engine) {
           ? { ...v, phase: 'active', contextTokens: tokens }
           : { ...v, contextTokens: tokens },
       )
-      text = `Compacted before the cache expired: ${kilo(r.tokensBefore ?? s.contextTokens)} → ${kilo(tokens)} tokens.`
+      text = `Compacted before the cache expired: ${kilo(r.tokensBefore ?? s.contextTokens)} → ${kilo(tokens)} tokens. Still armed; /keepalive compact off to stop.`
       outcome = text
     }
   } catch (err) {
@@ -494,7 +514,7 @@ async function compact($: Engine) {
     isCompacting = false
   }
   // Still armed: the next idle stretch compacts again (until /keepalive compact off).
-  await save($, v => ({ ...v, lastCompactNote: outcome }))
+  await save($, v => ({ ...v, lastCompactNote: outcome, isBgWarned: false }))
   $.ui.toast(text)
 }
 
@@ -711,10 +731,13 @@ async function runCommand($: Engine, args: string): Promise<string> {
       const due = compactDueAt(s)
       const at = due === null ? null : clockTime(due)
       const mode = s.isCompactArmed && s.compactAfterMin !== null ? `, timed ${s.compactAfterMin} min, no pings` : ''
-      lines.push(`compact before expiry: ${s.isCompactArmed ? 'armed' : 'on'}${mode}${at ? `, at ${at}` : ''}`)
+      lines.push(`compact before expiry: ${s.isCompactArmed ? 'armed (permanent until /keepalive compact off)' : 'on'}${mode}${at ? `, at ${at}` : ''}`)
     } else {
       lines.push('compact before expiry: off')
     }
+    const statusNow = await $.clock.now()
+    if (s.brbUntil !== null && s.brbUntil > statusNow) lines.push(`brb until ${clockTime(s.brbUntil)} (${duration(s.brbUntil - statusNow)} left)`)
+    if (s.bgTasks > 0) lines.push(`background: ${s.bgTasks} ${s.bgTasks > 1 ? 'tasks' : 'task'} running (monitor or shell)`)
     if (s.lastCompactNote) lines.push(`last compact note: ${s.lastCompactNote}`)
     lines.push(`telegram: ${isTelegramOn() ? `on (chat ${config.telegramChatId}${s.tgAskMessageId !== null ? ', question open' : ''})` : 'off'}`)
     lines.push(`all sessions: ${stats.pings} pings, ${stats.hits} hits`)
@@ -944,6 +967,9 @@ async function writeStateFile($: Engine, s: KeepaliveSession) {
     // nothing is scheduled, e.g. during a turn): the status line shows both.
     compactArmed: s.isCompactArmed,
     compactAt: compactDueAt(s),
+    compactAfterMin: s.compactAfterMin,
+    brbUntil: s.brbUntil,
+    bgTasks: s.bgTasks,
   }
   await $.fs.write(stateFile(), JSON.stringify(data) + '\n')
   if (config.engineStatus) $.ui.status(engineStatusText(s))
@@ -1103,6 +1129,11 @@ function cancelTimers() {
 function clockTime(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function duration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 60_000))
+  return total >= 60 ? `${Math.floor(total / 60)}h${String(total % 60).padStart(2, '0')}m` : `${total}m`
 }
 
 function kilo(tokens: number): string {

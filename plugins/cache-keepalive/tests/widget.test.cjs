@@ -84,6 +84,22 @@ test('an armed compact stays visible while a turn runs (a /goal)', () => {
   assert.equal(render(file, state, 3600, NOW), 'HOT ✂armed')
 })
 
+test('a permanent armed compact shows its N while a turn runs, the brb deadline, and a running background task', () => {
+  const hhmm = ms => {
+    const d = new Date(ms)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  const running = transcript([assistantAt(NOW - 5 * MIN), { type: 'user', timestamp: new Date(NOW).toISOString() }])
+  const state = { v: 1, phase: 'active', ttlSec: 3600, lastPingAt: 0, compactArmed: true, compactAt: null, compactAfterMin: 50 }
+  assert.equal(render(running, state, 3600, NOW), 'HOT ✂50m')
+  assert.equal(render(running, { ...state, bgTasks: 1 }, 3600, NOW), 'HOT ✂50m ⚠bg')
+  const idle = transcript([assistantAt(NOW - 40 * MIN)])
+  const idleState = { v: 1, phase: 'armed', ttlSec: 3600, lastPingAt: 0, pings: 1, max: 4, compactArmed: true, compactAt: NOW + 200 * MIN, compactAfterMin: 50, brbUntil: NOW + 200 * MIN, bgTasks: 2 }
+  assert.equal(render(idle, idleState, 3600, NOW), `🟡19:55 kp 1/4 ✂${hhmm(NOW + 200 * MIN)} brb→${hhmm(NOW + 200 * MIN)} ⚠bg`)
+  // A brb that has passed, and tasks with nothing armed, show nothing.
+  assert.equal(render(idle, { ...idleState, compactArmed: false, compactAt: null, brbUntil: NOW - MIN }, 3600, NOW), '🟡19:55 kp 1/4')
+})
+
 // Output colours: plain text unless --color, and never when NO_COLOR is set.
 test('paint dims HOT, yellows the rest and resets', () => {
   assert.equal(paint('HOT'), '\x1b[33m\x1b[90mHOT\x1b[33m\x1b[0m')

@@ -808,6 +808,75 @@ describe('compact before expiry', () => {
       expect(c.calls).toBe(1)
     })
 
+    describe('background tasks (the Stop hook\'s background_tasks)', () => {
+      const stop = ($: Engine, tasks: object[]) =>
+        ($ as never as { classic: { Stop: (e: object) => Promise<unknown> } }).classic.Stop({ background_tasks: tasks })
+      const monitor = { id: 'm1', type: 'monitor', status: 'running', description: 'ticks', command: 'sleep 60' }
+      async function armed($: Engine, on: On, args = 'compact') {
+        const w = world(on)
+        const c = compacting(on, w)
+        on('classic.Stop', async () => ({}) as never)
+        await start($)
+        await turn($)
+        if (args) await run($, args)
+        return { w, c }
+      }
+      test('a running monitor is counted, warned about once, and the compact still fires at N', async ($, on) => {
+        const { w, c } = await armed($, on)
+        await stop($, [monitor])
+        expect(stateOf(w)).toMatchObject({ bgTasks: 1 })
+        expect(w.toasts.filter(t => t.includes('background task is still running'))).toHaveLength(1)
+        await stop($, [monitor])
+        expect(w.toasts.filter(t => t.includes('background task is still running'))).toHaveLength(1)
+        await w.clock.advance(50 * MIN)
+        expect(c.calls).toBe(1)
+        expect(w.toasts.at(-1)).toContain('Still armed; /keepalive compact off to stop.')
+      })
+      test('the warning comes back after the compact, once more', async ($, on) => {
+        const { w, c } = await armed($, on)
+        await stop($, [monitor])
+        await w.clock.advance(50 * MIN)
+        expect(c.calls).toBe(1)
+        await turn($)
+        await stop($, [monitor])
+        expect(w.toasts.filter(t => t.includes('background task is still running'))).toHaveLength(2)
+      })
+      test('only monitors and shells count: a subagent or workflow does not', async ($, on) => {
+        const { w } = await armed($, on)
+        await stop($, [{ id: 'a', type: 'subagent', status: 'running', description: 'x' }, { id: 'w', type: 'workflow', status: 'running', description: 'y' }])
+        expect(stateOf(w)).toMatchObject({ bgTasks: 0 })
+        expect(w.toasts).toEqual([])
+      })
+      test('no warning without an armed compact (the count is still recorded)', async ($, on) => {
+        const a = await armed($, on, '')
+        await stop($, [monitor])
+        expect(stateOf(a.w)).toMatchObject({ bgTasks: 1 })
+        expect(a.w.toasts).toEqual([])
+      })
+      test('no warning while a brb is running', async ($, on) => {
+        const { w } = await armed($, on, 'compact')
+        await run($, 'brb 120')
+        await stop($, [monitor])
+        expect(w.toasts.filter(t => t.includes('background task'))).toEqual([])
+      })
+      test('the tasks ending resets the count', async ($, on) => {
+        const { w } = await armed($, on)
+        await stop($, [monitor])
+        await stop($, [])
+        expect(stateOf(w)).toMatchObject({ bgTasks: 0 })
+      })
+      test('the state file and /keepalive status show it, the brb and that the compact is permanent', async ($, on) => {
+        const { w } = await armed($, on, 'compact 45')
+        await run($, 'brb 120')
+        await stop($, [monitor])
+        expect(stateOf(w)).toMatchObject({ compactAfterMin: 45, brbUntil: T0 + 120 * MIN, bgTasks: 1, compactArmed: true })
+        const text = await run($, 'status')
+        expect(text).toContain('compact before expiry: armed (permanent until /keepalive compact off), timed 45 min')
+        expect(text).toMatch(/brb until \d\d:\d\d \(2h00m left\)/)
+        expect(text).toContain('background: 1 task running (monitor or shell)')
+      })
+    })
+
     describe('a brb outlives the engine\'s own turns', () => {
       async function brbed($: Engine, on: On) {
         const w = world(on)
