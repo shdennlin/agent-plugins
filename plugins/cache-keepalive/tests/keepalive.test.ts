@@ -97,19 +97,19 @@ function stateOf(w: World): Record<string, unknown> {
 }
 
 describe('scheduling', () => {
-  test('pings once at TTL minus 5 min, then caps at 2 and expires (AC1, AC4)', async ($, on) => {
+  test('pings once at TTL minus 10 min, then caps at 2 and expires (AC1, AC4)', async ($, on) => {
     const w = world(on)
     await start($)
     await turn($)
     expect(stateOf(w)).toMatchObject({ phase: 'armed', ttlSec: 3600, pings: 0, max: 2 })
 
-    await w.clock.advance(54 * MIN)
+    await w.clock.advance(49 * MIN)
     expect(w.forks).toBe(0)
     await w.clock.advance(1 * MIN)
     expect(w.forks).toBe(1)
-    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 1, lastPingAt: T0 + 55 * MIN })
+    expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 1, lastPingAt: T0 + 50 * MIN })
 
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(2)
     expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 2 })
 
@@ -148,7 +148,7 @@ describe('scheduling', () => {
 
     await turn($)
     await $.turn.complete({ reason: 'answer', answer: '', durationMs: 1, isAborted: false, turnId: 's', agentId: 'a1' } as never)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(1)
   })
 
@@ -176,7 +176,7 @@ describe('scheduling', () => {
     await turn($)
     await $.command.run({ command: 'keepalive', args: 'brb 180' } as never)
     expect(stateOf(w)).toMatchObject({ max: 4 })
-    await w.clock.advance(4 * 55 * MIN)
+    await w.clock.advance(4 * 50 * MIN)
     expect(w.forks).toBe(4)
     expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 4 })
     await turn($)
@@ -205,15 +205,15 @@ describe('scheduling', () => {
     // the countdown restarts from the manual ping, the cap stays untouched
     expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0, lastPingAt: T0 + 10 * MIN })
 
-    // the original +55 timer must have been cancelled by the manual ping's
-    // own rearm; the next automatic ping is 55 min after the manual one.
-    await w.clock.advance(54 * MIN)
+    // the original +50 timer must have been cancelled by the manual ping's
+    // own rearm; the next automatic ping is 50 min after the manual one.
+    await w.clock.advance(49 * MIN)
     expect(w.forks).toBe(1)
     await w.clock.advance(1 * MIN)
     expect(w.forks).toBe(2)
     expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 1 })
 
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(3)
     expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 2 })
   })
@@ -231,14 +231,14 @@ describe('scheduling', () => {
 
 describe('resume', () => {
   test('session.start arms immediately from an existing transcript, using its real write time', async ($, on) => {
-    const realLastActivity = T0 - 50 * MIN // the cache was really created 50 min ago (before this process started)
+    const realLastActivity = T0 - 40 * MIN // the cache was really created 40 min ago (before this process started)
     const w = world(on, { ttlRow: ttl1hRowAt(realLastActivity) })
     await start($)
     // no turn in this process yet: everything below must come from the transcript alone
     expect(stateOf(w)).toMatchObject({ phase: 'armed', ttlSec: 3600, pings: 0 })
 
-    // expiresAt = realLastActivity + 60 min = T0 + 10 min; next ping = expiresAt - 5 min lead = T0 + 5 min
-    await w.clock.advance(4 * MIN)
+    // expiresAt = realLastActivity + 60 min = T0 + 20 min; next ping = expiresAt - 10 min lead = T0 + 10 min
+    await w.clock.advance(9 * MIN)
     expect(w.forks).toBe(0)
     await w.clock.advance(1 * MIN)
     expect(w.forks).toBe(1)
@@ -271,7 +271,7 @@ describe('verification', () => {
     w.forkCacheRead = 0
     await start($)
     await turn($)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(stateOf(w)).toMatchObject({ phase: 'off', offReason: 'ttl-mismatch' })
     expect(w.toasts).toHaveLength(1)
 
@@ -385,9 +385,9 @@ describe('engineStatus', () => {
     await start($)
     await turn($)
     expect(seen.at(-1)).toMatch(/^keep 0\/2 · ping \d\d:\d\d$/)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(seen.at(-1)).toMatch(/^keep 1\/2 · ping /)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(seen.at(-1)).toMatch(/^keep 2\/2 ⏸ · expires /)
     await w.clock.advance(60 * MIN)
     expect(seen.at(-1)).toBe('cache expired')
@@ -428,7 +428,7 @@ describe('telegram', () => {
   async function capped($: Engine, w: World) {
     await start($)
     await turn($)
-    await w.clock.advance(110 * MIN)
+    await w.clock.advance(100 * MIN)
     expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 2 })
   }
 
@@ -457,7 +457,7 @@ describe('telegram', () => {
     await w.clock.advance(10_000)
     expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 3 })
 
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(3)
     expect(stateOf(w)).toMatchObject({ phase: 'capped', pings: 3 })
     expect(bot.calls.filter(c => c.method === 'sendMessage')).toHaveLength(2)
@@ -553,7 +553,7 @@ describe('compact before expiry', () => {
     const c = compacting(on, w)
     await start($)
     await turn($)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(1)
     expect(c.calls).toBe(0)
     await w.clock.advance(49 * MIN)
@@ -583,10 +583,10 @@ describe('compact before expiry', () => {
     // A /goal's continuations are turns of their own: the arming must outlast them.
     await turn($)
     await turn($)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(1)
     expect(c.calls).toBe(0)
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(2)
     expect(c.calls).toBe(0)
     await w.clock.advance(50 * MIN)
@@ -644,7 +644,7 @@ describe('compact before expiry', () => {
     await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
     const r = (await $.command.run({ command: 'keepalive', args: 'done' } as never)) as { text: string }
     expect(r.text).toContain('armed compact still runs')
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(c.calls).toBe(1)
     expect(w.forks).toBe(0)
   })
@@ -655,7 +655,7 @@ describe('compact before expiry', () => {
     await start($)
     await turn($)
     const r = (await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)) as { text: string }
-    // 2 pings at +55 and +110, compact 50 min before the cache expires. Local time varies, so only the shape.
+    // 2 pings at +50 and +100, compact 50 min before the cache expires. Local time varies, so only the shape.
     expect(r.text).toMatch(/compact at about \d\d:\d\d \(after the remaining pings\)/)
   })
 
@@ -695,8 +695,8 @@ describe('compact before expiry', () => {
     await turn($)
     expect(stateOf(w)).toMatchObject({ compactArmed: false, compactAt: null })
     await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
-    // 2 pings (+55, +110), then compact 10 min before that cache expires: +110 + 50 = +160 min.
-    expect(stateOf(w)).toMatchObject({ compactArmed: true, compactAt: T0 + 160 * MIN })
+    // 2 pings (+50, +100), then compact 10 min before that cache expires: +100 + 50 = +150 min.
+    expect(stateOf(w)).toMatchObject({ compactArmed: true, compactAt: T0 + 150 * MIN })
     await $.command.run({ command: 'keepalive', args: 'compact off' } as never)
     expect(stateOf(w)).toMatchObject({ compactArmed: false, compactAt: null })
   })
@@ -720,9 +720,9 @@ describe('compact before expiry', () => {
       await start($)
       await turn($)
       for (const args of order) await $.command.run({ command: 'keepalive', args } as never)
-      // pings at +55, +110, +165, +220, compact 10 min before that cache expires: +270
-      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 4, compactArmed: true, compactAt: T0 + 270 * MIN })
-      await w.clock.advance(220 * MIN)
+      // pings at +50, +100, +150, +200, compact 10 min before that cache expires: +250
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 4, compactArmed: true, compactAt: T0 + 250 * MIN })
+      await w.clock.advance(200 * MIN)
       expect(w.forks).toBe(4)
       expect(c.calls).toBe(0)
       expect(stateOf(w)).toMatchObject({ phase: 'capped' })
@@ -739,7 +739,7 @@ describe('compact before expiry', () => {
     const submit = ($: Engine, prompt: string, source?: string) =>
       ($ as never as { classic: { UserPromptSubmit: (e: object) => Promise<unknown> } }).classic.UserPromptSubmit(source === undefined ? { prompt } : { prompt, source })
 
-    test('bare compact: no pings, compacts 30 min after the last turn, warns about the loss', async ($, on) => {
+    test('bare compact: no pings, compacts 50 min after the last turn, warns about the loss', async ($, on) => {
       const w = world(on)
       const c = compacting(on, w)
       await start($)
@@ -747,8 +747,8 @@ describe('compact before expiry', () => {
       const text = await run($, 'compact')
       expect(text).toContain('no pings')
       expect(text).toContain('lossy')
-      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 30 * MIN })
-      await w.clock.advance(29 * MIN)
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 50 * MIN })
+      await w.clock.advance(49 * MIN)
       expect(c.calls).toBe(0)
       await w.clock.advance(1 * MIN)
       expect(c.calls).toBe(1)
@@ -797,7 +797,7 @@ describe('compact before expiry', () => {
       await start($)
       await turn($)
       expect(await run($, 'compact 1h')).toContain('Too long')
-      expect(await run($, 'compact 50')).toContain('Too long')
+      expect(await run($, 'compact 51')).toContain('Too long')
       expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: false })
     })
 
@@ -830,7 +830,7 @@ describe('compact before expiry', () => {
       await start($)
       await turn($)
       await run($, 'c p')
-      expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: true, compactAt: T0 + 160 * MIN })
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: true, compactAt: T0 + 150 * MIN })
       await w.clock.advance(31 * MIN)
       expect(c.calls).toBe(0)
     })
@@ -873,7 +873,7 @@ describe('compact before expiry', () => {
       expect(stateOf(w)).toMatchObject({ phase: 'armed', compactArmed: false })
       await w.clock.advance(31 * MIN)
       expect(c.calls).toBe(0)
-      await w.clock.advance(24 * MIN)
+      await w.clock.advance(19 * MIN)
       expect(w.forks).toBe(1)
     })
 
@@ -885,7 +885,7 @@ describe('compact before expiry', () => {
       expect(await run($, 'compact')).toContain('after the current turn ends')
       await $.turn.complete({ reason: 'stop', answer: 'x', durationMs: 1000, isAborted: false, turnId: 't1' } as never)
       expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true })
-      await w.clock.advance(30 * MIN)
+      await w.clock.advance(50 * MIN)
       expect(c.calls).toBe(1)
     })
 
@@ -895,7 +895,7 @@ describe('compact before expiry', () => {
       await start($)
       await turn($)
       await run($, 'compact')
-      await w.clock.advance(30 * MIN)
+      await w.clock.advance(50 * MIN)
       expect(stateOf(w)).toMatchObject({ compactArmed: false })
       expect(await run($, 'status')).toContain('last compact note: Compact skipped: context too large')
     })
@@ -950,15 +950,15 @@ describe('compact before expiry', () => {
     test('24 h on Opus 5.5 is under its break-even: no note', async ($, on) => {
       expect((await brb($, on, 'claude-opus-5-5', 1440)).text).not.toContain('break-even')
     })
-    test('24 h on Sonnet 5.5 is past its break-even (about 18 h)', async ($, on) => {
+    test('24 h on Sonnet 5.5 is past its break-even (about 17 h)', async ($, on) => {
       const { text } = await brb($, on, 'claude-sonnet-5-5', 1440)
-      expect(text).toContain('break-even for claude-sonnet-5-5 (about 20 pings, 18 h)')
+      expect(text).toContain('break-even for claude-sonnet-5-5 (about 20 pings, 17 h)')
     })
     test('48 h on Fable 5.1 is under its break-even', async ($, on) => {
       expect((await brb($, on, 'claude-fable-5-1', 2880)).text).not.toContain('break-even')
     })
     test('60 h on Opus 5.5 is past 40 pings', async ($, on) => {
-      expect((await brb($, on, 'claude-opus-5-5', 3600)).text).toContain('about 40 pings, 37 h')
+      expect((await brb($, on, 'claude-opus-5-5', 3600)).text).toContain('about 40 pings, 33 h')
     })
     test('an unknown model gets no note', async ($, on) => {
       expect((await brb($, on, 'some-other-model', 3600)).text).not.toContain('break-even')
@@ -1015,12 +1015,12 @@ describe('compact before expiry', () => {
 
   describe('brb duration', () => {
     const run = async ($: Engine, args: string) => ((await $.command.run({ command: 'keepalive', args } as never)) as { text: string }).text
-    test('"24h" is 1440 minutes: 27 pings', async ($, on) => {
+    test('"24h" is 1440 minutes: 29 pings', async ($, on) => {
       const w = world(on)
       await start($)
       await turn($)
-      expect(await run($, 'brb 24h')).toContain('about 1440 min: up to 27 pings')
-      expect(stateOf(w)).toMatchObject({ max: 27 })
+      expect(await run($, 'brb 24h')).toContain('about 1440 min: up to 29 pings')
+      expect(stateOf(w)).toMatchObject({ max: 29 })
     })
     test('"180", "180m" and "3h" all mean the same 180 minutes', async ($, on) => {
       world(on)
@@ -1056,10 +1056,10 @@ describe('compact before expiry', () => {
       await turn($)
       await run($, 'compact pings')
       await run($, 'brb 24h')
-      expect(stateOf(w)).toMatchObject({ max: 27, phase: 'armed' })
+      expect(stateOf(w)).toMatchObject({ max: 29, phase: 'armed' })
       const text = await run($, 'brb reset')
       expect(text).toContain('Back to the default: up to 2 pings this idle stretch')
-      expect(stateOf(w)).toMatchObject({ max: 2, phase: 'armed', compactArmed: true, compactAt: T0 + 160 * MIN })
+      expect(stateOf(w)).toMatchObject({ max: 2, phase: 'armed', compactArmed: true, compactAt: T0 + 150 * MIN })
     })
     // A timed compact is no-ping by design: brb adds pings and moves the compact to the
     // window's end, and reset takes both back instead of leaving the pings-first mode behind.
@@ -1070,10 +1070,10 @@ describe('compact before expiry', () => {
       await turn($)
       await run($, 'compact')
       await run($, 'brb 24h')
-      expect(stateOf(w)).toMatchObject({ max: 27, phase: 'armed', compactArmed: true, compactAt: T0 + 24 * 60 * MIN })
+      expect(stateOf(w)).toMatchObject({ max: 29, phase: 'armed', compactArmed: true, compactAt: T0 + 24 * 60 * MIN })
       const text = await run($, 'brb reset')
       expect(text).toContain('Back to the timed compact: no pings')
-      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 30 * MIN })
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 50 * MIN })
     })
     test('"RESET" works too, and the pings really are 2 again', async ($, on) => {
       const w = world(on)
@@ -1081,7 +1081,7 @@ describe('compact before expiry', () => {
       await turn($)
       await run($, 'brb 24h')
       await run($, 'brb RESET')
-      await w.clock.advance(110 * MIN)
+      await w.clock.advance(100 * MIN)
       expect(w.forks).toBe(2)
       expect(stateOf(w)).toMatchObject({ phase: 'capped' })
     })
@@ -1090,7 +1090,7 @@ describe('compact before expiry', () => {
       await start($)
       await turn($)
       await run($, 'brb 24h')
-      await w.clock.advance(165 * MIN) // 3 pings sent, more than the default of 2
+      await w.clock.advance(150 * MIN) // 3 pings sent, more than the default of 2
       expect(w.forks).toBe(3)
       const text = await run($, 'brb reset')
       expect(text).toContain('Back to the default of 2 pings: the 3 pings already sent use it up')
@@ -1124,7 +1124,7 @@ describe('compact before expiry', () => {
       expect(await run($, 'brb abc')).toContain(`${ESC}[31mUsage`)
       const text = await run($, 'brb 24h')
       expect(text).toContain(`\n${ESC}[33m⚠ Past the break-even for claude-sonnet-5-5`)
-      expect(stateOf(w)).toMatchObject({ max: 27 })
+      expect(stateOf(w)).toMatchObject({ max: 29 })
     })
     test('status colours the phase: armed green', async ($, on) => {
       world(on)
@@ -1156,12 +1156,12 @@ describe("the engine's own auto compaction (idle or over threshold)", () => {
     await turn($)
     expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0 })
 
-    await w.clock.advance(54 * MIN)
+    await w.clock.advance(49 * MIN)
     await $.session.compact({ trigger: 'auto', messages: FAKE_TRANSCRIPT } as never)
     expect(stateOf(w)).toMatchObject({ phase: 'active', contextTokens: 14_000 })
     expect(w.toasts.at(-1)).toContain('Compacted automatically before the cache expired')
 
-    // The old ping timer (due at +55) must not have survived the reconciliation.
+    // The old ping timer (due at +50) must not have survived the reconciliation.
     await w.clock.advance(10 * MIN)
     expect(w.forks).toBe(0)
   })
@@ -1171,12 +1171,12 @@ describe("the engine's own auto compaction (idle or over threshold)", () => {
     on('session.compact', async () => ({ skip: 'off' }) as never)
     await start($)
     await turn($)
-    await w.clock.advance(54 * MIN)
+    await w.clock.advance(49 * MIN)
     await $.session.compact({ trigger: 'auto', messages: FAKE_TRANSCRIPT } as never)
     expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0 })
 
     await w.clock.advance(1 * MIN)
-    expect(w.forks).toBe(1) // the ping at +55 still fires, as if nothing happened
+    expect(w.forks).toBe(1) // the ping at +50 still fires, as if nothing happened
   })
 
   test('a manual /compact also cancels the ping: the new prefix is not cached yet', async ($, on) => {
@@ -1189,7 +1189,7 @@ describe("the engine's own auto compaction (idle or over threshold)", () => {
     expect(stateOf(w)).toMatchObject({ phase: 'active', contextTokens: 44_000 })
     expect(w.toasts.at(-1)).toContain('keepalive resumes after your next turn')
 
-    // no ping at +55 into a cache nobody wrote, so no ttl-mismatch
+    // no ping at +50 into a cache nobody wrote, so no ttl-mismatch
     await w.clock.advance(2 * 60 * MIN)
     expect(w.forks).toBe(0)
     expect(stateOf(w)).toMatchObject({ phase: 'active' })
@@ -1197,7 +1197,7 @@ describe("the engine's own auto compaction (idle or over threshold)", () => {
     // the next turn writes the new cache and arms again
     await turn($)
     expect(stateOf(w)).toMatchObject({ phase: 'armed', pings: 0 })
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(1)
   })
 
@@ -1226,7 +1226,7 @@ describe("the engine's own auto compaction (idle or over threshold)", () => {
     expect(calls).toBe(1)
     expect(stateOf(w)).toMatchObject({ phase: 'armed' }) // unaffected
 
-    await w.clock.advance(55 * MIN)
+    await w.clock.advance(50 * MIN)
     expect(w.forks).toBe(1) // the main session's own ping still ran on schedule
   })
 })

@@ -41,7 +41,7 @@ Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: o
 | `/keepalive brb reset` | Back to the configured `maxPings` for this idle stretch. Pings already sent are not taken back |
 | `/keepalive done` | Stop pinging for this idle stretch. Resets at your next prompt |
 | `/keepalive c` / `d` / `p` / `s` | Short forms of `compact`, `done`, `ping` and `status` |
-| `/keepalive compact [minutes]` | No pings; compact once, `compactAfterMinutes` (30) or the given minutes after the last turn ends ([below](#compact-before-expiry)). `compact pings` (or `c p`) pings first and compacts when they run out; `compact off` cancels |
+| `/keepalive compact [minutes]` | No pings; compact once, `compactAfterMinutes` (50) or the given minutes after the last turn ends ([below](#compact-before-expiry)). `compact pings` (or `c p`) pings first and compacts when they run out; `compact off` cancels |
 | `/keepalive ping` | Fire a ping immediately and restart the countdown; it does not use up the automatic pings. Refused unless `armed` |
 
 In a terminal the replies are coloured (a past-break-even warning in yellow, errors in red, the phase in `status` by state); other surfaces get plain text. Typing `/keepalive brb ` offers `180` as a dim completion; Right arrow accepts. When you come back to an expired cache, a one-line band above the prompt says how much the next request will rewrite; your next prompt or Dismiss clears it.
@@ -53,11 +53,11 @@ Set in `/config` (or `pluginConfigs["cache-keepalive"].options` in settings):
 | Option | Default | |
 |---|---|---|
 | `enabled` | `true` | Master switch |
-| `leadMinutes` | `5` | Ping this many minutes before the TTL runs out |
+| `leadMinutes` | `10` | Ping this many minutes before the TTL runs out |
 | `maxPings` | `2` | Pings per idle stretch |
 | `minContextTokens` | `50000` | Smaller contexts are not kept warm |
 | `compactLeadMinutes` | `10` | An armed compact starts this many minutes before the TTL runs out |
-| `compactAfterMinutes` | `30` | What a bare `/keepalive compact` waits after the last turn (must stay under the TTL minus `compactLeadMinutes`) |
+| `compactAfterMinutes` | `50` | What a bare `/keepalive compact` waits after the last turn (at most the TTL minus `compactLeadMinutes`) |
 | `compactBeforeExpiry` | `false` | Compact in that window every idle stretch, without arming each time |
 | `engineStatus` | `false` | Show the state as a status entry under the prompt, for sessions without a status line |
 | `telegramBotToken` | empty | Bot token (sensitive); see [Telegram](docs/telegram.md) |

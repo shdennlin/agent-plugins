@@ -76,9 +76,9 @@ type Config = {
 // timers with them, and session.start re-arms from $.state.
 let config: Config = {
   enabled: true,
-  leadMinutes: 5,
+  leadMinutes: 10,
   compactLeadMinutes: 10,
-  compactAfterMinutes: 30,
+  compactAfterMinutes: 50,
   maxPings: 2,
   minContextTokens: 50000,
   engineStatus: false,
@@ -109,9 +109,9 @@ let isPolling = false
 export const register: Register = (on, options) => {
   config = {
     enabled: options.enabled !== false,
-    leadMinutes: positiveNumber(options.leadMinutes, 5),
+    leadMinutes: positiveNumber(options.leadMinutes, 10),
     compactLeadMinutes: positiveNumber(options.compactLeadMinutes, 10),
-    compactAfterMinutes: positiveNumber(options.compactAfterMinutes, 30),
+    compactAfterMinutes: positiveNumber(options.compactAfterMinutes, 50),
     maxPings: Math.max(0, Math.floor(positiveNumber(options.maxPings, 2, true))),
     minContextTokens: positiveNumber(options.minContextTokens, 50000, true),
     engineStatus: options.engineStatus === true,
@@ -353,7 +353,7 @@ async function applyArmedState($: Engine, input: { lastActivityAt: number; conte
   if (base.isCompactArmed && base.compactAfterMin !== null) {
     if (isTimedTooLong(base.compactAfterMin, input.ttlSec)) {
       // The cache would lapse before the timer: say so instead of dropping it silently.
-      const note = `timed compact (${base.compactAfterMin} min) dropped: it must be under ${maxTimedMinutes(input.ttlSec)} min for a ${input.ttlSec / 60} min cache`
+      const note = `timed compact (${base.compactAfterMin} min) dropped: it must be at most ${maxTimedMinutes(input.ttlSec)} min for a ${input.ttlSec / 60} min cache`
       await save($, () => ({ ...base, isCompactArmed: false, compactAfterMin: null, lastCompactNote: note, phase: base.maxPings > 0 ? 'armed' : 'capped' }))
       $.ui.toast(`Compact not armed: ${note.replace(/^timed compact .*? dropped: /, '')}.`)
       await rearm($)
@@ -373,7 +373,7 @@ function maxTimedMinutes(ttlSec: number): number {
 }
 
 function isTimedTooLong(minutes: number, ttlSec: number): boolean {
-  return minutes >= maxTimedMinutes(ttlSec)
+  return minutes > maxTimedMinutes(ttlSec)
 }
 
 // Prompts the engine delivers as if typed. A real user prompt never starts with these.
@@ -668,7 +668,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
       return paint('Usage: /keepalive compact [minutes|pings|off], for example /keepalive compact, /keepalive compact 45 or /keepalive compact pings', 'red')
     }
     if (minutes !== null && s.ttlSec !== null && isTimedTooLong(minutes, s.ttlSec)) {
-      return paint(`Too long for a ${s.ttlSec / 60} min cache: pick under ${maxTimedMinutes(s.ttlSec)} min, or use /keepalive compact pings (pings first, then compact).`, 'yellow')
+      return paint(`Too long for a ${s.ttlSec / 60} min cache: pick at most ${maxTimedMinutes(s.ttlSec)} min, or use /keepalive compact pings (pings first, then compact).`, 'yellow')
     }
     const wasTimed = s.compactAfterMin !== null
     await save($, v => ({ ...v, isCompactArmed: true, compactAfterMin: minutes, lastCompactNote: null }))

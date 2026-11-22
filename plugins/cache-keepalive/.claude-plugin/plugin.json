@@ -24,7 +24,7 @@
       "type": "number",
       "title": "Minutes before expiry to ping",
       "description": "Ping this many minutes before the cache TTL runs out",
-      "default": 5
+      "default": 10
     },
     "compactLeadMinutes": {
       "type": "number",
