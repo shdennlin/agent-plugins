@@ -32,7 +32,7 @@ test('without a state file it matches the built-in cache-timer', () => {
   assert.equal(render(file, null, 3600, NOW), '49:55')
 })
 
-test('a ping restarts the countdown (AC11)', () => {
+test('a ping restarts the countdown', () => {
   const file = transcript([assistantAt(NOW - 58 * MIN)])
   const state = { v: 1, phase: 'armed', ttlSec: 3600, lastPingAt: NOW - 1 * MIN, pings: 1, max: 2 }
   assert.equal(render(file, state, 3600, NOW), '58:55 kp 1/2')

@@ -97,7 +97,7 @@ function stateOf(w: World): Record<string, unknown> {
 }
 
 describe('scheduling', () => {
-  test('pings once at TTL minus 10 min, then caps at 2 and expires (AC1, AC4)', async ($, on) => {
+  test('pings once at TTL minus 10 min, then caps at 2 and expires', async ($, on) => {
     const w = world(on)
     await start($)
     await turn($)
@@ -118,7 +118,7 @@ describe('scheduling', () => {
     expect(stateOf(w)).toMatchObject({ phase: 'expired' })
   })
 
-  test('a new turn cancels the scheduled ping (AC5)', async ($, on) => {
+  test('a new turn cancels the scheduled ping', async ($, on) => {
     const w = world(on)
     await start($)
     await turn($)
@@ -140,7 +140,7 @@ describe('scheduling', () => {
     expect(w.forks).toBe(1)
   })
 
-  test('a subagent turn neither arms nor cancels (AC6)', async ($, on) => {
+  test('a subagent turn neither arms nor cancels', async ($, on) => {
     const w = world(on)
     await start($)
     await $.turn.complete({ reason: 'answer', answer: '', durationMs: 1, isAborted: false, turnId: 's', agentId: 'a1' } as never)
@@ -152,7 +152,7 @@ describe('scheduling', () => {
     expect(w.forks).toBe(1)
   })
 
-  test('a small context is not kept warm (AC7)', async ($, on) => {
+  test('a small context is not kept warm', async ($, on) => {
     const w = world(on, { context: 20_000 })
     await start($)
     await turn($)
@@ -161,7 +161,7 @@ describe('scheduling', () => {
     expect(w.forks).toBe(0)
   })
 
-  test('a 5m TTL turns keepalive off (AC12)', async ($, on) => {
+  test('a 5m TTL turns keepalive off', async ($, on) => {
     const w = world(on, { ttlRow: TTL_5M_ROW })
     await start($)
     await turn($)
@@ -183,7 +183,7 @@ describe('scheduling', () => {
     expect(stateOf(w)).toMatchObject({ max: 2, pings: 0 })
   })
 
-  test('a reload re-arms from $.state (AC9, approximated by a second session.start)', async ($, on) => {
+  test('a reload re-arms from $.state (approximated by a second session.start)', async ($, on) => {
     const w = world(on)
     await start($)
     await turn($)
@@ -266,7 +266,7 @@ describe('resume', () => {
 })
 
 describe('verification', () => {
-  test('a miss turns keepalive off with one toast (AC8)', async ($, on) => {
+  test('a miss turns keepalive off with one toast', async ($, on) => {
     const w = world(on)
     w.forkCacheRead = 0
     await start($)
@@ -282,7 +282,7 @@ describe('verification', () => {
   })
 })
 
-describe('expired band (AC13)', () => {
+describe('expired band', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`shows once on ${surface}, dismisses, and clears on the next turn`, async ($, on) => {
       const w = world(on)
@@ -370,7 +370,7 @@ describe('engineStatus', () => {
     return seen
   }
 
-  test('is off by default: no status entry at all (AC10)', async ($, on) => {
+  test('is off by default: no status entry at all', async ($, on) => {
     const w = world(on)
     const seen = statuses(on)
     await start($)
