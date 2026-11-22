@@ -29,12 +29,18 @@ export type KeepaliveSession = {
   isOffToastShown: boolean
   /** message_id of the open Telegram question, or null when none is open. */
   tgAskMessageId: number | null
-  /** /keepalive compact: compact once, when the pings run out. Survives turns (a /goal's continuations); cleared when it fires or on `compact off`. */
+  /** /keepalive compact: armed for the whole session, every idle stretch compacts. Survives turns, typed prompts and a compact firing; cleared only by `compact off` (or a timed N too long for the TTL). */
   isCompactArmed: boolean
-  /** /keepalive compact [minutes]: with isCompactArmed, no pings; compact this many minutes after the last turn ends. Null = the pings-first mode. Cleared with the flag. */
+  /** /keepalive compact [minutes]: compact this many minutes after the last turn ends (null: the compactAfterMinutes default). Persists with the flag; a later bare `compact` keeps it. */
   compactAfterMin: number | null
-  /** /keepalive brb: epoch ms the user said they are away until, or null. With a timed compact it only moves the compact later (to this time, if past last turn + N); it never switches the compact to the pings-first mode. Reset by the next turn and by `brb reset`. */
+  /** /keepalive brb: epoch ms the user said they are away until, or null. With a timed compact it only moves the compact later (to this time, if past last turn + N); it never switches the compact to the pings-first mode. Survives the engine's own turns (a monitor event, a /goal step); cleared by a prompt you type, by `brb reset`, and once it has passed. */
   brbUntil: number | null
+  /** `/keepalive compact off` was run: the compactBeforeExpiry option (the session's starting value) must not re-arm it. Cleared by the next `compact`. */
+  isCompactOff: boolean
+  /** Monitors and shells still running at the last turn end (from the Stop hook's background_tasks); subagents and workflows are not counted. */
+  bgTasks: number
+  /** The armed compact's "a background task is still running" warning was shown; reset when the tasks end, a compact fires or you type a prompt. */
+  isBgWarned: boolean
   /** Why the last armed compact ended (ran, skipped, refused, cancelled by a prompt), so a miss can be diagnosed afterwards. */
   lastCompactNote: string | null
 }

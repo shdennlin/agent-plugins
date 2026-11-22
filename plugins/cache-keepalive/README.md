@@ -1,23 +1,39 @@
 # cache-keepalive
 
-Keeps the main thread's prompt cache warm while you are away. About five minutes before the cache TTL runs out, it sends one tool-less fork of the conversation (`$.model.fork`) that re-reads the cached prefix and restarts the TTL. The ping never lands in the transcript, so nothing needs rewinding.
+Keeps Claude Code's prompt cache warm while you are away, so coming back to a session does not re-pay for the whole context.
 
-By default it pings at most twice per idle stretch, so a lunch or a meeting comes back to a warm cache. Every ping is verified: if the fork does not read the prefix from cache, keepalive turns itself off for the session.
+About ten minutes before the 1-hour cache expires, it sends one tiny background request that re-reads the cache and restarts the timer. It never appears in your transcript, and every ping is checked: if the cache was not hit, keepalive turns itself off for the session.
 
-Requires **Claude Code 2.1.289** or later (hook-module plugin API). The status widget targets **ccstatusline 2.2.30**.
+Requires **Claude Code 2.1.289** or later. The status widget targets **ccstatusline 2.2.30**.
 
-## Quick setup
+## Using it
 
-Nothing is required: once the plugin loads, it keeps the cache warm. The rest is optional.
+**Most of the time: nothing.** A lunch or a meeting comes back to a warm cache (up to 2 pings per idle stretch).
 
-| You want | Set up | |
-|---|---|---|
-| Keepalive itself | Load the plugin (below) | required |
-| The state always on screen | A status line field and a refresh interval ([docs/status-line.md](docs/status-line.md)) | optional; `/keepalive status` works without it |
-| A Telegram question once the pings run out | Bot token **and** `telegramChatId` ([docs/telegram.md](docs/telegram.md)) | optional; both are needed, or nothing is sent |
-| Only your own answers to count | `telegramUserId` | optional; without it anyone in the chat can answer |
+**Away for hours: `/keepalive brb 3h`.** Keeps the cache warm for that long (one ping every 50 minutes). It ends when you type a prompt. You can type it any time, even before the first turn or while a `/goal` runs (the time counts from when the command runs: one typed during a turn waits for the turn to end).
 
-Load the plugin, one of:
+**A session you leave running (an agent, a build, a `/goal`): `/keepalive compact`.** After 50 minutes idle it compacts the context, and it does so again every idle stretch until you run `/keepalive compact off`. Compacting is lossy, but it reads the warm cache, so it is cheap and your next prompt rewrites a small summary instead of the whole context.
+
+**Both: `compact` and `brb 3h`.** The full context stays warm for three hours, then it compacts.
+
+`/keepalive status` shows what it is doing. More on `brb` and `compact`: [docs/compact.md](docs/compact.md).
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `/keepalive brb <time>` | You are away for `<time>` (`90`, `3h`, `24h`): pings until then. A monitor event or a `/goal` step does not end it; your next typed prompt does |
+| `/keepalive brb reset` | End it |
+| `/keepalive compact [minutes]` | Arm the compact for this session: `minutes` (default 50) after the last turn, every idle stretch |
+| `/keepalive compact off` | Disarm it |
+| `/keepalive ping` | Ping now (refused unless armed, and during a compaction) |
+| `/keepalive status` | Phase, pings, expiry, the compact, the `brb`, background tasks |
+
+Short forms: `c` is `compact`, `p` is `ping`, `s` is `status`. Typing `/keepalive brb ` offers `180` as a dim completion (Right arrow accepts).
+
+## Install
+
+Nothing else is required: once the plugin loads, it works.
 
 ```bash
 # every session: add the folder to CLAUDE_CODE_PLUGIN_DIRS in ~/.claude/settings.json ("env" block),
@@ -28,97 +44,57 @@ Load the plugin, one of:
 claude --plugin-dir /absolute/path/to/plugins/cache-keepalive
 ```
 
-Then set options with `/plugin configure cache-keepalive` (sensitive ones included) or `/config` (search for `keep`). A session started with `--plugin-dir` reads them from `pluginConfigs["cache-keepalive"].options` in settings.
+Options: `/plugin configure cache-keepalive` or `/config` (search for `keep`). With `--plugin-dir`, set them under `pluginConfigs["cache-keepalive"].options` in settings.
 
-Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: on` when Telegram is set up.
+## Seeing the state
 
-## Commands
+`/keepalive status` always works. For a line that is always on screen, use `bin/keepalive-cache` as a status line field:
 
-| Command | What it does |
-|---|---|
-| `/keepalive status` | Phase, TTL, context size, pings so far, next ping and expiry times |
-| `/keepalive brb <minutes or hours>` | Keep warm for longer this idle stretch, e.g. `brb 180` allows 4 pings and `brb 24h` 27. Resets at your next prompt |
-| `/keepalive brb reset` | Back to the configured `maxPings` for this idle stretch. Pings already sent are not taken back |
-| `/keepalive done` | Stop pinging for this idle stretch. Resets at your next prompt |
-| `/keepalive c` / `d` / `p` / `s` | Short forms of `compact`, `done`, `ping` and `status` |
-| `/keepalive compact [minutes]` | No pings; compact once, `compactAfterMinutes` (30) or the given minutes after the last turn ends ([below](#compact-before-expiry)). `compact pings` (or `c p`) pings first and compacts when they run out; `compact off` cancels |
-| `/keepalive ping` | Fire a ping immediately and restart the countdown; it does not use up the automatic pings. Refused unless `armed` |
+```
+58:54 kp 1/2 ✂19:42 brb→21:30 ⚠bg
+```
 
-In a terminal the replies are coloured (a past-break-even warning in yellow, errors in red, the phase in `status` by state); other surfaces get plain text. Typing `/keepalive brb ` offers `180` as a dim completion; Right arrow accepts. When you come back to an expired cache, a one-line band above the prompt says how much the next request will rewrite; your next prompt or Dismiss clears it.
+(cache countdown, pings used / cap, the compact's time, the `brb` deadline, a background task still running). Set `statusLine.refreshInterval` to 30 or the field only redraws on events. Setup for ccstatusline, your own script, or no status line: [docs/status-line.md](docs/status-line.md).
 
 ## Options
-
-Set in `/config` (or `pluginConfigs["cache-keepalive"].options` in settings):
 
 | Option | Default | |
 |---|---|---|
 | `enabled` | `true` | Master switch |
-| `leadMinutes` | `5` | Ping this many minutes before the TTL runs out |
 | `maxPings` | `2` | Pings per idle stretch |
+| `compactAfterMinutes` | `50` | What a bare `/keepalive compact` waits (at most the TTL minus `compactLeadMinutes`) |
+| `compactBeforeExpiry` | `false` | Start every session with the compact armed |
 | `minContextTokens` | `50000` | Smaller contexts are not kept warm |
-| `compactLeadMinutes` | `10` | An armed compact starts this many minutes before the TTL runs out |
-| `compactAfterMinutes` | `30` | What a bare `/keepalive compact` waits after the last turn (must stay under the TTL minus `compactLeadMinutes`) |
-| `compactBeforeExpiry` | `false` | Compact in that window every idle stretch, without arming each time |
-| `engineStatus` | `false` | Show the state as a status entry under the prompt, for sessions without a status line |
-| `telegramBotToken` | empty | Bot token (sensitive); see [Telegram](docs/telegram.md) |
-| `telegramChatId` | empty | Chat that receives the question |
-| `telegramUserId` | empty | Only this user's answers count |
+| `leadMinutes` | `10` | Ping this long before the TTL runs out |
+| `compactLeadMinutes` | `10` | How long before expiry a compact may start |
+| `engineStatus` | `false` | Show the state under the prompt (for sessions with no status line) |
+| `telegramBotToken`, `telegramChatId`, `telegramUserId` | empty | Ask on Telegram when the pings run out: [docs/telegram.md](docs/telegram.md) |
 
-## Compact before expiry
+## Good to know
 
-Compacting is lossy: the summary drops detail, so nothing compacts unless you arm it, and the reply states the context size when you do. `/keepalive compact` (or `/keepalive compact 45`) stops the pings and compacts once, that many minutes after the last turn ends, while the cache is still warm; every new turn (a `/goal` step) restarts the countdown. `/keepalive compact pings` is the older mode: keepalive pings as usual, and once the pings run out it compacts `compactLeadMinutes` (10) before the cache expires. The summary request reads the cache instead of rewriting the whole prefix (98% of a 142k prefix read from cache, measured once), and your next prompt rewrites a small summary instead of the old context.
+- A ping costs a few percent of one rewrite: [docs/cost.md](docs/cost.md). Sessions under 50k tokens and 5-minute caches are not kept warm.
+- No pings while the Mac sleeps. A resumed session arms from its transcript's real cache age.
+- Claude Code can also compact idle sessions on its own (about an hour, at 200k+ tokens); keepalive notices and resets itself.
+- Coming back to an expired cache, a one-line band says how much the next request rewrites.
 
-- **One time.** It clears when it fires, with `/keepalive compact off`, or when you type a plain prompt (a toast says so). A slash command, a `/goal` continuation, a background task's notification or another session's message does not clear it. `/keepalive status` shows `last compact note` (why the last armed compact ended, or which prompt it ignored).
-- Aliases: `/keepalive c` is `compact`, `d` is `done`, `p` is `ping`, `s` is `status`, and `c p` is `compact pings`.
-- With `compact pings`, `/keepalive done` skips the pings: the compact then runs about 50 minutes after the last turn on a 1h TTL. `done` ends at your next turn, so for a `/goal` use plain `/keepalive compact` (timed mode survives turns) or `maxPings: 0`.
-- A late timer (the Mac slept), a cancelled compaction or a ping that misses the cache means no compact; the cache just expires.
+## Upgrading to 0.8.0
 
-Flow chart, timeline and the edge cases: [docs/compact.md](docs/compact.md).
-
-**Claude Code 2.1.299+ also compacts idle sessions on its own**, at about 200k context tokens and 54 minutes idle, ahead of the same 1h cache TTL. Keepalive detects this (it is not a turn, so `turn.complete` never fires) and resets its own state instead of pinging a prefix that no longer exists. The same goes for your own `/compact`: the summary is not cached until the next turn, so keepalive stops pinging (phase `active`) and re-arms after that turn. Below 200k tokens, or before 54 minutes idle, only keepalive's own pings and `compactBeforeExpiry` apply. If you want pings to preserve the full context instead of letting the engine summarize it out from under you, turn the built-in behaviour off with `"idleCompaction": false` in settings.json, or raise its threshold with `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`.
-
-## Cost
-
-A ping re-reads the cached prefix at the cache-read price, a small fraction of one rewrite. The default two pings cost about 5% of a rewrite on Opus 5.5 (2.5% on Fable 5.1, 10% on Sonnet 5.5), so keeping warm pays off if you are even slightly likely to come back. Past the break-even (20 pings, about 18 h, on most models; 40 and 37 h on Opus 5.5; 80 and 73 h on Fable 5.1) the pings cost more than the one rewrite they avoid. Sessions under 50k tokens are not kept warm, and a 5-minute TTL turns keepalive off. Prices and the arithmetic: [docs/cost.md](docs/cost.md).
-
-## Telegram (optional)
-
-When the pings run out while you are away, keepalive can ask on Telegram whether to keep going: `+1h`, `+3h`, or let it expire, by button or by replying with minutes (`120`, `2h`). It needs a bot token and a chat id. Setup: [docs/telegram.md](docs/telegram.md).
-
-## Seeing the state
-
-Keepalive works without a status line: `/keepalive status`, the expired band and a toast when it turns itself off. For an always-visible state, `bin/keepalive-cache` is a drop-in for ccstatusline's Cache Timer, or a status line command of its own:
-
-```
-58:54 kp 1/2 ✂03:12
-```
-
-The countdown, `kp used/cap` and `✂` (an armed compact, with the time it is due) are explained in [docs/status-line.md](docs/status-line.md), with the ccstatusline setup and the `engineStatus` option for sessions with no status line. Set `statusLine.refreshInterval` (30 seconds is enough), or the field only redraws on events.
-
-## Limits
-
-- No pings while the Mac sleeps: the process is asleep too. A timer that fires after the cache already expired skips the ping.
-- A resumed session (`claude -r`/`--continue`) arms itself right at `session.start` from the transcript'''s last cache-creating row, using that row'''s real write time rather than the moment you resumed — so a cache that actually expired while you were away shows `expired`, not a fresh 2-ping window.
-- A turn that ends in an `error` or `refusal` reads no usage and runs no pings, but an armed compact is still scheduled from the last good response, so a `/goal` that dies on an API error does not lose it.
-- A turn waiting on a permission prompt has not finished, so no ping is scheduled during it.
-- After a prefix change (`/model`, a plugin reload that changes the system prompt or tools) the next ping misses once, and keepalive turns off for the session.
+`compact pings` and `done` are removed (use `brb`; `maxPings: 0` stops the pings). The compact is now permanent for the session until `compact off`. Defaults moved: `leadMinutes` 10 and `compactAfterMinutes` 50. A `brb` now survives monitor events.
 
 ## More
 
 | | |
 |---|---|
-| [docs/cost.md](docs/cost.md) | Prices per model, ping vs rewrite, break-even |
-| [docs/compact.md](docs/compact.md) | Timed and pings-first modes, flow charts, timeline and edge cases of the armed compact |
-| [docs/telegram.md](docs/telegram.md) | The Telegram question and its setup |
-| [docs/status-line.md](docs/status-line.md) | ccstatusline, your own status line, `engineStatus` |
-| [docs/PRD.md](docs/PRD.md) | Design, decisions and their evidence |
+| [docs/compact.md](docs/compact.md) | `brb` and `compact` in detail |
+| [docs/status-line.md](docs/status-line.md) | Status line setup |
+| [docs/telegram.md](docs/telegram.md) | The Telegram question |
+| [docs/cost.md](docs/cost.md) | Prices and break-even |
+| [docs/design.md](docs/design.md) | Why it works this way, and what was measured |
 
 ## Development
 
 ```bash
 claude plugin validate plugins/cache-keepalive
-claude --plugin-dir plugins/cache-keepalive   # once, so the engine lays .claude-plugin/types/ for tsc
-tsc -p plugins/cache-keepalive
-claude plugin test plugins/cache-keepalive    # hook tests (tests/*.test.ts)
+claude plugin test plugins/cache-keepalive                  # hook tests
 node --test plugins/cache-keepalive/tests/widget.test.cjs   # status widget tests
 ```

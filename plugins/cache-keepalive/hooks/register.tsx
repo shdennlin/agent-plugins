@@ -20,6 +20,8 @@ const TTL_5M = 300
 // A timed compact never fires sooner than this after it is armed: the host
 // refuses a compaction under the command's own turn.
 const MIN_TIMED_DELAY_MS = 30_000
+// A ping due closer than this to the compact is not worth sending (see pingsBefore).
+const PING_COMPACT_GAP_MS = 30_000
 // /keepalive brb completions, the first one offered on an empty argument.
 const BRB_PRESETS = ['180', '60', '480']
 // Pings that cost as much as one 1h-cache rewrite: the 1h write price (2x input)
@@ -32,7 +34,7 @@ function breakEvenPings(model: string): number | null {
   return /(fable|mythos|opus|sonnet|haiku)/.test(model) ? 20 : null
 }
 // Short forms for the commands typed most.
-const VERB_ALIASES: Record<string, string> = { c: 'compact', d: 'done', p: 'ping', s: 'status' }
+const VERB_ALIASES: Record<string, string> = { c: 'compact', p: 'ping', s: 'status' }
 const TG_POLL_MS = 10_000
 const TG_API = 'https://api.telegram.org'
 const KEYCHAIN_SERVICE = 'claude-code.cache-keepalive'
@@ -54,6 +56,9 @@ const INITIAL: KeepaliveSession = {
   isCompactArmed: false,
   compactAfterMin: null,
   brbUntil: null,
+  isCompactOff: false,
+  bgTasks: 0,
+  isBgWarned: false,
   lastCompactNote: null,
 }
 
@@ -76,9 +81,9 @@ type Config = {
 // timers with them, and session.start re-arms from $.state.
 let config: Config = {
   enabled: true,
-  leadMinutes: 5,
+  leadMinutes: 10,
   compactLeadMinutes: 10,
-  compactAfterMinutes: 30,
+  compactAfterMinutes: 50,
   maxPings: 2,
   minContextTokens: 50000,
   engineStatus: false,
@@ -109,9 +114,9 @@ let isPolling = false
 export const register: Register = (on, options) => {
   config = {
     enabled: options.enabled !== false,
-    leadMinutes: positiveNumber(options.leadMinutes, 5),
+    leadMinutes: positiveNumber(options.leadMinutes, 10),
     compactLeadMinutes: positiveNumber(options.compactLeadMinutes, 10),
-    compactAfterMinutes: positiveNumber(options.compactAfterMinutes, 30),
+    compactAfterMinutes: positiveNumber(options.compactAfterMinutes, 50),
     maxPings: Math.max(0, Math.floor(positiveNumber(options.maxPings, 2, true))),
     minContextTokens: positiveNumber(options.minContextTokens, 50000, true),
     engineStatus: options.engineStatus === true,
@@ -124,8 +129,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'keepalive',
-      description: 'Prompt-cache keepalive: done, brb <minutes|hours|reset>, compact [minutes|pings|off], ping, status',
-      argumentHint: 'done | brb <minutes|hours|reset> | compact [minutes|pings|off] | ping | status (d = done, c = compact, p = ping, s = status)',
+      description: 'Prompt-cache keepalive: brb <minutes|hours|reset>, compact [minutes|off], ping, status',
+      argumentHint: 'brb <minutes|hours|reset> | compact [minutes|off] | ping | status (c = compact, p = ping, s = status)',
     })
     const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? ''}/.claude`
     stateDir = `${configDir}/keepalive`
@@ -149,30 +154,33 @@ export const register: Register = (on, options) => {
     if (e.transcript_path && e.transcript_path !== s.transcriptPath) {
       await update($, session, v => ({ ...v, transcriptPath: e.transcript_path }))
     }
-    // You are back: an armed compact was for the time you are away. Only a prompt
-    // you typed counts. `source` tells it from the engine's own turns (a /goal
-    // continuation is `system`) where the engine sends it; this build leaves it
-    // out (measured: undefined on typed prompts, and no event at all on a /goal
-    // continuation), so an absent source counts as typed. A slash command does
-    // not count: /goal and /keepalive status are typed too, and arming comes
-    // before /goal.
-    // With `source` absent, the engine's own deliveries still look typed: a
-    // background task's <task-notification>, another session's or a subagent's
-    // message, a skill's expanded body. Those never mean you are back (one-456:
-    // an armed compact vanished before it fired, most likely to one of them).
+    // An armed compact is permanent for the session (until /keepalive compact off),
+    // so no prompt disarms it. A brb is different: it says "I am away", so a prompt
+    // you typed ends it. The engine's own turns do not: a monitor's <task-notification>,
+    // another session's message, a skill's body, a slash command (brb is one itself).
+    // `source` is absent in this build (measured), so only those prefixes tell them
+    // apart. This hook fires before turn.start (measured: about 150 ms), which is
+    // why turn.start can leave brbUntil alone.
     const text = e.prompt.trimStart()
-    const isFromYou = (e.source === undefined || e.source === 'user') && !isEngineDelivered(text)
-    const isTyped = isFromYou && text !== '' && !text.startsWith('/')
-    if (s.isCompactArmed) {
-      const peek = JSON.stringify(text.slice(0, 40))
-      if (isTyped) {
-        await save($, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: `cancelled by a prompt you typed: ${peek}` }))
-        if (s.phase === 'stopped' && s.compactAfterMin !== null) await restorePhase($)
-        $.ui.toast('Armed compact cancelled: you are back. /keepalive compact arms it again.')
-      } else {
-        // Evidence for later: which prompts reach this hook, and who they claim to be from.
-        await update($, session, v => ({ ...v, lastCompactNote: `kept: ${e.source ?? 'no source'} prompt ${peek}` }))
-      }
+    const isTyped = (e.source === undefined || e.source === 'user') && !isEngineDelivered(text) && text !== '' && !text.startsWith('/')
+    if (isTyped && (s.brbUntil !== null || s.isBgWarned)) await save($, v => ({ ...v, brbUntil: null, isBgWarned: false }))
+    return next(e)
+  })
+
+  // The end of a turn: how much background work is still in flight (a Monitor, a
+  // shell). SubagentStop carries the same list, so only this event counts it.
+  // The armed compact runs anyway (that is what armed means); the toast, once per
+  // stretch, says so and points at brb for the full context.
+  on('classic.Stop', async ($, e, next) => {
+    const bg = (e.background_tasks ?? []).filter(t => t.type === 'monitor' || t.type === 'shell').length
+    const s = await read($, session)
+    if (bg !== s.bgTasks) await save($, v => ({ ...v, bgTasks: bg, ...(bg === 0 ? { isBgWarned: false } : {}) }))
+    const now = await $.clock.now()
+    const isBrb = s.brbUntil !== null && s.brbUntil > now
+    if (bg > 0 && s.isCompactArmed && !s.isBgWarned && !isBrb) {
+      await save($, v => ({ ...v, isBgWarned: true }))
+      const at = s.compactAfterMin !== null ? ` at about ${clockTime(Math.max(s.lastActivityAt, now) + s.compactAfterMin * 60_000)}` : ''
+      $.ui.toast(`A background task is still running; the armed compact runs${at} anyway. /keepalive brb <time> keeps the full context.`)
     }
     return next(e)
   })
@@ -192,7 +200,6 @@ export const register: Register = (on, options) => {
         : { phase: 'active' as const, offReason: null }),
       pingsSent: 0,
       maxPings: config.maxPings,
-      brbUntil: null,
       lastPingAt: 0,
       isBandDismissed: false,
     }))
@@ -333,39 +340,54 @@ async function onMainTurnComplete($: Engine, reason: string) {
 // write time of its last cache-creating row, so an already-expired cache
 // does not get a fresh window just because the process restarted).
 async function applyArmedState($: Engine, input: { lastActivityAt: number; contextTokens: number; ttlSec: number | null }): Promise<void> {
-  const s = await read($, session)
-  const base = { ...s, ...input }
+  const now = await $.clock.now()
+  const before = await read($, session)
+  // The new state is worked out inside the atomic update, from the state as it is at that
+  // moment: a command can run between a read and a save (a slash command typed during a turn
+  // is queued and runs the instant the turn ends), and a state built from an earlier read
+  // would write its old brbUntil, compact flags and note back over it (measured: a brb saved
+  // at 23:14:10 was gone at 23:14:11).
+  const s = await save($, v => deriveArmedState(v, input, now))
+  if (s.lastCompactNote !== before.lastCompactNote && s.lastCompactNote?.includes(' dropped: ')) {
+    // The cache would lapse before the timer: say so instead of dropping it silently.
+    $.ui.toast(`Compact not armed: ${s.lastCompactNote.replace(/^timed compact .*? dropped: /, '')}.`)
+  }
+  // off, small and TTL-not-read-yet have nothing to schedule.
+  if (s.phase === 'armed' || s.phase === 'capped' || s.phase === 'stopped') await rearm($)
+}
+
+// What a turn end makes of the state `v`: a pure function of `v`, the turn's input and the time.
+function deriveArmedState(v: KeepaliveSession, input: { lastActivityAt: number; contextTokens: number; ttlSec: number | null }, now: number): KeepaliveSession {
+  // A brb outlives the engine's own turns (a monitor event, a /goal step): each
+  // turn end re-derives the pings still needed to reach its deadline.
+  const intervalMs = input.ttlSec === null ? 0 : (input.ttlSec - config.leadMinutes * 60) * 1000
+  const brbLeftMs = v.brbUntil === null ? 0 : v.brbUntil - now
+  // With a compact armed the brb only has to reach the compact (pingsBefore); without one it keeps the cache warm for its whole length.
+  const brbPings =
+    intervalMs > 0 && brbLeftMs > 0
+      ? v.isCompactArmed
+        ? pingsBefore(input.lastActivityAt, compactTarget({ ...v, lastActivityAt: input.lastActivityAt }), intervalMs)
+        : Math.ceil(brbLeftMs / intervalMs)
+      : 0
+  const base = { ...v, ...input, brbUntil: brbLeftMs > 0 ? v.brbUntil : null, maxPings: brbPings > 0 ? brbPings : v.maxPings }
 
   if (input.ttlSec === TTL_5M) {
     // 13 pings an hour at 0.1x cost more than one 1.25x rewrite.
-    await save($, () => ({ ...base, phase: 'off', offReason: '5m-ttl' }))
-    return
+    return { ...base, phase: 'off', offReason: '5m-ttl' }
   }
-  if (input.contextTokens < config.minContextTokens) {
-    await save($, () => ({ ...base, phase: 'small' }))
-    return
-  }
-  if (input.ttlSec === null) {
-    // Not read yet: no schedule. The next turn tries again.
-    await save($, () => ({ ...base, phase: 'active' }))
-    return
-  }
-  if (base.isCompactArmed && base.compactAfterMin !== null) {
-    if (isTimedTooLong(base.compactAfterMin, input.ttlSec)) {
-      // The cache would lapse before the timer: say so instead of dropping it silently.
-      const note = `timed compact (${base.compactAfterMin} min) dropped: it must be under ${maxTimedMinutes(input.ttlSec)} min for a ${input.ttlSec / 60} min cache`
-      await save($, () => ({ ...base, isCompactArmed: false, compactAfterMin: null, lastCompactNote: note, phase: base.maxPings > 0 ? 'armed' : 'capped' }))
-      $.ui.toast(`Compact not armed: ${note.replace(/^timed compact .*? dropped: /, '')}.`)
-      await rearm($)
-      return
+  if (input.contextTokens < config.minContextTokens) return { ...base, phase: 'small' }
+  if (input.ttlSec === null) return { ...base, phase: 'active' } // not read yet: no schedule, the next turn tries again
+  if (base.isCompactArmed) {
+    const afterMin = base.compactAfterMin ?? config.compactAfterMinutes
+    if (isTimedTooLong(afterMin, input.ttlSec)) {
+      const note = `timed compact (${afterMin} min) dropped: it must be at most ${maxTimedMinutes(input.ttlSec)} min for a ${input.ttlSec / 60} min cache`
+      return { ...base, isCompactArmed: false, compactAfterMin: null, lastCompactNote: note, phase: base.maxPings > 0 ? 'armed' : 'capped' }
     }
-    // No pings: the cache just ages until the timer (phase stopped, as after `done`).
-    await save($, () => ({ ...base, phase: 'stopped' }))
-    await rearm($)
-    return
+    // No pings: the cache just ages until the timer (phase stopped), unless a brb is
+    // still running: then the pings keep it warm up to its deadline.
+    return { ...base, phase: brbPings > 0 ? 'armed' : 'stopped' }
   }
-  await save($, () => ({ ...base, phase: base.maxPings > 0 ? 'armed' : 'capped' }))
-  await rearm($)
+  return { ...base, phase: base.maxPings > 0 ? 'armed' : 'capped' }
 }
 
 function maxTimedMinutes(ttlSec: number): number {
@@ -373,7 +395,7 @@ function maxTimedMinutes(ttlSec: number): number {
 }
 
 function isTimedTooLong(minutes: number, ttlSec: number): boolean {
-  return minutes >= maxTimedMinutes(ttlSec)
+  return minutes > maxTimedMinutes(ttlSec)
 }
 
 // Prompts the engine delivers as if typed. A real user prompt never starts with these.
@@ -415,25 +437,14 @@ async function rearm($: Engine) {
   if (s.ttlSec === null) return
   const now = await $.clock.now()
   const expiresAt = cacheStart(s) + s.ttlSec * 1000
-  // A timed compact is the user's intent, so its time comes from timedCompactAt
-  // and not from the phase: /keepalive brb adds pings (phase armed or capped)
-  // but must not turn it into the pings-first mode below.
-  const isTimed = s.isCompactArmed && s.compactAfterMin !== null
-  if (isTimed && (s.phase === 'stopped' || s.phase === 'armed' || s.phase === 'capped')) {
-    const dueAt = Math.max(timedCompactAt(s), now + MIN_TIMED_DELAY_MS)
+  // The armed compact is the user's intent, so its time comes from compactAt and
+  // not from the phase: /keepalive brb adds pings (phase armed or capped) and
+  // moves it to the end of the window, but never cancels it.
+  if (s.isCompactArmed && (s.phase === 'stopped' || s.phase === 'armed' || s.phase === 'capped')) {
+    const dueAt = Math.max(compactAt(s), now + MIN_TIMED_DELAY_MS)
     compactTimer = $.clock.after(Math.max(0, dueAt - now), () => {
       void compact($)
     })
-  }
-  // /keepalive done stops the pings but an armed compact still runs, once, in
-  // the first lead window (a timed one has its own timer above).
-  if (s.phase === 'stopped' && s.isCompactArmed) {
-    if (!isTimed) {
-      compactTimer = $.clock.after(Math.max(0, expiresAt - config.compactLeadMinutes * 60_000 - now), () => {
-        void compact($)
-      })
-    }
-    return
   }
   if (s.phase !== 'armed' && s.phase !== 'capped') return
   if (s.phase === 'armed') {
@@ -445,36 +456,26 @@ async function rearm($: Engine) {
   expiryTimer = $.clock.after(Math.max(0, expiresAt - now), () => {
     void expire($)
   })
-  // Pings used up: compact while the cache is still warm, so the summary
-  // request reads it instead of rewriting the whole prefix.
-  if (s.phase === 'capped' && !isTimed && (config.compactBeforeExpiry || s.isCompactArmed)) {
-    compactTimer = $.clock.after(Math.max(0, expiresAt - config.compactLeadMinutes * 60_000 - now), () => {
-      void compact($)
-    })
-  }
 }
 
-// Fires from the lead window, only while capped and still warm. It cannot run
+// Fires at compactAt while the cache is still warm. It cannot run
 // from a command (the host refuses it under the command's turn), which is why
 // /keepalive compact only arms it.
 async function compact($: Engine) {
   if (isCompacting) return
   const s = await read($, session)
-  const isStoppedArmed = s.phase === 'stopped' && s.isCompactArmed
-  // A timed compact fires in any phase that still holds a cache; the pings-first
-  // one only once the pings are used up (capped) or stopped.
-  const isTimedArmed = s.isCompactArmed && s.compactAfterMin !== null && s.phase === 'armed'
-  if ((s.phase !== 'capped' && !isStoppedArmed && !isTimedArmed) || s.ttlSec === null) {
+  // Any phase that still holds a cache: pings running, used up, or none (stopped).
+  const isHoldingCache = s.phase === 'armed' || s.phase === 'capped' || s.phase === 'stopped'
+  if (!s.isCompactArmed || !isHoldingCache || s.ttlSec === null) {
     // Never a silent no-op: the next miss has to be diagnosable.
     await update($, session, v => ({ ...v, lastCompactNote: `timer fired in phase ${s.phase}${s.ttlSec === null ? ', ttl unknown' : ''}: nothing done` }))
     return
   }
   if ((await $.clock.now()) >= cacheStart(s) + s.ttlSec * 1000) {
     if (s.phase !== 'stopped') await expire($) // fired late (the Mac slept): the cache is gone
-    await update($, session, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: 'timer fired after the cache expired (the Mac slept?): not compacted' }))
+    await update($, session, v => ({ ...v, lastCompactNote: 'timer fired after the cache expired (the Mac slept?): not compacted' }))
     return
   }
-  const wasTimed = s.compactAfterMin !== null
   isCompacting = true
   let text: string
   let outcome = ''
@@ -488,11 +489,11 @@ async function compact($: Engine) {
       cancelTimers()
       // The new prefix is not cached yet: nothing to keep warm until the next turn.
       await save($, v =>
-        v.phase === 'armed' || v.phase === 'capped' || v.phase === 'expired' || (wasTimed && v.phase === 'stopped')
-          ? { ...v, phase: 'active', contextTokens: tokens, isCompactArmed: false }
-          : { ...v, contextTokens: tokens, isCompactArmed: false },
+        v.phase === 'armed' || v.phase === 'capped' || v.phase === 'expired' || v.phase === 'stopped'
+          ? { ...v, phase: 'active', contextTokens: tokens }
+          : { ...v, contextTokens: tokens },
       )
-      text = `Compacted before the cache expired: ${kilo(r.tokensBefore ?? s.contextTokens)} → ${kilo(tokens)} tokens.`
+      text = `Compacted before the cache expired: ${kilo(r.tokensBefore ?? s.contextTokens)} → ${kilo(tokens)} tokens. Still armed; /keepalive compact off to stop.`
       outcome = text
     }
   } catch (err) {
@@ -502,13 +503,17 @@ async function compact($: Engine) {
   } finally {
     isCompacting = false
   }
-  await save($, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: outcome }))
+  // Still armed: the next idle stretch compacts again (until /keepalive compact off).
+  await save($, v => ({ ...v, lastCompactNote: outcome, isBgWarned: false }))
   $.ui.toast(text)
 }
 
 // isManual: /keepalive ping. It restarts the countdown but does not spend one
 // of the automatic pings, so testing it never shortens the idle stretch.
 async function ping($: Engine, isManual = false) {
+  // A compaction is making its summary from the warm cache right now: a ping would
+  // pay for a second full-context read (and could end the stretch under it).
+  if (isCompacting) return
   const s = await read($, session)
   if (s.phase !== 'armed' || s.ttlSec === null) return
   const startedAt = await $.clock.now()
@@ -567,7 +572,7 @@ async function afterCompact($: Engine, result: { skip?: string; tokensAfter?: nu
   }
   const tokens = result.tokensAfter ?? (await read($, session)).contextTokens
   await closeAsk($, message)
-  await save($, v => ({ ...v, phase: v.phase === 'off' ? 'off' : 'active', contextTokens: tokens, isCompactArmed: false }))
+  await save($, v => ({ ...v, phase: v.phase === 'off' ? 'off' : 'active', contextTokens: tokens }))
   $.ui.toast(message)
 }
 
@@ -598,14 +603,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
   const s = await read($, session)
 
   if (verb === 'done') {
-    cancelTimers()
-    if (s.phase === 'off') return paint('Keepalive is already off for this session.', 'red')
-    await save($, v => ({ ...v, phase: 'stopped' }))
-    await closeAsk($, '💤 Stopped with /keepalive done.')
-    await rearm($) // an armed compact stays scheduled
-    return s.isCompactArmed && s.ttlSec !== null
-      ? `Pings stopped until your next prompt; the armed compact still runs at ${clockTime(compactAt({ ...s, phase: 'stopped' }))}.`
-      : 'Keepalive stopped until your next prompt.'
+    return paint('/keepalive done was removed in 0.8.0. To stop the pings set maxPings to 0; /keepalive compact off disarms the compact.', 'yellow')
   }
 
   if (verb === 'brb') {
@@ -616,22 +614,37 @@ async function runCommand($: Engine, args: string): Promise<string> {
     }
     if (s.phase === 'off') return paint(`Keepalive is off for this session (${s.offReason}).`, 'red')
     if (s.phase === 'small') return paint('This session’s context is small enough that a rewrite is cheap; not keeping it warm.', 'yellow')
-    if (s.ttlSec === null || s.phase === 'active') return paint('Nothing to keep warm yet: wait for the current turn to finish.', 'yellow')
+    if (s.ttlSec === null || s.phase === 'active') {
+      // No cache to keep warm yet: a turn is running (a /goal), or no turn has ended so the TTL is
+      // unread. The deadline is all a brb is, so record it; every turn end derives the pings from it.
+      if (isReset) {
+        await save($, v => ({ ...v, brbUntil: null }))
+        return s.brbUntil === null ? 'There is no brb to end.' : 'The brb is ended.'
+      }
+      const until = (await $.clock.now()) + minutes * 60_000
+      await save($, v => ({ ...v, brbUntil: until }))
+      return `Noted: away until about ${clockTime(until)}. The pings are worked out when the next turn ends.`
+    }
     if (s.phase === 'expired') return paint('The cache has already expired; your next prompt rewrites it.', 'yellow')
     const intervalSec = s.ttlSec - config.leadMinutes * 60
     // reset: the configured cap again (the pings already sent stay sent).
-    const maxPings = isReset ? Math.max(config.maxPings, s.pingsSent) : Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
     const now = await $.clock.now()
     // With a timed compact armed, brb only says how long you are away: it adds
-    // pings inside that window and moves the compact to its end, but the compact
-    // stays timed. `brb reset` then goes back to the timed mode's no pings.
-    const isTimed = s.isCompactArmed && s.compactAfterMin !== null
+    // pings up to the compact and moves the compact to the window's end, but the
+    // compact stays timed. `brb reset` then goes back to the timed mode's no pings.
+    const isTimed = s.isCompactArmed
     const brbUntil = isReset ? null : now + minutes * 60_000
-    await save($, v => ({ ...v, maxPings, brbUntil, phase: isTimed && isReset ? 'stopped' : v.pingsSent < maxPings ? 'armed' : 'capped' }))
+    const maxPings = isReset
+      ? Math.max(config.maxPings, s.pingsSent)
+      : isTimed
+        ? pingsBefore(s.lastActivityAt, compactTarget({ ...s, brbUntil }), intervalSec * 1000)
+        : Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
+    const phase = isTimed ? (!isReset && s.pingsSent < maxPings ? 'armed' : 'stopped') : s.pingsSent < maxPings ? 'armed' : 'capped'
+    await save($, v => ({ ...v, maxPings, brbUntil, phase }))
     await rearm($)
     const next = Math.max(now, cacheStart(s) + s.ttlSec * 1000 - config.leadMinutes * 60_000)
     if (isReset) {
-      if (isTimed) return `Back to the timed compact: no pings, compact at ${clockTime(timedCompactAt({ ...s, brbUntil: null }))}.`
+      if (isTimed) return `Back to the timed compact: no pings, compact at ${clockTime(compactTarget({ ...s, brbUntil: null }))}.`
       if (maxPings === 0) return 'Back to the default: no pings this idle stretch.'
       return s.pingsSent >= maxPings
         ? `Back to the default of ${pingCount(config.maxPings)}: the ${pingCount(s.pingsSent)} already sent use it up, so the cache expires at ${clockTime(cacheStart(s) + s.ttlSec * 1000)}.`
@@ -644,7 +657,9 @@ async function runCommand($: Engine, args: string): Promise<string> {
       breakEven !== null && maxPings > breakEven
         ? `\n${paint(`⚠ Past the break-even for ${model} (about ${breakEven} pings, ${Math.round((breakEven * intervalSec) / 3600)} h): the pings cost more than the one rewrite they avoid, so it only pays if you are sure to come back.`, 'yellow')}`
         : ''
-    const compactNote = isTimed ? ` The armed compact runs at ${clockTime(timedCompactAt({ ...s, brbUntil }))}.` : ''
+    const compactAt0 = compactTarget({ ...s, brbUntil })
+    if (isTimed && s.pingsSent >= maxPings) return `Away until about ${clockTime(now + minutes * 60_000)}: no pings needed before the armed compact at ${clockTime(compactAt0)}.`
+    const compactNote = isTimed ? ` The armed compact runs at ${clockTime(compactAt0)}.` : ''
     return `Keeping the cache warm for about ${minutes} min: up to ${pingCount(maxPings)} this idle stretch, next at ${clockTime(next)}.${compactNote}${warning}`
   }
 
@@ -654,46 +669,47 @@ async function runCommand($: Engine, args: string): Promise<string> {
     // keep pinging first, compact when the pings run out. Either survives turns.
     if (value === 'off') {
       cancelTimers()
-      await save($, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: 'disarmed with /keepalive compact off' })) // save, not update: the state file feeds the status line
-      if (s.compactAfterMin !== null) await restorePhase($)
-      else await rearm($)
+      await save($, v => ({ ...v, isCompactArmed: false, isCompactOff: true, compactAfterMin: null, lastCompactNote: 'disarmed with /keepalive compact off' })) // save, not update: the state file feeds the status line
+      await restorePhase($)
       return 'Compact-before-expiry disarmed.'
     }
     if (s.phase === 'off') return paint(`Keepalive is off for this session (${s.offReason}).`, 'red')
     if (s.phase === 'expired') return paint('The cache has already expired; use the built-in /compact if you still want one.', 'yellow')
     if (s.phase === 'small') return paint('This session’s context is small, so it is not kept warm and nothing is compacted. To compact anyway, use the built-in /compact.', 'yellow')
-    const isPings = value?.toLowerCase() === 'pings' || value?.toLowerCase() === 'p'
-    const minutes = isPings ? null : value === undefined ? config.compactAfterMinutes : parseDuration(value)
-    if (minutes !== null && (!Number.isFinite(minutes) || minutes <= 0)) {
-      return paint('Usage: /keepalive compact [minutes|pings|off], for example /keepalive compact, /keepalive compact 45 or /keepalive compact pings', 'red')
+    if (value?.toLowerCase() === 'pings' || value?.toLowerCase() === 'p') {
+      return paint('/keepalive compact pings was removed in 0.8.0: the compact fires N minutes after the last turn; /keepalive brb <time> adds pings and moves it to the end of that window.', 'yellow')
     }
-    if (minutes !== null && s.ttlSec !== null && isTimedTooLong(minutes, s.ttlSec)) {
-      return paint(`Too long for a ${s.ttlSec / 60} min cache: pick under ${maxTimedMinutes(s.ttlSec)} min, or use /keepalive compact pings (pings first, then compact).`, 'yellow')
+    const minutes = value === undefined ? (s.compactAfterMin ?? config.compactAfterMinutes) : parseDuration(value)
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return paint('Usage: /keepalive compact [minutes|off], for example /keepalive compact, /keepalive compact 45 or /keepalive compact off', 'red')
     }
-    const wasTimed = s.compactAfterMin !== null
-    await save($, v => ({ ...v, isCompactArmed: true, compactAfterMin: minutes, lastCompactNote: null }))
-    if (minutes === null && wasTimed) await restorePhase($)
-    else if (minutes !== null && s.ttlSec !== null && s.phase !== 'active') {
-      await save($, v => ({ ...v, phase: 'stopped' }))
-      await rearm($)
-    } else await rearm($)
-    const tail = ' One time; it survives /goal turns. /keepalive compact off cancels. To compact now, use the built-in /compact.'
-    const warn = `Context is ${kilo(s.contextTokens)} tokens and compacting is lossy: detail is summarised away.`
-    if (minutes !== null) {
-      const after = await read($, session)
-      if (s.ttlSec === null || s.phase === 'active') {
-        return `Armed: no pings, compact ${minutes} min after the current turn ends. ${warn}${tail}`
+    if (s.ttlSec !== null && isTimedTooLong(minutes, s.ttlSec)) {
+      return paint(`Too long for a ${s.ttlSec / 60} min cache: pick at most ${maxTimedMinutes(s.ttlSec)} min.`, 'yellow')
+    }
+    await save($, v => ({ ...v, isCompactArmed: true, isCompactOff: false, compactAfterMin: minutes, lastCompactNote: null }))
+    const isBrb = s.brbUntil !== null && s.brbUntil > (await $.clock.now())
+    if (s.ttlSec !== null && s.phase !== 'active') {
+      if (isBrb) {
+        // A brb was already open: the pings it needs now stop at the compact, whichever of the two came first.
+        const maxPings = pingsBefore(s.lastActivityAt, compactTarget({ ...s, compactAfterMin: minutes }), (s.ttlSec - config.leadMinutes * 60) * 1000)
+        await save($, v => ({ ...v, maxPings, phase: v.pingsSent < maxPings ? 'armed' : 'stopped' }))
+      } else {
+        await save($, v => ({ ...v, phase: 'stopped' }))
       }
-      return `Armed: no pings, compact at about ${clockTime(compactAt(after))} (${minutes} min after the last turn). ${warn}${tail}`
     }
+    await rearm($)
+    const tail = ' Permanent for this session: every idle stretch compacts again until /keepalive compact off. To compact now, use the built-in /compact.'
+    const warn = `Context is ${kilo(s.contextTokens)} tokens and compacting is lossy: detail is summarised away.`
+    const after = await read($, session)
     if (s.ttlSec === null || s.phase === 'active') {
-      return `Armed: it is scheduled when the current turn ends, after the pings run out. ${warn}${tail}`
+      return `Armed: no pings, compact ${minutes} min after the current turn ends. ${warn}${tail}`
     }
-    return `Armed: compact at about ${clockTime(compactAt(s))}${s.phase === 'armed' ? ' (after the remaining pings)' : s.phase === 'stopped' ? ' (no pings, you ran /keepalive done)' : ''}. ${warn}${tail}`
+    return `Armed: no pings, compact at about ${clockTime(compactAt(after))} (${minutes} min after the last turn). ${warn}${tail}`
   }
 
   if (verb === 'ping') {
     if (s.phase !== 'armed') return paint(`Nothing to ping: phase is ${s.phase}.`, 'yellow')
+    if (isCompacting) return paint('A compaction is running: not pinging.', 'yellow')
     await ping($, true)
     const after = await read($, session)
     if (after.lastPingAt > s.lastPingAt) return `Pinged manually: phase ${after.phase}, ${after.pingsSent}/${after.maxPings} automatic pings used.`
@@ -715,14 +731,17 @@ async function runCommand($: Engine, args: string): Promise<string> {
       if (s.phase === 'armed') lines.push(`next ping: ${clockTime(expiresAt - config.leadMinutes * 60_000)}`)
       lines.push(`cache expires: ${clockTime(expiresAt)}`)
     }
-    if (config.compactBeforeExpiry || s.isCompactArmed) {
+    if (s.isCompactArmed) {
       const due = compactDueAt(s)
       const at = due === null ? null : clockTime(due)
-      const mode = s.isCompactArmed && s.compactAfterMin !== null ? `, timed ${s.compactAfterMin} min, no pings` : ''
-      lines.push(`compact before expiry: ${s.isCompactArmed ? 'armed' : 'on'}${mode}${at ? `, at ${at}` : ''}`)
+      const mode = `, timed ${s.compactAfterMin ?? config.compactAfterMinutes} min`
+      lines.push(`compact before expiry: armed (permanent until /keepalive compact off)${mode}${at ? `, at ${at}` : ''}`)
     } else {
       lines.push('compact before expiry: off')
     }
+    const statusNow = await $.clock.now()
+    if (s.brbUntil !== null && s.brbUntil > statusNow) lines.push(`brb until ${clockTime(s.brbUntil)} (${duration(s.brbUntil - statusNow)} left)`)
+    if (s.bgTasks > 0) lines.push(`background: ${s.bgTasks} ${s.bgTasks > 1 ? 'tasks' : 'task'} running (monitor or shell)`)
     if (s.lastCompactNote) lines.push(`last compact note: ${s.lastCompactNote}`)
     lines.push(`telegram: ${isTelegramOn() ? `on (chat ${config.telegramChatId}${s.tgAskMessageId !== null ? ', question open' : ''})` : 'off'}`)
     lines.push(`all sessions: ${stats.pings} pings, ${stats.hits} hits`)
@@ -778,7 +797,7 @@ async function askOnTelegram($: Engine) {
     await sessionHeader($),
     `🧊 Cache expires at <b>${clockTime(expiresAt)}</b> · ${kilo(s.contextTokens)} context`,
     `Rewrite ≈ ${kilo(s.contextTokens * rate)} · one more hour warm ≈ ${kilo(s.contextTokens * 0.1)}`,
-    ...(config.compactBeforeExpiry || s.isCompactArmed
+    ...(s.isCompactArmed
       ? [`Will compact at ${clockTime(compactAt(s))} unless you keep it warm.`]
       : []),
     'Tap a button, or reply with minutes (e.g. 120).',
@@ -928,6 +947,16 @@ async function bindSession($: Engine) {
   if (!s.transcriptPath || wasBound) {
     await update($, session, v => ({ ...v, transcriptPath: `${projectsDir}/${id}.jsonl` }))
   }
+  await armFromOption($)
+}
+
+// The compactBeforeExpiry option is only the session's starting value for the armed
+// compact: armed with the default N unless you ran `/keepalive compact off`.
+async function armFromOption($: Engine): Promise<void> {
+  if (!config.compactBeforeExpiry) return
+  const s = await read($, session)
+  if (s.isCompactArmed || s.isCompactOff) return
+  await save($, v => ({ ...v, isCompactArmed: true, compactAfterMin: config.compactAfterMinutes }))
 }
 
 async function save($: Engine, change: (v: KeepaliveSession) => KeepaliveSession): Promise<KeepaliveSession> {
@@ -952,6 +981,9 @@ async function writeStateFile($: Engine, s: KeepaliveSession) {
     // nothing is scheduled, e.g. during a turn): the status line shows both.
     compactArmed: s.isCompactArmed,
     compactAt: compactDueAt(s),
+    compactAfterMin: s.compactAfterMin,
+    brbUntil: s.brbUntil,
+    bgTasks: s.bgTasks,
   }
   await $.fs.write(stateFile(), JSON.stringify(data) + '\n')
   if (config.engineStatus) $.ui.status(engineStatusText(s))
@@ -965,7 +997,7 @@ function engineStatusText(s: KeepaliveSession): string | undefined {
     case 'armed':
       return `keep ${s.pingsSent}/${s.maxPings} · ping ${clockTime(expiresAt - config.leadMinutes * 60_000)}`
     case 'capped':
-      return config.compactBeforeExpiry || s.isCompactArmed
+      return s.isCompactArmed
         ? `keep ${s.pingsSent}/${s.maxPings} ⏸ · compact ${clockTime(compactAt(s))}`
         : `keep ${s.pingsSent}/${s.maxPings} ⏸ · expires ${clockTime(expiresAt)}`
     case 'stopped':
@@ -1064,34 +1096,40 @@ function stateFile(): string {
   return `${stateDir}/${sessionId}.json`
 }
 
-// When the armed compact fires: compactLeadMinutes before the cache would
-// expire after the last ping, longer ahead than a ping because a compaction
-// takes minutes on a big context. Every ping moves the cache start one
-// interval (TTL minus lead) on.
-function compactAt(s: KeepaliveSession): number {
-  if (s.compactAfterMin !== null) return timedCompactAt(s)
-  const ttl = s.ttlSec ?? TTL_1H
-  const intervalMs = (ttl - config.leadMinutes * 60) * 1000
-  const pingsLeft = s.phase === 'armed' ? Math.max(0, s.maxPings - s.pingsSent) : 0
-  return cacheStart(s) + pingsLeft * intervalMs + (ttl - config.compactLeadMinutes * 60) * 1000
+// When the armed compact fires: N minutes after the last turn ended, or at the end
+// of the brb window if that is later. It reads no phase, so adding pings (brb)
+// never moves it. The last turn, not the last ping, starts the idle clock: a
+// ping restarts the cache, not the idleness.
+function compactTarget(s: KeepaliveSession): number {
+  return Math.max(s.lastActivityAt + (s.compactAfterMin ?? config.compactAfterMinutes) * 60_000, s.brbUntil ?? 0)
 }
 
-// When a timed compact fires: N minutes after the last turn ended, or at the end
-// of the brb window if that is later. It reads no phase, so adding pings (brb)
-// or stopping them (done) never moves it. The last turn, not the last ping,
-// starts the idle clock: a ping restarts the cache, not the idleness.
-function timedCompactAt(s: KeepaliveSession): number {
-  return Math.max(s.lastActivityAt + (s.compactAfterMin ?? 0) * 60_000, s.brbUntil ?? 0)
+// compactTarget, but never past the point where the cache can no longer be read. Only
+// pings extend the cache, so with none running (stopped, capped: an error turn ended
+// the pings while a brb was still open) the compact has to start inside the cache's
+// last compactLeadMinutes, whatever the brb deadline says.
+function compactAt(s: KeepaliveSession): number {
+  const target = compactTarget(s)
+  if (s.phase === 'armed' || s.ttlSec === null) return target
+  return Math.min(target, cacheStart(s) + s.ttlSec * 1000 - config.compactLeadMinutes * 60_000)
+}
+
+// Pings that keep the cache warm until atMs, one every interval from the last turn.
+// A ping at or after atMs would only read a cache nobody needs any more, so a target
+// within one interval of the last turn needs none (the compact reads the warm cache).
+// A ping due within PING_COMPACT_GAP_MS of the compact is dropped too: the compact never starts
+// sooner than that after the timers were last set, and a compaction reads the same cache, so
+// that ping would run alongside it (a wasted full-context read, and a Telegram question
+// mid-compaction once it was the last one).
+function pingsBefore(lastActivityAt: number, atMs: number, intervalMs: number): number {
+  return intervalMs > 0 ? Math.max(0, Math.ceil((atMs - PING_COMPACT_GAP_MS - lastActivityAt) / intervalMs) - 1) : 0
 }
 
 // When a compact is scheduled for this state, or null: the status line and
-// /keepalive status show it. The option applies to every idle stretch; the
-// flag only to the one it was armed for, and it also survives /keepalive done.
+// /keepalive status show it. Armed for the whole session.
 function compactDueAt(s: KeepaliveSession): number | null {
-  if (s.ttlSec === null) return null
-  const isOn = s.isCompactArmed || config.compactBeforeExpiry
-  const isScheduled = s.phase === 'capped' || s.phase === 'armed' || (s.phase === 'stopped' && s.isCompactArmed)
-  return isOn && isScheduled ? compactAt(s) : null
+  if (s.ttlSec === null || !s.isCompactArmed) return null
+  return s.phase === 'capped' || s.phase === 'armed' || s.phase === 'stopped' ? compactAt(s) : null
 }
 
 function cacheStart(s: KeepaliveSession): number {
@@ -1111,6 +1149,11 @@ function cancelTimers() {
 function clockTime(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function duration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 60_000))
+  return total >= 60 ? `${Math.floor(total / 60)}h${String(total % 60).padStart(2, '0')}m` : `${total}m`
 }
 
 function kilo(tokens: number): string {

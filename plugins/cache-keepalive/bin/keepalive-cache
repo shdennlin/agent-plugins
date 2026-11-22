@@ -56,13 +56,13 @@ function render(transcriptPath, state, fallbackTtl, now) {
   // Outside the active phase the mod knows no turn is running, whatever the
   // transcript tail looks like.
   const isActive = !state || state.phase === 'active'
-  if (scan.isWorking && isActive) return joinTags(`${GLYPH.hot}HOT`, compactTag(state))
+  if (scan.isWorking && isActive) return joinTags(`${GLYPH.hot}HOT`, compactTag(state, now))
   const lastAssistant = scan.lastAssistant ?? 0
   const start = Math.max(lastAssistant, state?.lastPingAt ?? 0)
   if (!start) return ''
   const remaining = ttl - SAFETY_MARGIN - (now - start) / 1000
   const timer = remaining <= 0 ? `${GLYPH.cold}COLD` : `${glyph(remaining, ttl)}${countdown(remaining)}`
-  const tag = remaining <= 0 ? '' : joinTags(keepTag(state), compactTag(state))
+  const tag = remaining <= 0 ? '' : joinTags(keepTag(state), compactTag(state, now))
   return tag ? `${timer} ${tag}` : timer
 }
 
@@ -70,13 +70,18 @@ function joinTags(...parts) {
   return parts.filter(Boolean).join(' ')
 }
 
-// An armed compact, kept short for a crowded line: ✂ and its clock time once scheduled, "✂armed" while it is not
-// (a turn is running). Only the explicit /keepalive compact shows "armed";
-// the option alone shows nothing until a time exists.
-function compactTag(state) {
+// What an armed compact adds to the line, kept short for a crowded line. It is permanent for the session, so it
+// always shows: "✂19:42" once it is scheduled, "✂50m" (its N) or "✂armed" while it is not (a turn is running),
+// then "brb→21:30" while a brb is running, and "⚠bg" when a monitor or shell is still running that the compact
+// will not wait for. The option alone shows nothing until a time exists.
+function compactTag(state, now = Date.now()) {
   if (!state) return ''
-  if (state.compactAt) return `✂${clock(state.compactAt)}`
-  return state.compactArmed ? '✂armed' : ''
+  const parts = []
+  if (state.compactAt) parts.push(`✂${clock(state.compactAt)}`)
+  else if (state.compactArmed) parts.push(state.compactAfterMin ? `✂${state.compactAfterMin}m` : '✂armed')
+  if (state.brbUntil && state.brbUntil > now) parts.push(`brb→${clock(state.brbUntil)}`)
+  if (state.compactArmed && state.bgTasks > 0) parts.push('⚠bg')
+  return parts.join(' ')
 }
 
 function clock(ms) {

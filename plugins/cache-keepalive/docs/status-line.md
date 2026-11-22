@@ -13,7 +13,8 @@ The plugin writes its state to `~/.claude/keepalive/<session_id>.json`. `bin/kee
 - The countdown runs from the later of the transcript's last assistant message and the last ping, with the TTL the plugin read. Counting from the transcript alone, as ccstatusline's built-in Cache Timer does, would fall to `❄️ COLD` after a ping while the cache is still warm: pings never reach the transcript.
 - Only states that need you get an icon: `🟡` (under half the TTL left), `🔴` (under a fifth), `❄️COLD` (expired). A running turn (`HOT`) and a healthy cache (just the countdown) stay plain text so they do not stand out from the rest of the line. Icon and text are joined with no space to save width.
 - The tag after it: `kp 1/2` (keepalive: pings used / cap), `⏸` (capped or stopped), `kp off` / `kp off·5m`.
-- An armed compact adds `✂03:12` (the clock time it is due; in timed mode the tag beside it is `⏸`, since there are no pings), or `✂armed` while nothing is scheduled yet, for example during a `/goal` turn: `HOT ✂armed`. It clears once the compact has run, when you send a plain prompt, or with `/keepalive compact off`.
+- An armed compact is permanent for the session, so it is always on the line: `✂19:42` (the clock time it is due; the tag beside it is `⏸` while no pings run), `✂50m` while a turn runs (its N), or `✂armed` when no N is known yet: `HOT ✂50m`. `brb→21:30` shows a running `brb` and when it ends, and `⚠bg` that a monitor or shell is still running, which the compact will not wait for. It goes away only with `/keepalive compact off`.
+  A full line while a compact and a `brb` are running and a monitor is still up: `49:12 kp 1/4 ✂21:30 brb→21:30 ⚠bg`.
 - With no state file it prints what ccstatusline's built-in Cache Timer prints.
 
 The output is plain text, so any host can show it. Add `--color` for ANSI colours (yellow, `HOT` dimmed) when the host passes them through; `NO_COLOR` turns them off again. It reads the JSON Claude Code passes to every status line command (`session_id`, `transcript_path`), so it works with any of the setups below. It needs `node` on the `PATH` the status line runs with. `--ttl <seconds>` is the TTL assumed until the plugin has read the session's own (default 3600).
@@ -59,4 +60,4 @@ Either make `keepalive-cache` the whole status line:
 }
 ```
 
-or turn on the `engineStatus` option. Claude Code then shows the state as a plugin status entry under the prompt, such as `keep 1/2 · ping 23:22`. It needs no setup, but the engine draws it on a row of its own with a warning-style prefix and the plugin's name. It shows clock times, not a countdown, because it only updates when the state changes. It is empty while you work.
+or turn on the `engineStatus` option. Claude Code then shows the state as a plugin status entry under the prompt, such as `keep 1/2 · ping 23:22`. It needs no setup, but the engine draws it on a row of its own with a warning-style prefix and the plugin's name. It shows clock times, not a countdown, because it only updates when the state changes. It is empty while you work, and it does not show the `brb` or `⚠bg` tags (the status line field, `/keepalive status` and the toasts do).
