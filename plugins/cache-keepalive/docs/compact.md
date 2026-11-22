@@ -21,7 +21,7 @@ The compact fires at **the later of (last turn + N) and the end of the `brb`**. 
 | `brb 20` with a compact armed | none (the `brb` ends before the first ping) | 50 min after the last turn |
 | you type a prompt during a `brb` | the `brb` ends | N min after that turn |
 
-Pings are only the ones that come before the compact, one every 50 minutes. A 6-hour `brb` is 7 pings, about $0.20 (more in [cost.md](cost.md)).
+Pings are only the ones that come before the compact, one every 50 minutes (a ping due within 30 seconds of the compact is dropped too). A 6-hour `brb` is 7 pings, about $0.20 (more in [cost.md](cost.md)).
 
 ## What does not disarm it
 

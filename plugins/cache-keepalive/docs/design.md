@@ -63,7 +63,7 @@ When the pings run out, the plugin sends one message to a chat (`+1h`, `+3h`, "L
 | The compact is permanent for the session until `compact off`; N persists | "Armed" is the user's intent; a one-time arming vanished in exactly the unattended sessions it was for |
 | One rule: compact at `max(last turn + N, brbUntil)`, from state, never from the phase | Adding or removing pings can no longer move it |
 | `brb` is an absolute deadline (`brbUntil`), ended only by a typed prompt or `brb reset` | A monitor event or a `/goal` step is a turn too, and used to reset it, so a 4-hour `brb` died at the first event |
-| With a compact armed, pings are the ones before it: `ceil((compact − last turn) / interval) − 1` | A ping at or after the compact reads a cache nobody needs |
+| With a compact armed, pings are the ones before it: `ceil((compact − 30 s − last turn) / interval) − 1` | A ping at or after the compact reads a cache nobody needs, and one due within 30 s of it would run alongside the compaction (the compact never starts sooner than 30 s after the timers were set) |
 | With no ping running (an error turn), the compact is clamped to the cache's last `compactLeadMinutes` | Only pings extend the cache; a deadline past the expiry would find nothing to read |
 | No ping while a compaction runs | The phase stays `armed` during the summary, so a ping due then paid a second full-context read |
 | A running monitor or shell does not hold the compact back; keepalive warns once | "Armed means armed"; `brb` is how you ask for the full context |

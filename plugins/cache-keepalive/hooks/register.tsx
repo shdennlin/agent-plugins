@@ -20,6 +20,8 @@ const TTL_5M = 300
 // A timed compact never fires sooner than this after it is armed: the host
 // refuses a compaction under the command's own turn.
 const MIN_TIMED_DELAY_MS = 30_000
+// A ping due closer than this to the compact is not worth sending (see pingsBefore).
+const PING_COMPACT_GAP_MS = 30_000
 // /keepalive brb completions, the first one offered on an empty argument.
 const BRB_PRESETS = ['180', '60', '480']
 // Pings that cost as much as one 1h-cache rewrite: the 1h write price (2x input)
@@ -1115,8 +1117,12 @@ function compactAt(s: KeepaliveSession): number {
 // Pings that keep the cache warm until atMs, one every interval from the last turn.
 // A ping at or after atMs would only read a cache nobody needs any more, so a target
 // within one interval of the last turn needs none (the compact reads the warm cache).
+// A ping due within PING_COMPACT_GAP_MS of the compact is dropped too: the compact never starts
+// sooner than that after the timers were last set, and a compaction reads the same cache, so
+// that ping would run alongside it (a wasted full-context read, and a Telegram question
+// mid-compaction once it was the last one).
 function pingsBefore(lastActivityAt: number, atMs: number, intervalMs: number): number {
-  return intervalMs > 0 ? Math.max(0, Math.ceil((atMs - lastActivityAt) / intervalMs) - 1) : 0
+  return intervalMs > 0 ? Math.max(0, Math.ceil((atMs - PING_COMPACT_GAP_MS - lastActivityAt) / intervalMs) - 1) : 0
 }
 
 // When a compact is scheduled for this state, or null: the status line and

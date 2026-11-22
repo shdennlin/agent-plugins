@@ -808,6 +808,36 @@ describe('compact before expiry', () => {
       expect(w.forks).toBe(0)
     })
 
+    // The compact never starts sooner than 30 s after the timers were last set, and a compaction
+    // reads the cache a ping would read: a ping due within 30 s of the compact runs alongside it.
+    test('a ping due within 30 s of the compact is dropped', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await w.clock.advance(10_000)
+      await run($, 'brb 100') // ends 100 min 10 s after the last turn: the +100 ping would be 10 s ahead of it
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 1, compactAt: T0 + 10_000 + 100 * MIN })
+      await w.clock.advance(100 * MIN)
+      expect(c.calls).toBe(1)
+      expect(w.forks).toBe(1) // the +50 ping only
+    })
+
+    test('a ping due more than 30 s before the compact stays', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await w.clock.advance(40_000)
+      await run($, 'brb 100') // ends 100 min 40 s after the last turn: the +100 ping is 40 s ahead of it
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 2 })
+      await w.clock.advance(100 * MIN)
+      expect(c.calls).toBe(1)
+      expect(w.forks).toBe(2)
+    })
+
     test('a brb that ends on a ping boundary skips the ping that would only follow the compact', async ($, on) => {
       const w = world(on)
       const c = compacting(on, w)
