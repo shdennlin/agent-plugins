@@ -29,9 +29,9 @@ export type KeepaliveSession = {
   isOffToastShown: boolean
   /** message_id of the open Telegram question, or null when none is open. */
   tgAskMessageId: number | null
-  /** /keepalive compact: compact once, when the pings run out. Survives turns (a /goal's continuations); cleared when it fires or on `compact off`. */
+  /** /keepalive compact: armed for the whole session, every idle stretch compacts. Survives turns, typed prompts and a compact firing; cleared only by `compact off` (or a timed N too long for the TTL). */
   isCompactArmed: boolean
-  /** /keepalive compact [minutes]: with isCompactArmed, no pings; compact this many minutes after the last turn ends. Null = the pings-first mode. Cleared with the flag. */
+  /** /keepalive compact [minutes]: with isCompactArmed, no pings; compact this many minutes after the last turn ends. Null = the pings-first mode. Persists with the flag; a later bare `compact` keeps it. */
   compactAfterMin: number | null
   /** /keepalive brb: epoch ms the user said they are away until, or null. With a timed compact it only moves the compact later (to this time, if past last turn + N); it never switches the compact to the pings-first mode. Reset by the next turn and by `brb reset`. */
   brbUntil: number | null

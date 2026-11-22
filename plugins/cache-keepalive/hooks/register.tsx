@@ -149,31 +149,8 @@ export const register: Register = (on, options) => {
     if (e.transcript_path && e.transcript_path !== s.transcriptPath) {
       await update($, session, v => ({ ...v, transcriptPath: e.transcript_path }))
     }
-    // You are back: an armed compact was for the time you are away. Only a prompt
-    // you typed counts. `source` tells it from the engine's own turns (a /goal
-    // continuation is `system`) where the engine sends it; this build leaves it
-    // out (measured: undefined on typed prompts, and no event at all on a /goal
-    // continuation), so an absent source counts as typed. A slash command does
-    // not count: /goal and /keepalive status are typed too, and arming comes
-    // before /goal.
-    // With `source` absent, the engine's own deliveries still look typed: a
-    // background task's <task-notification>, another session's or a subagent's
-    // message, a skill's expanded body. Those never mean you are back (one-456:
-    // an armed compact vanished before it fired, most likely to one of them).
-    const text = e.prompt.trimStart()
-    const isFromYou = (e.source === undefined || e.source === 'user') && !isEngineDelivered(text)
-    const isTyped = isFromYou && text !== '' && !text.startsWith('/')
-    if (s.isCompactArmed) {
-      const peek = JSON.stringify(text.slice(0, 40))
-      if (isTyped) {
-        await save($, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: `cancelled by a prompt you typed: ${peek}` }))
-        if (s.phase === 'stopped' && s.compactAfterMin !== null) await restorePhase($)
-        $.ui.toast('Armed compact cancelled: you are back. /keepalive compact arms it again.')
-      } else {
-        // Evidence for later: which prompts reach this hook, and who they claim to be from.
-        await update($, session, v => ({ ...v, lastCompactNote: `kept: ${e.source ?? 'no source'} prompt ${peek}` }))
-      }
-    }
+    // An armed compact is permanent for the session (until /keepalive compact off),
+    // so a prompt you type, or one the engine delivers, never disarms it.
     return next(e)
   })
 
@@ -471,7 +448,7 @@ async function compact($: Engine) {
   }
   if ((await $.clock.now()) >= cacheStart(s) + s.ttlSec * 1000) {
     if (s.phase !== 'stopped') await expire($) // fired late (the Mac slept): the cache is gone
-    await update($, session, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: 'timer fired after the cache expired (the Mac slept?): not compacted' }))
+    await update($, session, v => ({ ...v, lastCompactNote: 'timer fired after the cache expired (the Mac slept?): not compacted' }))
     return
   }
   const wasTimed = s.compactAfterMin !== null
@@ -489,8 +466,8 @@ async function compact($: Engine) {
       // The new prefix is not cached yet: nothing to keep warm until the next turn.
       await save($, v =>
         v.phase === 'armed' || v.phase === 'capped' || v.phase === 'expired' || (wasTimed && v.phase === 'stopped')
-          ? { ...v, phase: 'active', contextTokens: tokens, isCompactArmed: false }
-          : { ...v, contextTokens: tokens, isCompactArmed: false },
+          ? { ...v, phase: 'active', contextTokens: tokens }
+          : { ...v, contextTokens: tokens },
       )
       text = `Compacted before the cache expired: ${kilo(r.tokensBefore ?? s.contextTokens)} → ${kilo(tokens)} tokens.`
       outcome = text
@@ -502,7 +479,8 @@ async function compact($: Engine) {
   } finally {
     isCompacting = false
   }
-  await save($, v => ({ ...v, isCompactArmed: false, compactAfterMin: null, lastCompactNote: outcome }))
+  // Still armed: the next idle stretch compacts again (until /keepalive compact off).
+  await save($, v => ({ ...v, lastCompactNote: outcome }))
   $.ui.toast(text)
 }
 
@@ -567,7 +545,7 @@ async function afterCompact($: Engine, result: { skip?: string; tokensAfter?: nu
   }
   const tokens = result.tokensAfter ?? (await read($, session)).contextTokens
   await closeAsk($, message)
-  await save($, v => ({ ...v, phase: v.phase === 'off' ? 'off' : 'active', contextTokens: tokens, isCompactArmed: false }))
+  await save($, v => ({ ...v, phase: v.phase === 'off' ? 'off' : 'active', contextTokens: tokens }))
   $.ui.toast(message)
 }
 
@@ -663,7 +641,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
     if (s.phase === 'expired') return paint('The cache has already expired; use the built-in /compact if you still want one.', 'yellow')
     if (s.phase === 'small') return paint('This session’s context is small, so it is not kept warm and nothing is compacted. To compact anyway, use the built-in /compact.', 'yellow')
     const isPings = value?.toLowerCase() === 'pings' || value?.toLowerCase() === 'p'
-    const minutes = isPings ? null : value === undefined ? config.compactAfterMinutes : parseDuration(value)
+    const minutes = isPings ? null : value === undefined ? (s.compactAfterMin ?? config.compactAfterMinutes) : parseDuration(value)
     if (minutes !== null && (!Number.isFinite(minutes) || minutes <= 0)) {
       return paint('Usage: /keepalive compact [minutes|pings|off], for example /keepalive compact, /keepalive compact 45 or /keepalive compact pings', 'red')
     }
@@ -677,7 +655,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
       await save($, v => ({ ...v, phase: 'stopped' }))
       await rearm($)
     } else await rearm($)
-    const tail = ' One time; it survives /goal turns. /keepalive compact off cancels. To compact now, use the built-in /compact.'
+    const tail = ' Permanent for this session: every idle stretch compacts again until /keepalive compact off. To compact now, use the built-in /compact.'
     const warn = `Context is ${kilo(s.contextTokens)} tokens and compacting is lossy: detail is summarised away.`
     if (minutes !== null) {
       const after = await read($, session)

@@ -573,7 +573,7 @@ describe('compact before expiry', () => {
     expect(c.calls).toBe(0)
   })
 
-  test('/keepalive compact arms a one-time compact that survives goal turns', async ($, on) => {
+  test('/keepalive compact pings stays armed: survives goal turns and compacts again every idle stretch', async ($, on) => {
     const w = world(on)
     const c = compacting(on, w)
     await start($)
@@ -591,11 +591,11 @@ describe('compact before expiry', () => {
     expect(c.calls).toBe(0)
     await w.clock.advance(50 * MIN)
     expect(c.calls).toBe(1)
-    expect(stateOf(w)).toMatchObject({ phase: 'active' })
-    // One time: the next idle stretch is not compacted.
+    expect(stateOf(w)).toMatchObject({ phase: 'active', compactArmed: true })
+    // Permanent: the next idle stretch pings twice and compacts again, 150 min after its last turn.
     await turn($)
-    await w.clock.advance(3 * 60 * MIN)
-    expect(c.calls).toBe(1)
+    await w.clock.advance(150 * MIN)
+    expect(c.calls).toBe(2)
   })
 
   test('/keepalive compact off disarms it', async ($, on) => {
@@ -753,8 +753,25 @@ describe('compact before expiry', () => {
       await w.clock.advance(1 * MIN)
       expect(c.calls).toBe(1)
       expect(w.forks).toBe(0)
-      expect(stateOf(w)).toMatchObject({ phase: 'active', compactArmed: false })
+      expect(stateOf(w)).toMatchObject({ phase: 'active', compactArmed: true })
       expect(w.toasts.at(-1)).toContain('Compacted before the cache expired')
+    })
+
+    test('N persists: it fires again in the next idle stretch, and a bare compact keeps it', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact 45')
+      await w.clock.advance(45 * MIN)
+      expect(c.calls).toBe(1)
+      expect(stateOf(w)).toMatchObject({ phase: 'active', compactArmed: true })
+      await turn($) // you come back, work, and go idle again
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true })
+      await run($, 'compact') // a bare compact does not reset N to the default
+      expect(stateOf(w)).toMatchObject({ compactAt: T0 + 90 * MIN })
+      await w.clock.advance(45 * MIN)
+      expect(c.calls).toBe(2)
     })
 
     test('compact 45 counts from the last turn end, and survives later turns (each restarts the clock)', async ($, on) => {
@@ -889,18 +906,18 @@ describe('compact before expiry', () => {
       expect(c.calls).toBe(1)
     })
 
-    test('a refused compaction clears the flag and leaves a note for /keepalive status', async ($, on) => {
+    test('a refused compaction leaves the compact armed and a note for /keepalive status', async ($, on) => {
       const w = world(on)
       on('session.compact', async () => ({ skip: 'context too large' }) as never)
       await start($)
       await turn($)
       await run($, 'compact')
       await w.clock.advance(50 * MIN)
-      expect(stateOf(w)).toMatchObject({ compactArmed: false })
+      expect(stateOf(w)).toMatchObject({ compactArmed: true })
       expect(await run($, 'status')).toContain('last compact note: Compact skipped: context too large')
     })
 
-    describe('which prompts mean you are back', () => {
+    describe('no prompt disarms it', () => {
       async function armedTimed($: Engine, on: On) {
         const w = world(on)
         compacting(on, w)
@@ -910,11 +927,11 @@ describe('compact before expiry', () => {
         await run($, 'compact')
         return w
       }
-      test('a prompt you typed cancels it and restores pinging', async ($, on) => {
+      test('a prompt you typed does not cancel it: the compact is permanent until off', async ($, on) => {
         const w = await armedTimed($, on)
         await submit($, 'I am back', 'user')
-        expect(stateOf(w)).toMatchObject({ compactArmed: false, phase: 'armed' })
-        expect(w.toasts.at(-1)).toContain('Armed compact cancelled')
+        expect(stateOf(w)).toMatchObject({ compactArmed: true, phase: 'stopped' })
+        expect(w.toasts).toEqual([])
       })
       for (const text of [
         '<task-notification>\n<task-id>x</task-id></task-notification>',
@@ -922,7 +939,7 @@ describe('compact before expiry', () => {
         'Base directory for this skill: /x/.claude/skills/spectra-apply',
         '<command-message>spectra-apply</command-message>',
       ]) {
-        test(`${text.slice(0, 30).replace(/\n/g, ' ')}… with no source does not`, async ($, on) => {
+        test(`${text.slice(0, 30).replace(/\n/g, ' ')}… does not disarm it either`, async ($, on) => {
           const w = await armedTimed($, on)
           await submit($, text)
           await submit($, text, 'user')
@@ -930,11 +947,6 @@ describe('compact before expiry', () => {
           expect(w.toasts).toEqual([])
         })
       }
-      test('a kept prompt is recorded so /keepalive status can show who it claimed to be', async ($, on) => {
-        await armedTimed($, on)
-        await submit($, '<task-notification>x</task-notification>')
-        expect(await run($, 'status')).toContain('last compact note: kept: no source prompt')
-      })
     })
   })
 
@@ -965,7 +977,7 @@ describe('compact before expiry', () => {
     })
   })
 
-  describe('the armed flag when you come back', () => {
+  describe('the armed flag when you come back (it stays)', () => {
     // The engine's classic UserPromptSubmit: `source` says who wrote the prompt.
     const submit = ($: Engine, prompt: string, source: string) =>
       ($ as never as { classic: { UserPromptSubmit: (e: object) => Promise<unknown> } }).classic.UserPromptSubmit({ prompt, source })
@@ -978,16 +990,16 @@ describe('compact before expiry', () => {
       await $.command.run({ command: 'keepalive', args: 'compact pings' } as never)
       return w
     }
-    test('a plain prompt you typed clears it and says so', async ($, on) => {
+    test('a plain prompt you typed leaves it armed and says nothing', async ($, on) => {
       const w = await armed($, on)
       await submit($, 'I am back', 'user')
-      expect(stateOf(w)).toMatchObject({ compactArmed: false, compactAt: null })
-      expect(w.toasts.at(-1)).toContain('Armed compact cancelled')
+      expect(stateOf(w)).toMatchObject({ compactArmed: true })
+      expect(w.toasts).toEqual([])
     })
-    test('a plain prompt with no source (this build omits it) clears it too', async ($, on) => {
+    test('a plain prompt with no source (this build omits it) leaves it armed too', async ($, on) => {
       const w = await armed($, on)
       await (($ as never as { classic: { UserPromptSubmit: (e: object) => Promise<unknown> } }).classic).UserPromptSubmit({ prompt: 'I am back' })
-      expect(stateOf(w)).toMatchObject({ compactArmed: false })
+      expect(stateOf(w)).toMatchObject({ compactArmed: true })
     })
     test('a slash command you typed does not (/goal comes right after arming)', async ($, on) => {
       const w = await armed($, on)
