@@ -338,53 +338,54 @@ async function onMainTurnComplete($: Engine, reason: string) {
 // write time of its last cache-creating row, so an already-expired cache
 // does not get a fresh window just because the process restarted).
 async function applyArmedState($: Engine, input: { lastActivityAt: number; contextTokens: number; ttlSec: number | null }): Promise<void> {
-  const s = await read($, session)
+  const now = await $.clock.now()
+  const before = await read($, session)
+  // The new state is worked out inside the atomic update, from the state as it is at that
+  // moment: a command can run between a read and a save (a slash command typed during a turn
+  // is queued and runs the instant the turn ends), and a state built from an earlier read
+  // would write its old brbUntil, compact flags and note back over it (measured: a brb saved
+  // at 23:14:10 was gone at 23:14:11).
+  const s = await save($, v => deriveArmedState(v, input, now))
+  if (s.lastCompactNote !== before.lastCompactNote && s.lastCompactNote?.includes(' dropped: ')) {
+    // The cache would lapse before the timer: say so instead of dropping it silently.
+    $.ui.toast(`Compact not armed: ${s.lastCompactNote.replace(/^timed compact .*? dropped: /, '')}.`)
+  }
+  // off, small and TTL-not-read-yet have nothing to schedule.
+  if (s.phase === 'armed' || s.phase === 'capped' || s.phase === 'stopped') await rearm($)
+}
+
+// What a turn end makes of the state `v`: a pure function of `v`, the turn's input and the time.
+function deriveArmedState(v: KeepaliveSession, input: { lastActivityAt: number; contextTokens: number; ttlSec: number | null }, now: number): KeepaliveSession {
   // A brb outlives the engine's own turns (a monitor event, a /goal step): each
   // turn end re-derives the pings still needed to reach its deadline.
-  const now = await $.clock.now()
   const intervalMs = input.ttlSec === null ? 0 : (input.ttlSec - config.leadMinutes * 60) * 1000
-  const brbLeftMs = s.brbUntil === null ? 0 : s.brbUntil - now
+  const brbLeftMs = v.brbUntil === null ? 0 : v.brbUntil - now
   // With a compact armed the brb only has to reach the compact (pingsBefore); without one it keeps the cache warm for its whole length.
   const brbPings =
     intervalMs > 0 && brbLeftMs > 0
-      ? s.isCompactArmed
-        ? pingsBefore(input.lastActivityAt, compactTarget({ ...s, lastActivityAt: input.lastActivityAt }), intervalMs)
+      ? v.isCompactArmed
+        ? pingsBefore(input.lastActivityAt, compactTarget({ ...v, lastActivityAt: input.lastActivityAt }), intervalMs)
         : Math.ceil(brbLeftMs / intervalMs)
       : 0
-  const base = { ...s, ...input, brbUntil: brbLeftMs > 0 ? s.brbUntil : null, maxPings: brbPings > 0 ? brbPings : s.maxPings }
+  const base = { ...v, ...input, brbUntil: brbLeftMs > 0 ? v.brbUntil : null, maxPings: brbPings > 0 ? brbPings : v.maxPings }
 
   if (input.ttlSec === TTL_5M) {
     // 13 pings an hour at 0.1x cost more than one 1.25x rewrite.
-    await save($, () => ({ ...base, phase: 'off', offReason: '5m-ttl' }))
-    return
+    return { ...base, phase: 'off', offReason: '5m-ttl' }
   }
-  if (input.contextTokens < config.minContextTokens) {
-    await save($, () => ({ ...base, phase: 'small' }))
-    return
-  }
-  if (input.ttlSec === null) {
-    // Not read yet: no schedule. The next turn tries again.
-    await save($, () => ({ ...base, phase: 'active' }))
-    return
-  }
+  if (input.contextTokens < config.minContextTokens) return { ...base, phase: 'small' }
+  if (input.ttlSec === null) return { ...base, phase: 'active' } // not read yet: no schedule, the next turn tries again
   if (base.isCompactArmed) {
     const afterMin = base.compactAfterMin ?? config.compactAfterMinutes
     if (isTimedTooLong(afterMin, input.ttlSec)) {
-      // The cache would lapse before the timer: say so instead of dropping it silently.
       const note = `timed compact (${afterMin} min) dropped: it must be at most ${maxTimedMinutes(input.ttlSec)} min for a ${input.ttlSec / 60} min cache`
-      await save($, () => ({ ...base, isCompactArmed: false, compactAfterMin: null, lastCompactNote: note, phase: base.maxPings > 0 ? 'armed' : 'capped' }))
-      $.ui.toast(`Compact not armed: ${note.replace(/^timed compact .*? dropped: /, '')}.`)
-      await rearm($)
-      return
+      return { ...base, isCompactArmed: false, compactAfterMin: null, lastCompactNote: note, phase: base.maxPings > 0 ? 'armed' : 'capped' }
     }
-    // No pings: the cache just ages until the timer (phase stopped, as after `done`),
-    // unless a brb is still running: then the pings keep it warm up to its deadline.
-    await save($, () => ({ ...base, phase: brbPings > 0 ? 'armed' : 'stopped' }))
-    await rearm($)
-    return
+    // No pings: the cache just ages until the timer (phase stopped), unless a brb is
+    // still running: then the pings keep it warm up to its deadline.
+    return { ...base, phase: brbPings > 0 ? 'armed' : 'stopped' }
   }
-  await save($, () => ({ ...base, phase: base.maxPings > 0 ? 'armed' : 'capped' }))
-  await rearm($)
+  return { ...base, phase: base.maxPings > 0 ? 'armed' : 'capped' }
 }
 
 function maxTimedMinutes(ttlSec: number): number {
