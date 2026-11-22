@@ -2,117 +2,87 @@
 
 Part of [cache-keepalive](../README.md).
 
-**Timed mode (default).** `/keepalive compact [minutes]` stops the pings and compacts once, `compactAfterMinutes` (30) or the given minutes after the last turn ends. Each new turn restarts the countdown, so it survives a `/goal`. The minutes must be under the TTL minus `compactLeadMinutes` (50 on a 1h cache), or the command refuses. A refused or failed compaction, and any prompt it ignored, is recorded as `last compact note` in `/keepalive status`.
+`/keepalive compact [minutes]` arms a compact **for the whole session**. `minutes` is N: the compact fires N minutes (`compactAfterMinutes`, default 50) after the last turn ends, while the cache is still warm, and again in every later idle stretch, until `/keepalive compact off`. N must be at most the TTL minus `compactLeadMinutes` (50 on a 1h cache), or the command refuses. N is kept with the arming: a later bare `/keepalive compact` keeps it, and `/keepalive compact 45` changes it.
 
-**Pings-first mode.** For when you step away, or leave a `/goal` running while you sleep: run `/keepalive compact pings` first. Keepalive keeps pinging as usual; once the pings run out, it compacts `compactLeadMinutes` (10) before the cache expires instead of letting it lapse. The summary request only has to start before the expiry, but the extra minutes absorb a retry or a late timer. The summary request is a fork of the same prefix and reads the warm cache: one measured run on a 142k-token context read 98% of the prefix from the cache and wrote 526 tokens. Your next prompt then rewrites a small summary instead of the whole old context.
+Compacting is lossy, so nothing compacts unless you arm it (or set the `compactBeforeExpiry` option, which only means "start every session armed"). The reply states the context size, every compact ends with a toast saying it is still armed, and the status line shows `✂` for as long as it is armed.
 
-- **No pings, just the compact.** That is the default now: `/keepalive compact` needs no `done`. With `compact pings` you can still add `/keepalive done` (before or after): the pings stop and the compact runs in the first lead window, about 50 minutes after the last turn on a 1h TTL. `done` ends at your next prompt, though, so a `/goal`'s first turn brings the pings back; timed mode has no such problem, and `maxPings: 0` is the config-level equivalent.
-- **One time.** It fires once, then clears. `/keepalive compact off` cancels it.
-- **It clears when you come back.** A plain prompt you type (not a slash command) cancels it and shows a toast, so it cannot fire in some later idle stretch you forgot about. A slash command does not count (you arm it, then type `/goal`), and neither does a prompt the engine wrote, such as a `/goal` continuation (its `source` is not `user`). Some builds leave `source` out; there, a `/goal` continuation was measured to raise no prompt event at all, so only what you type clears it. New turns do not drop it, so a `/goal` does not either; the idle countdown only starts after the goal ends. A background task's `<task-notification>`, another session's message and a skill's expanded body are not treated as typed either, even when the build leaves `source` out.
-- It fires only in the `capped` phase, so `brb` or a Telegram answer that adds pings postpones it. If the timer fires after the cache already expired (the Mac slept), it does nothing. If you cancel the compaction or the host refuses it, it is not retried. This applies to `pings` mode; timed mode fires from the `stopped` phase and checks only that the cache is still warm.
-- Set the `compactBeforeExpiry` option to make it the default for every idle stretch instead of arming it each time. Set `maxPings` to `0` to compact at the first lead window with no pings.
-- After it runs, nothing is kept warm until your next turn: the new prefix is not cached yet.
-- `/keepalive status` shows `compact before expiry: armed, at HH:MM`.
+## One rule
 
-## The engine's own idle compaction (2.1.299+)
+The compact fires at **max(last turn + N, the end of the `brb` window)**. Nothing else moves it.
 
-Claude Code 2.1.299 added its own idle compaction: a conversation at about 200k context tokens or more, left idle for about 54 minutes, is compacted before its 1h cache TTL runs out — unrelated to `compactBeforeExpiry` or `/keepalive compact`, and on by default.
+| You do | Pings | Compact |
+|---|---|---|
+| `/keepalive compact` and walk away | none | 50 min after the last turn |
+| `/keepalive compact 45` | none | 45 min after the last turn |
+| `compact` then `brb 180` (either order) | at +50, +100, +150 | at +180, the brb deadline, while the cache is still warm |
+| `compact`, a monitor event at +60 during `brb 240` | re-derived at each turn end to reach +240 | at +240 |
+| you type a prompt during a `brb` | the brb ends | N minutes after that turn |
 
-This is not a turn, so `turn.complete` never fires to tell keepalive about it. Keepalive hooks `session.compact` with `trigger: 'auto'` (which covers both this and the pre-existing over-threshold auto-compact) to catch it: it cancels the pending ping and expiry timers before the compaction runs (it takes about a minute at 140k tokens, long enough to overlap a timer due during it), then resets `phase` to `active` and `contextTokens` to the compacted size once it resolves. Without this, a ping timer firing after the engine already compacted would read the miss as a cache/TTL mismatch and turn keepalive off for the rest of the session. A vetoed auto-compaction (a classic `PreCompact` hook blocking it) changes nothing, and keepalive's own schedule is restored as if the event had not fired.
+A monitor event (`<task-notification>`), a `/goal` step, another session's message and a slash command never end a `brb`; the next prompt you type does. (`UserPromptSubmit` has no `source` in this build, so those prefixes are what tells them apart; measured.) A new turn of any kind restarts the countdown.
 
-For a 200k+ session, this means the engine pre-empts keepalive's own pings and `compactBeforeExpiry` by default (54 min idle comes before the 55-minute first ping at the default `leadMinutes`). That is one way to get the same outcome `compactBeforeExpiry` gives, for free, but it summarizes the conversation instead of keeping the full context cached — if you would rather keep pinging to preserve the full context on a big session, set `"idleCompaction": false` in settings.json, or raise `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` past your usual context size. Below 200k tokens this does not apply, and keepalive's own pings and compact behave exactly as described above.
+## What does not disarm it
 
-## Aliases
+A prompt you type, a `/goal` continuation, a background task's notification, and a compaction that was skipped, refused or fired late. After a compact the context is small, so it compacts again only once the context has grown back past `minContextTokens`. `/keepalive status` shows `last compact note`. The arming lasts for this session only.
 
-`/keepalive c` is `compact`, `d` is `done`, `p` is `ping`, `s` is `status`, and `c p` is `compact pings`. `/keepalive c 45`, `/keepalive c off` and the rest work the same.
+## Background tasks
 
-## Timed mode in one picture
-
-```mermaid
-flowchart TD
-  A["You: /keepalive compact [N]<br/>(default N = compactAfterMinutes, 30)"] --> B{"N under TTL − lead?<br/>(50 on a 1h cache)"}
-  B -->|no| X0["Refused with the limit"]
-  B -->|yes| C["A turn ends: phase stopped,<br/>no pings, timer at last turn + N"]
-  C -.->|"another turn ends (a /goal step)"| C
-  C -.->|"you type a plain prompt"| X1["Cancelled with a toast,<br/>pinging restored"]
-  C --> D{"Cache still warm?"}
-  D -->|no| X2["Nothing; note in /keepalive status"]
-  D -->|yes| E["session.compact()"]
-  E -->|ok| F["Compacted once, flag cleared"]
-  E -->|"refused / cancelled"| X3["Toast; note in /keepalive status"]
-```
-
-The reply to `/keepalive compact` states the context size and that compacting is lossy. `/keepalive status` shows `compact before expiry: armed, timed N min, no pings, at HH:MM` and `last compact note`, the reason the last armed compact ended or which prompt it ignored. A timer that would fire in under 30 seconds (armed late) waits 30 seconds, because the host refuses a compaction under the command's own turn.
-
-## Flow chart (pings-first mode)
+A turn can end while a Monitor or a shell is still running (an agent waiting on a two-hour build). Keepalive reads the Stop hook's `background_tasks` (monitors and shells; measured on 2.1.330) and, with a compact armed and no `brb` running, warns once per stretch (a toast, and `⚠bg` in the status line) that the compact will run at N anyway. Without a `brb` it does not wait for them: the compact is what you armed. A monitor keeps delivering events after a compact (measured). To keep the full context while they run, say how long you are away with `/keepalive brb <time>`.
 
 ```mermaid
 flowchart TD
-  A["You: /keepalive compact<br/>(sets the flag only)"] --> B["A turn ends<br/>(every /goal step too)"]
-  P["Optional: /keepalive done<br/>(skip the pings)"] -.-> F
-  B -->|"5 min TTL"| X1["Keepalive off"]
-  B -->|"error / refusal"| E["No usage read, no pings.<br/>Clock stays at the last good response"]
-  B --> C{"Context at least<br/>50k tokens?"}
-  C -->|no| X2["Phase small:<br/>no pings, no compact"]
-  C -->|yes| D["Pings, up to maxPings,<br/>at TTL - 5 min, each verified"]
-  D -->|"ping misses the cache"| X3["Keepalive off for the session<br/>(no compact)"]
-  D -->|"pings used up (capped)"| F["Compact timer set for<br/>TTL - 10 min"]
-  E --> F
-  F --> G{"Cache still warm<br/>and still armed?"}
-  G -->|"no: timer fired late"| X4["No compact:<br/>the cache has expired"]
-  G -->|yes| H["session.compact()<br/>reads the warm cache"]
-  H -->|"cancelled / refused / vetoed"| X5["One toast, flag cleared,<br/>no retry"]
-  H -->|ok| I["Compacted once.<br/>Flag cleared, phase active"]
-  D -.->|"you send a prompt"| B
-  F -.->|"you send a prompt"| B
-
-  classDef you fill:#e8f0fe,stroke:#1d5fd1,color:#1c1c1a
-  classDef stop fill:#fbe7e5,stroke:#b3261e,color:#1c1c1a,stroke-dasharray:4 3
-  classDef done fill:#e3f4ea,stroke:#17794a,color:#1c1c1a
-  class A,P you
-  class X1,X2,X3,X4,X5 stop
-  class I done
+  A["You: /keepalive compact [N]"] --> B["Armed for the session; N kept"]
+  B --> C["A turn ends: countdown to last turn + N"]
+  C -.->|"another turn ends (a /goal step, a monitor event)"| C
+  C --> D{"brb running?"}
+  D -->|no| E["No pings; compact at last turn + N"]
+  D -->|yes| F["Pings keep the cache warm; compact at the brb deadline"]
+  E --> G{"Cache still warm?"}
+  F --> G
+  G -->|"no: the Mac slept"| X1["Nothing; note in /keepalive status; still armed"]
+  G -->|yes| H["session.compact(): reads the warm cache"]
+  H -->|ok| I["Compacted; toast says it is still armed"]
+  H -->|"refused / cancelled"| X2["Toast and note; still armed, no retry this stretch"]
+  I --> J["Next turn: countdown starts again"]
+  J -.-> C
+  B -.->|"/keepalive compact off"| X3["Disarmed"]
 ```
 
-Solid arrows are the main path, dashed arrows are optional or restart it. Red boxes end early: nothing is compacted and the cache expires on its own. Typing a prompt at any point cancels the timers. A plain prompt also clears the armed flag; a slash command or a `/goal` continuation keeps it, and the flow restarts when that turn ends.
+Solid arrows are the main path, dashed arrows are optional or restart it. Nothing in the chart disarms the compact except `compact off`.
 
 ## Timeline
 
-Times are minutes after the last turn ends, with the defaults: 1h TTL, `leadMinutes` 5, `compactLeadMinutes` 10, `maxPings` 2, and `/keepalive compact pings` armed.
+Times are minutes after the last turn ends, with the defaults (1h TTL, `leadMinutes` 10, `compactLeadMinutes` 10, N 50):
 
 ```mermaid
 gantt
-  title Time after the last turn ends (hh:mm, defaults, compact armed)
+  title Minutes after the last turn ends (defaults, compact and brb 180)
   dateFormat HH:mm
   axisFormat %H:%M
   section Cache
-    Warm, nothing happens             :done, w1, 00:00, 55m
-    Ping 1, cache now lasts to 1h55   :milestone, p1, 00:55, 0m
-    Warm after ping 1                 :done, w2, 00:55, 55m
-    Ping 2, pings used up, lasts to 2h50 :milestone, p2, 01:50, 0m
-    Warm after ping 2                 :done, w3, 01:50, 50m
+    Warm, nothing happens           :done, w1, 00:00, 50m
+    Ping 1, cache now lasts to 1h50 :milestone, p1, 00:50, 0m
+    Warm after ping 1               :done, w2, 00:50, 50m
+    Ping 2, lasts to 2h40           :milestone, p2, 01:40, 0m
+    Warm after ping 2               :done, w3, 01:40, 50m
+    Ping 3, lasts to 3h30           :milestone, p3, 02:30, 0m
   section Compact
-    Compact window, starts at 2h40    :crit, c, 02:40, 10m
-    Old cache would have expired      :milestone, x, 02:50, 0m
+    Compact at the brb deadline     :crit, c, 03:00, 10m
 ```
 
-The axis is time since the last turn ended, drawn to scale. The red bar is the 10-minute window `compactLeadMinutes` leaves before the cache would expire, not how long the compaction takes (about a minute at 140k tokens).
+- **0 → 50:** nothing happens. Without a `brb` the compact fires at 50 and there are no pings at all.
+- **50, 100, 150:** with `brb 180`, each ping reads the whole prefix, which restarts the 60-minute clock, so the cache would now last to 110, 160, 210. A ping starts `leadMinutes` (10) before the current expiry, hence a 50-minute interval.
+- **180:** the `brb` deadline. The summary request reads the warm cache (it takes about a minute at 140k tokens) and the cache is still good until 210. The new prefix is not cached yet, so nothing is kept warm until your next turn.
 
-- **0 → 55:** nothing happens. The cache is warm and the clock runs from the last response.
-- **55 and 110:** each ping reads the whole prefix, which restarts the 60-minute clock, so the cache would now expire at 115, then at 170. A ping starts `leadMinutes` (5) before the current expiry, hence a 55-minute interval.
-- **After ping 2** the pings are used up (`capped`), so the compact is scheduled for the second lead window: expiry 170 − `compactLeadMinutes` 10 = **160**.
-- **160:** the summary request starts and reads the warm cache. It takes about a minute at 140k tokens (more on a bigger context), so it is done well before 170. The cache now holds a prefix that no longer exists, and nothing is kept warm.
-- **After 160:** your next prompt rewrites the small summary instead of the old context.
+Pings cost far less than the one rewrite they avoid: see [cost.md](cost.md) (7 pings for a 6 h `brb` at 142k tokens cost about $0.20 against $0.57 to $2.84 for a rewrite, depending on the model; the break-even is 20 to 80 pings).
 
-The same rule gives these variants (still minutes after the last turn):
+## The engine's own idle compaction
 
-| Setup | Pings | Compact |
-|---|---|---|
-| `/keepalive compact pings` (above) | 55, 110 | 160 |
-| `/keepalive compact` or `/keepalive compact 30` | none | 30 min after the last turn (`compact N`: N min) |
-| `maxPings` 0 | none | 50 |
-| `/keepalive done` then `/keepalive compact pings` | none | 50 |
-| `/keepalive brb 180` then `/keepalive compact pings` | 55, 110, 165, 220 | 270 |
-| you send a prompt at any point | cancelled | cancelled, still armed; the timeline restarts when that turn ends |
+Claude Code (v2.1.290+, per its docs) can compact an idle session itself: a conversation at 200k context tokens or more (`CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS`, at least 100k) left idle for "about an hour". The docs give no exact minutes (54 appears only in third-party write-ups). Whether it is on depends on `idleCompaction` (default `true`), on `autoCompactEnabled` (the `/config` Auto-compact toggle; the settings docs do not describe it and reports disagree on how it behaves) and on a server-side flag, so keepalive cannot know.
 
-The formula is `last response + pings × 55 + (60 − compactLeadMinutes)` minutes. `/keepalive status` and the status line show the result as a clock time, for example `✂13:13`. It is an estimate: if a ping misses the cache, keepalive turns itself off for the session and no compact happens.
+This is not a turn, so `turn.complete` never fires. Keepalive hooks `session.compact` with `trigger: 'auto'` (which covers this and the over-threshold auto-compact): it cancels the pending ping and compact timers before the compaction runs, then resets `phase` to `active` and `contextTokens` to the compacted size once it resolves. Without that, a ping timer firing after the engine already compacted would read the miss as a cache/TTL mismatch and turn keepalive off for the session. A vetoed auto-compaction (a `PreCompact` hook blocking it) changes nothing, and keepalive's schedule is restored. The armed compact stays armed through it.
+
+The default N of 50 minutes comes before "about an hour", so for a session that is armed, keepalive's own compact normally runs first. If you would rather keep pinging to preserve the full context, set `"idleCompaction": false` in settings.json, or raise `CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS` past your usual context size.
+
+## Aliases and what was removed
+
+`/keepalive c` is `compact`, `p` is `ping`, `s` is `status`. `compact pings` (and `c p`) and `done` were removed in 0.8.0: the first made the compact wait for every ping to be used up, and `brb` could silently switch a timed compact into it; use `compact` with `brb` instead. To stop the pings, set `maxPings` to `0`.

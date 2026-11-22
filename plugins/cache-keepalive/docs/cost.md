@@ -21,13 +21,13 @@ With a 142k-token context and the 1h TTL:
 
 The ratio does not depend on the context size, so keeping warm pays off when there is more than a 2.5–10% chance you come back before the pings run out. The same prices make compact-before-expiry cheap: the summary request reads the warm cache instead of paying a rewrite.
 
-**How long is it worth keeping warm?** Pings cost as much as one rewrite after about (1h write price ÷ cache-read price) pings, one every 55 minutes. This does not depend on context size, and the pricing page gives the same numbers for every model but two:
+**How long is it worth keeping warm?** Pings cost as much as one rewrite after about (1h write price ÷ cache-read price) pings, one every 50 minutes. This does not depend on context size, and the pricing page gives the same numbers for every model but two:
 
 | Model | Break-even | About |
 |---|---|---|
-| Claude Fable 5.1, Mythos 5.1 (read 0.025× input) | 80 pings | 73 h |
-| Claude Opus 5.5 (read 0.05×) | 40 pings | 37 h |
-| Every other model: Fable 5, Mythos 5, Opus 5 and 4.x, Sonnet 5.5, 5 and 4.x, Haiku 4.5 and 3.5 (read 0.1×) | 20 pings | 18 h |
+| Claude Fable 5.1, Mythos 5.1 (read 0.025× input) | 80 pings | 67 h |
+| Claude Opus 5.5 (read 0.05×) | 40 pings | 33 h |
+| Every other model: Fable 5, Mythos 5, Opus 5 and 4.x, Sonnet 5.5, 5 and 4.x, Haiku 4.5 and 3.5 (read 0.1×) | 20 pings | 17 h |
 
 Past that, the pings cost more than the single rewrite they avoid. It only pays if you are sure to come back, so the default stays at 2 pings; `/keepalive brb` adds a note to its reply when you ask for more than the break-even for the model in use.
 

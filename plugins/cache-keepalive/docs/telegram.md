@@ -12,7 +12,7 @@ Tap a button, or reply with minutes (e.g. 120).
 [+1h] [+3h] [Let it expire]
 ```
 
-`+1h` adds one ping (55 minutes on a 1h TTL), `+3h` three. A text reply to the message works too: `120`, `2h`, `45m`, `stop`. Once answered, or when you come back, the cache expires, or you run `/keepalive done`, the message shows the outcome and loses its buttons.
+`+1h` adds one ping (50 minutes on a 1h TTL), `+3h` three. A text reply to the message works too: `120`, `2h`, `45m`, `stop`. Once answered, or when you come back, the cache expires, or you run `/keepalive done`, the message shows the outcome and loses its buttons.
 
 Setup:
 

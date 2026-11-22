@@ -1,6 +1,6 @@
 {
   "name": "cache-keepalive",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "Keeps the main thread's prompt cache warm while you are idle: one cheap fork ping just before the TTL runs out, capped, verified on every hit.",
   "author": {
     "name": "shdennlin"
@@ -72,7 +72,7 @@
     "compactBeforeExpiry": {
       "type": "boolean",
       "title": "Compact before the cache expires",
-      "description": "Every idle stretch, once the pings are used up, compact in the lead window before expiry while the cache is still warm, so the summary request reads it. Off by default: it changes your context. /keepalive compact arms it for one stretch instead",
+      "description": "Start every session with the compact armed (compactAfterMinutes after each turn, as /keepalive compact does); /keepalive compact off turns it off for the session. Off by default: compacting changes your context",
       "default": false
     }
   }
