@@ -19,7 +19,7 @@ With a 142k-token context and the 1h TTL:
 | One rewrite after expiry (1h write) | $2.84 | $1.14 | $0.57 |
 | 2 pings as a share of one rewrite | 2.5% | 5% | 10% |
 
-The ratio does not depend on the context size, so keeping warm pays off when there is more than a 2.5–10% chance you come back before the pings run out. The same prices make compact-before-expiry cheap: the summary request reads the warm cache instead of paying a rewrite.
+The ratio does not depend on the context size, so keeping warm pays off when there is more than a 2.5–10% chance you come back before the pings run out. The same prices make compact-before-expiry cheap: the summary request reads the warm cache instead of paying a rewrite. A `brb` with a compact armed pings only up to the compact: `brb 360` is 7 pings (one every 50 minutes), about $0.20 at 142k tokens on Opus 5.5 or Sonnet 5.5 and $0.25 on Fable 5.1, against $0.57 to $2.84 for the rewrite it avoids.
 
 **How long is it worth keeping warm?** Pings cost as much as one rewrite after about (1h write price ÷ cache-read price) pings, one every 50 minutes. This does not depend on context size, and the pricing page gives the same numbers for every model but two:
 

@@ -12,7 +12,7 @@ Tap a button, or reply with minutes (e.g. 120).
 [+1h] [+3h] [Let it expire]
 ```
 
-`+1h` adds one ping (50 minutes on a 1h TTL), `+3h` three. A text reply to the message works too: `120`, `2h`, `45m`, `stop`. Once answered, or when you come back, the cache expires, or you run `/keepalive done`, the message shows the outcome and loses its buttons.
+`+1h` adds one ping (50 minutes on a 1h TTL), `+3h` four (3 hours is 3.6 intervals, rounded). A text reply to the message works too: `120`, `2h`, `45m`, `stop`. With a compact armed, the message adds `Will compact at HH:MM unless you keep it warm.`; `+1h` adds pings but does not move that compact. "Let it expire" stops the pings for this stretch (an armed compact still runs). Once answered, or when you come back, or the cache expires, the message shows the outcome and loses its buttons.
 
 Setup:
 
