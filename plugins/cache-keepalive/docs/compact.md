@@ -4,7 +4,7 @@ Part of [cache-keepalive](../README.md).
 
 Two commands cover a session you are not watching:
 
-- **`/keepalive brb <time>`** says how long you are away. Pings keep the cache warm until then. It ends when you type a prompt (a monitor event or a `/goal` step does not end it).
+- **`/keepalive brb <time>`** says how long you are away. Pings keep the cache warm until then. It ends when you type a prompt (a monitor event or a `/goal` step does not end it). Type it any time, even before the first turn ends or while a `/goal` runs. The time counts from when the command runs, not when you typed it: a command typed during a turn waits for the turn to end, so the window starts then. The pings are worked out when the turn ends.
 - **`/keepalive compact [N]`** arms a compact for the whole session: N minutes (default 50) after the last turn, while the cache is still warm, and again in every later idle stretch, until `/keepalive compact off`. N is kept; a bare `compact` keeps it, `compact 45` changes it. N can be at most the TTL minus `compactLeadMinutes` (50 on a 1h cache).
 
 Compacting is lossy, so nothing compacts unless you arm it (or set `compactBeforeExpiry`, which starts every session armed). It reads the warm cache, so it is cheap: your next prompt rewrites a small summary instead of the whole context.

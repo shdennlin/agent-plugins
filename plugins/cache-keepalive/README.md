@@ -10,7 +10,7 @@ Requires **Claude Code 2.1.289** or later. The status widget targets **ccstatusl
 
 **Most of the time: nothing.** A lunch or a meeting comes back to a warm cache (up to 2 pings per idle stretch).
 
-**Away for hours: `/keepalive brb 3h`.** Keeps the cache warm for that long (one ping every 50 minutes). It ends when you type a prompt.
+**Away for hours: `/keepalive brb 3h`.** Keeps the cache warm for that long (one ping every 50 minutes). It ends when you type a prompt. You can type it any time, even before the first turn or while a `/goal` runs (the time counts from when the command runs: one typed during a turn waits for the turn to end).
 
 **A session you leave running (an agent, a build, a `/goal`): `/keepalive compact`.** After 50 minutes idle it compacts the context, and it does so again every idle stretch until you run `/keepalive compact off`. Compacting is lossy, but it reads the warm cache, so it is cheap and your next prompt rewrites a small summary instead of the whole context.
 

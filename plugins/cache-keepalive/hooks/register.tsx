@@ -611,7 +611,17 @@ async function runCommand($: Engine, args: string): Promise<string> {
     }
     if (s.phase === 'off') return paint(`Keepalive is off for this session (${s.offReason}).`, 'red')
     if (s.phase === 'small') return paint('This session’s context is small enough that a rewrite is cheap; not keeping it warm.', 'yellow')
-    if (s.ttlSec === null || s.phase === 'active') return paint('Nothing to keep warm yet: wait for the current turn to finish.', 'yellow')
+    if (s.ttlSec === null || s.phase === 'active') {
+      // No cache to keep warm yet: a turn is running (a /goal), or no turn has ended so the TTL is
+      // unread. The deadline is all a brb is, so record it; every turn end derives the pings from it.
+      if (isReset) {
+        await save($, v => ({ ...v, brbUntil: null }))
+        return s.brbUntil === null ? 'There is no brb to end.' : 'The brb is ended.'
+      }
+      const until = (await $.clock.now()) + minutes * 60_000
+      await save($, v => ({ ...v, brbUntil: until }))
+      return `Noted: away until about ${clockTime(until)}. The pings are worked out when the next turn ends.`
+    }
     if (s.phase === 'expired') return paint('The cache has already expired; your next prompt rewrites it.', 'yellow')
     const intervalSec = s.ttlSec - config.leadMinutes * 60
     // reset: the configured cap again (the pings already sent stay sent).

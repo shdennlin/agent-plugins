@@ -914,6 +914,58 @@ describe('compact before expiry', () => {
       })
     })
 
+    // brb records a deadline; each turn end derives the pings from it. So it can be typed
+    // before the first turn ends (no TTL read yet) or while a turn (a /goal) is running.
+    describe('brb before there is a cache to keep warm', () => {
+      test('before the first turn ends: recorded, and the turn end derives the pings', async ($, on) => {
+        const w = world(on)
+        await start($)
+        const text = await run($, 'brb 3h')
+        expect(text).toContain('Noted')
+        expect(text).not.toContain('Nothing to keep warm')
+        expect(stateOf(w)).toMatchObject({ brbUntil: T0 + 180 * MIN })
+        await turn($)
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 4, brbUntil: T0 + 180 * MIN })
+        await w.clock.advance(150 * MIN)
+        expect(w.forks).toBe(3) // +50, +100, +150
+      })
+
+      test('while a turn is running (a /goal): recorded, kept through the turn end', async ($, on) => {
+        const w = world(on)
+        await start($)
+        await turn($)
+        await $.turn.start({ text: 'goal', turnId: 't2' })
+        const text = await run($, 'brb 2h')
+        expect(text).toContain('Noted')
+        expect(stateOf(w)).toMatchObject({ brbUntil: T0 + 120 * MIN })
+        await $.turn.complete({ reason: 'stop', answer: 'x', durationMs: 1000, isAborted: false, turnId: 't2' } as never)
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 3, brbUntil: T0 + 120 * MIN })
+      })
+
+      test('with a compact armed, before the first turn: pings stop at the compact, at the brb deadline', async ($, on) => {
+        const w = world(on)
+        const c = compacting(on, w)
+        await start($)
+        await run($, 'compact')
+        await run($, 'brb 3h')
+        await turn($)
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 3, compactArmed: true, compactAt: T0 + 180 * MIN })
+        await w.clock.advance(180 * MIN)
+        expect(w.forks).toBe(3)
+        expect(c.calls).toBe(1)
+      })
+
+      test('brb reset before a turn ends clears the recorded deadline', async ($, on) => {
+        const w = world(on)
+        await start($)
+        await run($, 'brb 3h')
+        expect(await run($, 'brb reset')).toContain('ended')
+        expect(stateOf(w)).toMatchObject({ brbUntil: null })
+        await turn($)
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 2 })
+      })
+    })
+
     describe('a brb outlives the engine\'s own turns', () => {
       async function brbed($: Engine, on: On) {
         const w = world(on)
