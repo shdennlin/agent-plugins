@@ -691,7 +691,8 @@ describe('compact before expiry', () => {
       await start($)
       await turn($)
       for (const args of order) await $.command.run({ command: 'keepalive', args } as never)
-      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 4, compactArmed: true, compactAt: T0 + 180 * MIN })
+      // 3 pings (+50, +100, +150): a 4th would only follow the compact at +180
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 3, compactArmed: true, compactAt: T0 + 180 * MIN })
       await w.clock.advance(179 * MIN)
       expect(w.forks).toBe(3) // pings at +50, +100, +150
       expect(c.calls).toBe(0)
@@ -773,6 +774,75 @@ describe('compact before expiry', () => {
       expect(w.forks).toBe(2) // two pings cover the first 120 minutes of a 1h cache
       await w.clock.advance(1 * MIN)
       expect(c.calls).toBe(1)
+    })
+
+    // Code review findings: with no pings running (an error turn) the cache cannot outlive
+    // last turn + TTL, so a brb deadline past it must not push the compact past the expiry.
+    test('an error turn during a brb keeps the compact inside the cache window', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await run($, 'brb 180')
+      await w.clock.advance(60 * MIN)
+      await turn($) // an engine turn ends normally at +60: the cache now lasts to +120
+      await $.turn.start({ text: 'x', turnId: 't2' })
+      await $.turn.complete({ reason: 'error', answer: '', durationMs: 1000, isAborted: false, turnId: 't2' } as never)
+      await w.clock.advance(61 * MIN) // +121
+      expect(c.calls).toBe(1) // not the +240 brb deadline, which is past the expiry
+    })
+
+    // Pings are only worth it while the cache would otherwise expire before the compact:
+    // a ping at the compact instant is a wasted full-context read.
+    test('a brb that ends before the first ping is due needs no pings', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      expect(await run($, 'brb 20')).toContain('no pings')
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactAt: T0 + 50 * MIN })
+      await w.clock.advance(50 * MIN)
+      expect(c.calls).toBe(1)
+      expect(w.forks).toBe(0)
+    })
+
+    test('a brb that ends on a ping boundary skips the ping that would only follow the compact', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await run($, 'brb 100')
+      expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 1, compactAt: T0 + 100 * MIN })
+      await w.clock.advance(100 * MIN)
+      expect(w.forks).toBe(1) // the ping at +50 only
+      expect(c.calls).toBe(1)
+    })
+
+    test('no ping runs while a compaction is in flight', async ($, on) => {
+      const w = world(on)
+      let calls = 0
+      let release: () => void = () => {}
+      on('session.compact', async () => {
+        calls += 1
+        await new Promise<void>(resolve => (release = resolve))
+        return { messages: [{ role: 'user', text: 'summary', toolUses: [] }], tokensBefore: 180_000, tokensAfter: 14_000 } as never
+      })
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await run($, 'brb 180')
+      await w.clock.advance(180 * MIN) // pings at +50, +100, +150, then the compact starts and waits
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+      expect(calls).toBe(1)
+      const forks = w.forks
+      await run($, 'ping') // the phase is still armed while the summary is being made
+      expect(w.forks).toBe(forks)
+      release()
+      for (let i = 0; i < 5; i++) await new Promise<void>(resolve => setTimeout(resolve, 0))
+      expect(stateOf(w)).toMatchObject({ phase: 'active' }) // the compaction finished
     })
 
     describe('background tasks (the Stop hook\'s background_tasks)', () => {
@@ -860,8 +930,8 @@ describe('compact before expiry', () => {
         await w.clock.advance(60 * MIN) // one ping at +50
         await submit($, '<task-notification>\n<task-id>x</task-id></task-notification>')
         await turn($) // the event's own turn
-        // 180 min left, a ping every 50: 4 pings reach the deadline; the compact stays at +240.
-        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 4, compactArmed: true, compactAt: T0 + 240 * MIN })
+        // 180 min left, a ping every 50: 3 pings (+110, +160, +210) reach the deadline; the compact stays at +240.
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 3, compactArmed: true, compactAt: T0 + 240 * MIN })
         await w.clock.advance(179 * MIN)
         expect(c.calls).toBe(0)
         await w.clock.advance(1 * MIN)
@@ -1119,7 +1189,7 @@ describe('compact before expiry', () => {
       await turn($)
       await run($, 'compact')
       await run($, 'brb 24h')
-      expect(stateOf(w)).toMatchObject({ max: 29, phase: 'armed', compactArmed: true, compactAt: T0 + 24 * 60 * MIN })
+      expect(stateOf(w)).toMatchObject({ max: 28, phase: 'armed', compactArmed: true, compactAt: T0 + 24 * 60 * MIN })
       const text = await run($, 'brb reset')
       expect(text).toContain('Back to the timed compact: no pings')
       expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 50 * MIN })

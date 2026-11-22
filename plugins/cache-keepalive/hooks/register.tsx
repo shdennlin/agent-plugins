@@ -344,7 +344,13 @@ async function applyArmedState($: Engine, input: { lastActivityAt: number; conte
   const now = await $.clock.now()
   const intervalMs = input.ttlSec === null ? 0 : (input.ttlSec - config.leadMinutes * 60) * 1000
   const brbLeftMs = s.brbUntil === null ? 0 : s.brbUntil - now
-  const brbPings = intervalMs > 0 && brbLeftMs > 0 ? Math.ceil(brbLeftMs / intervalMs) : 0
+  // With a compact armed the brb only has to reach the compact (pingsBefore); without one it keeps the cache warm for its whole length.
+  const brbPings =
+    intervalMs > 0 && brbLeftMs > 0
+      ? s.isCompactArmed
+        ? pingsBefore(input.lastActivityAt, compactTarget({ ...s, lastActivityAt: input.lastActivityAt }), intervalMs)
+        : Math.ceil(brbLeftMs / intervalMs)
+      : 0
   const base = { ...s, ...input, brbUntil: brbLeftMs > 0 ? s.brbUntil : null, maxPings: brbPings > 0 ? brbPings : s.maxPings }
 
   if (input.ttlSec === TTL_5M) {
@@ -502,6 +508,9 @@ async function compact($: Engine) {
 // isManual: /keepalive ping. It restarts the countdown but does not spend one
 // of the automatic pings, so testing it never shortens the idle stretch.
 async function ping($: Engine, isManual = false) {
+  // A compaction is making its summary from the warm cache right now: a ping would
+  // pay for a second full-context read (and could end the stretch under it).
+  if (isCompacting) return
   const s = await read($, session)
   if (s.phase !== 'armed' || s.ttlSec === null) return
   const startedAt = await $.clock.now()
@@ -606,18 +615,23 @@ async function runCommand($: Engine, args: string): Promise<string> {
     if (s.phase === 'expired') return paint('The cache has already expired; your next prompt rewrites it.', 'yellow')
     const intervalSec = s.ttlSec - config.leadMinutes * 60
     // reset: the configured cap again (the pings already sent stay sent).
-    const maxPings = isReset ? Math.max(config.maxPings, s.pingsSent) : Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
     const now = await $.clock.now()
     // With a timed compact armed, brb only says how long you are away: it adds
-    // pings inside that window and moves the compact to its end, but the compact
-    // stays timed. `brb reset` then goes back to the timed mode's no pings.
+    // pings up to the compact and moves the compact to the window's end, but the
+    // compact stays timed. `brb reset` then goes back to the timed mode's no pings.
     const isTimed = s.isCompactArmed
     const brbUntil = isReset ? null : now + minutes * 60_000
-    await save($, v => ({ ...v, maxPings, brbUntil, phase: isTimed && isReset ? 'stopped' : v.pingsSent < maxPings ? 'armed' : 'capped' }))
+    const maxPings = isReset
+      ? Math.max(config.maxPings, s.pingsSent)
+      : isTimed
+        ? pingsBefore(s.lastActivityAt, compactTarget({ ...s, brbUntil }), intervalSec * 1000)
+        : Math.max(s.pingsSent + 1, Math.ceil((minutes * 60) / intervalSec))
+    const phase = isTimed ? (!isReset && s.pingsSent < maxPings ? 'armed' : 'stopped') : s.pingsSent < maxPings ? 'armed' : 'capped'
+    await save($, v => ({ ...v, maxPings, brbUntil, phase }))
     await rearm($)
     const next = Math.max(now, cacheStart(s) + s.ttlSec * 1000 - config.leadMinutes * 60_000)
     if (isReset) {
-      if (isTimed) return `Back to the timed compact: no pings, compact at ${clockTime(compactAt({ ...s, brbUntil: null }))}.`
+      if (isTimed) return `Back to the timed compact: no pings, compact at ${clockTime(compactTarget({ ...s, brbUntil: null }))}.`
       if (maxPings === 0) return 'Back to the default: no pings this idle stretch.'
       return s.pingsSent >= maxPings
         ? `Back to the default of ${pingCount(config.maxPings)}: the ${pingCount(s.pingsSent)} already sent use it up, so the cache expires at ${clockTime(cacheStart(s) + s.ttlSec * 1000)}.`
@@ -630,7 +644,9 @@ async function runCommand($: Engine, args: string): Promise<string> {
       breakEven !== null && maxPings > breakEven
         ? `\n${paint(`⚠ Past the break-even for ${model} (about ${breakEven} pings, ${Math.round((breakEven * intervalSec) / 3600)} h): the pings cost more than the one rewrite they avoid, so it only pays if you are sure to come back.`, 'yellow')}`
         : ''
-    const compactNote = isTimed ? ` The armed compact runs at ${clockTime(compactAt({ ...s, brbUntil }))}.` : ''
+    const compactAt0 = compactTarget({ ...s, brbUntil })
+    if (isTimed && s.pingsSent >= maxPings) return `Away until about ${clockTime(now + minutes * 60_000)}: no pings needed before the armed compact at ${clockTime(compactAt0)}.`
+    const compactNote = isTimed ? ` The armed compact runs at ${clockTime(compactAt0)}.` : ''
     return `Keeping the cache warm for about ${minutes} min: up to ${pingCount(maxPings)} this idle stretch, next at ${clockTime(next)}.${compactNote}${warning}`
   }
 
@@ -659,7 +675,15 @@ async function runCommand($: Engine, args: string): Promise<string> {
     }
     await save($, v => ({ ...v, isCompactArmed: true, isCompactOff: false, compactAfterMin: minutes, lastCompactNote: null }))
     const isBrb = s.brbUntil !== null && s.brbUntil > (await $.clock.now())
-    if (s.ttlSec !== null && s.phase !== 'active' && !isBrb) await save($, v => ({ ...v, phase: 'stopped' }))
+    if (s.ttlSec !== null && s.phase !== 'active') {
+      if (isBrb) {
+        // A brb was already open: the pings it needs now stop at the compact, whichever of the two came first.
+        const maxPings = pingsBefore(s.lastActivityAt, compactTarget({ ...s, compactAfterMin: minutes }), (s.ttlSec - config.leadMinutes * 60) * 1000)
+        await save($, v => ({ ...v, maxPings, phase: v.pingsSent < maxPings ? 'armed' : 'stopped' }))
+      } else {
+        await save($, v => ({ ...v, phase: 'stopped' }))
+      }
+    }
     await rearm($)
     const tail = ' Permanent for this session: every idle stretch compacts again until /keepalive compact off. To compact now, use the built-in /compact.'
     const warn = `Context is ${kilo(s.contextTokens)} tokens and compacting is lossy: detail is summarised away.`
@@ -672,6 +696,7 @@ async function runCommand($: Engine, args: string): Promise<string> {
 
   if (verb === 'ping') {
     if (s.phase !== 'armed') return paint(`Nothing to ping: phase is ${s.phase}.`, 'yellow')
+    if (isCompacting) return paint('A compaction is running: not pinging.', 'yellow')
     await ping($, true)
     const after = await read($, session)
     if (after.lastPingAt > s.lastPingAt) return `Pinged manually: phase ${after.phase}, ${after.pingsSent}/${after.maxPings} automatic pings used.`
@@ -1062,8 +1087,25 @@ function stateFile(): string {
 // of the brb window if that is later. It reads no phase, so adding pings (brb)
 // never moves it. The last turn, not the last ping, starts the idle clock: a
 // ping restarts the cache, not the idleness.
-function compactAt(s: KeepaliveSession): number {
+function compactTarget(s: KeepaliveSession): number {
   return Math.max(s.lastActivityAt + (s.compactAfterMin ?? config.compactAfterMinutes) * 60_000, s.brbUntil ?? 0)
+}
+
+// compactTarget, but never past the point where the cache can no longer be read. Only
+// pings extend the cache, so with none running (stopped, capped: an error turn ended
+// the pings while a brb was still open) the compact has to start inside the cache's
+// last compactLeadMinutes, whatever the brb deadline says.
+function compactAt(s: KeepaliveSession): number {
+  const target = compactTarget(s)
+  if (s.phase === 'armed' || s.ttlSec === null) return target
+  return Math.min(target, cacheStart(s) + s.ttlSec * 1000 - config.compactLeadMinutes * 60_000)
+}
+
+// Pings that keep the cache warm until atMs, one every interval from the last turn.
+// A ping at or after atMs would only read a cache nobody needs any more, so a target
+// within one interval of the last turn needs none (the compact reads the warm cache).
+function pingsBefore(lastActivityAt: number, atMs: number, intervalMs: number): number {
+  return intervalMs > 0 ? Math.max(0, Math.ceil((atMs - lastActivityAt) / intervalMs) - 1) : 0
 }
 
 // When a compact is scheduled for this state, or null: the status line and

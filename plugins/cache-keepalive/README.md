@@ -37,7 +37,7 @@ Check it: `/keepalive status` shows the phase, the TTL it read, and `telegram: o
 | Command | What it does |
 |---|---|
 | `/keepalive status` | Phase, TTL, context size, pings so far, next ping and expiry times |
-| `/keepalive brb <minutes or hours>` | Say how long you are away: pings keep the cache warm until then (`brb 180` allows 4 pings, `brb 24h` 29) and an armed compact moves to the end of that window. A monitor event or a `/goal` step does not end it; the next prompt you type does |
+| `/keepalive brb <minutes or hours>` | Say how long you are away: pings keep the cache warm until then (`brb 180` allows 4 pings, `brb 24h` 29; with a compact armed only the pings that come before the compact, so 3 and 28) and the compact moves to the end of that window. A monitor event or a `/goal` step does not end it; the next prompt you type does |
 | `/keepalive brb reset` | End the brb: back to the configured `maxPings` (or, with a compact armed, to no pings and the compact N minutes after the last turn). Pings already sent are not taken back |
 | `/keepalive c` / `p` / `s` | Short forms of `compact`, `ping` and `status` |
 | `/keepalive compact [minutes]` | Arm a compact for the whole session: `compactAfterMinutes` (50) or the given minutes after the last turn ends, every idle stretch, until `compact off`. The minutes are kept; a bare `compact` keeps them too ([below](#compact-before-expiry)) |
