@@ -808,6 +808,43 @@ describe('compact before expiry', () => {
       expect(c.calls).toBe(1)
     })
 
+    describe('a brb outlives the engine\'s own turns', () => {
+      async function brbed($: Engine, on: On) {
+        const w = world(on)
+        const c = compacting(on, w)
+        on('classic.UserPromptSubmit', async () => ({}) as never)
+        await start($)
+        await turn($)
+        await run($, 'compact')
+        await run($, 'brb 240')
+        return { w, c }
+      }
+      test('a monitor event neither clears it nor moves the compact: it fires at the deadline', async ($, on) => {
+        const { w, c } = await brbed($, on)
+        await w.clock.advance(60 * MIN) // one ping at +50
+        await submit($, '<task-notification>\n<task-id>x</task-id></task-notification>')
+        await turn($) // the event's own turn
+        // 180 min left, a ping every 50: 4 pings reach the deadline; the compact stays at +240.
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', max: 4, compactArmed: true, compactAt: T0 + 240 * MIN })
+        await w.clock.advance(179 * MIN)
+        expect(c.calls).toBe(0)
+        await w.clock.advance(1 * MIN)
+        expect(c.calls).toBe(1)
+      })
+      test('a prompt you typed ends it: back to N minutes after the last turn, no pings', async ($, on) => {
+        const { w } = await brbed($, on)
+        await submit($, 'I am back', 'user')
+        await turn($)
+        expect(stateOf(w)).toMatchObject({ phase: 'stopped', max: 2, compactAt: T0 + 50 * MIN })
+      })
+      test('a slash command does not end it', async ($, on) => {
+        const { w } = await brbed($, on)
+        await submit($, '/goal make three files', 'user')
+        await turn($)
+        expect(stateOf(w)).toMatchObject({ phase: 'armed', compactAt: T0 + 240 * MIN })
+      })
+    })
+
     test('"1h" is 60 minutes: too long for a 1h cache, refused', async ($, on) => {
       const w = world(on)
       compacting(on, w)

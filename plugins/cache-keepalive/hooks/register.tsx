@@ -150,7 +150,15 @@ export const register: Register = (on, options) => {
       await update($, session, v => ({ ...v, transcriptPath: e.transcript_path }))
     }
     // An armed compact is permanent for the session (until /keepalive compact off),
-    // so a prompt you type, or one the engine delivers, never disarms it.
+    // so no prompt disarms it. A brb is different: it says "I am away", so a prompt
+    // you typed ends it. The engine's own turns do not: a monitor's <task-notification>,
+    // another session's message, a skill's body, a slash command (brb is one itself).
+    // `source` is absent in this build (measured), so only those prefixes tell them
+    // apart. This hook fires before turn.start (measured: about 150 ms), which is
+    // why turn.start can leave brbUntil alone.
+    const text = e.prompt.trimStart()
+    const isTyped = (e.source === undefined || e.source === 'user') && !isEngineDelivered(text) && text !== '' && !text.startsWith('/')
+    if (isTyped && s.brbUntil !== null) await save($, v => ({ ...v, brbUntil: null }))
     return next(e)
   })
 
@@ -169,7 +177,6 @@ export const register: Register = (on, options) => {
         : { phase: 'active' as const, offReason: null }),
       pingsSent: 0,
       maxPings: config.maxPings,
-      brbUntil: null,
       lastPingAt: 0,
       isBandDismissed: false,
     }))
@@ -311,7 +318,13 @@ async function onMainTurnComplete($: Engine, reason: string) {
 // does not get a fresh window just because the process restarted).
 async function applyArmedState($: Engine, input: { lastActivityAt: number; contextTokens: number; ttlSec: number | null }): Promise<void> {
   const s = await read($, session)
-  const base = { ...s, ...input }
+  // A brb outlives the engine's own turns (a monitor event, a /goal step): each
+  // turn end re-derives the pings still needed to reach its deadline.
+  const now = await $.clock.now()
+  const intervalMs = input.ttlSec === null ? 0 : (input.ttlSec - config.leadMinutes * 60) * 1000
+  const brbLeftMs = s.brbUntil === null ? 0 : s.brbUntil - now
+  const brbPings = intervalMs > 0 && brbLeftMs > 0 ? Math.ceil(brbLeftMs / intervalMs) : 0
+  const base = { ...s, ...input, brbUntil: brbLeftMs > 0 ? s.brbUntil : null, maxPings: brbPings > 0 ? brbPings : s.maxPings }
 
   if (input.ttlSec === TTL_5M) {
     // 13 pings an hour at 0.1x cost more than one 1.25x rewrite.
@@ -336,8 +349,9 @@ async function applyArmedState($: Engine, input: { lastActivityAt: number; conte
       await rearm($)
       return
     }
-    // No pings: the cache just ages until the timer (phase stopped, as after `done`).
-    await save($, () => ({ ...base, phase: 'stopped' }))
+    // No pings: the cache just ages until the timer (phase stopped, as after `done`),
+    // unless a brb is still running: then the pings keep it warm up to its deadline.
+    await save($, () => ({ ...base, phase: brbPings > 0 ? 'armed' : 'stopped' }))
     await rearm($)
     return
   }

@@ -33,7 +33,7 @@ export type KeepaliveSession = {
   isCompactArmed: boolean
   /** /keepalive compact [minutes]: with isCompactArmed, no pings; compact this many minutes after the last turn ends. Null = the pings-first mode. Persists with the flag; a later bare `compact` keeps it. */
   compactAfterMin: number | null
-  /** /keepalive brb: epoch ms the user said they are away until, or null. With a timed compact it only moves the compact later (to this time, if past last turn + N); it never switches the compact to the pings-first mode. Reset by the next turn and by `brb reset`. */
+  /** /keepalive brb: epoch ms the user said they are away until, or null. With a timed compact it only moves the compact later (to this time, if past last turn + N); it never switches the compact to the pings-first mode. Survives the engine's own turns (a monitor event, a /goal step); cleared by a prompt you type, by `brb reset`, and once it has passed. */
   brbUntil: number | null
   /** Why the last armed compact ended (ran, skipped, refused, cancelled by a prompt), so a miss can be diagnosed afterwards. */
   lastCompactNote: string | null
