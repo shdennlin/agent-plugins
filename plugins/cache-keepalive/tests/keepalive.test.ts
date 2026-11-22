@@ -773,6 +773,24 @@ describe('compact before expiry', () => {
       expect(w.forks).toBe(0)
     })
 
+    // The armed compact is the user's intent; brb only says how long they are away.
+    // So brb must not turn a timed compact into the pings-first mode (where the compact
+    // waits for every ping to be used up): pings keep the cache warm inside the window,
+    // and the compact comes at its end, while the cache is still warm.
+    test('brb after compact: pings keep it warm, the compact still fires at the brb deadline', async ($, on) => {
+      const w = world(on)
+      const c = compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact')
+      await run($, 'brb 120')
+      await w.clock.advance(119 * MIN)
+      expect(c.calls).toBe(0)
+      expect(w.forks).toBe(2) // two pings cover the first 120 minutes of a 1h cache
+      await w.clock.advance(1 * MIN)
+      expect(c.calls).toBe(1)
+    })
+
     test('"1h" is 60 minutes: too long for a 1h cache, refused', async ($, on) => {
       const w = world(on)
       compacting(on, w)
@@ -1031,17 +1049,31 @@ describe('compact before expiry', () => {
       expect(await run($, 'brb 30')).toContain('up to 1 ping this idle stretch')
       expect(await run($, 'brb 60')).toContain('up to 2 pings this idle stretch')
     })
-    test('brb reset goes back to the configured cap and keeps the armed compact', async ($, on) => {
+    test('brb reset goes back to the configured cap and keeps the armed compact (pings first)', async ($, on) => {
+      const w = world(on)
+      compacting(on, w)
+      await start($)
+      await turn($)
+      await run($, 'compact pings')
+      await run($, 'brb 24h')
+      expect(stateOf(w)).toMatchObject({ max: 27, phase: 'armed' })
+      const text = await run($, 'brb reset')
+      expect(text).toContain('Back to the default: up to 2 pings this idle stretch')
+      expect(stateOf(w)).toMatchObject({ max: 2, phase: 'armed', compactArmed: true, compactAt: T0 + 160 * MIN })
+    })
+    // A timed compact is no-ping by design: brb adds pings and moves the compact to the
+    // window's end, and reset takes both back instead of leaving the pings-first mode behind.
+    test('brb reset on a timed compact goes back to no pings and the timed compact', async ($, on) => {
       const w = world(on)
       compacting(on, w)
       await start($)
       await turn($)
       await run($, 'compact')
       await run($, 'brb 24h')
-      expect(stateOf(w)).toMatchObject({ max: 27, phase: 'armed' })
+      expect(stateOf(w)).toMatchObject({ max: 27, phase: 'armed', compactArmed: true, compactAt: T0 + 24 * 60 * MIN })
       const text = await run($, 'brb reset')
-      expect(text).toContain('Back to the default: up to 2 pings this idle stretch')
-      expect(stateOf(w)).toMatchObject({ max: 2, phase: 'armed', compactArmed: true, compactAt: T0 + 160 * MIN })
+      expect(text).toContain('Back to the timed compact: no pings')
+      expect(stateOf(w)).toMatchObject({ phase: 'stopped', compactArmed: true, compactAt: T0 + 30 * MIN })
     })
     test('"RESET" works too, and the pings really are 2 again', async ($, on) => {
       const w = world(on)
