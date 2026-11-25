@@ -52,9 +52,7 @@ done
 
 # 8. Every flag's short form is documented where the flags are listed.
 for s in '-t, --teach' '-p, --print' '-a, --as'; do
-  for f in "$SCRIPT" "$SKILL"; do
-    grep -q -- "$s" "$f" || fail "$f must list '$s'"
-  done
+  grep -q -- "$s" "$SCRIPT" || fail "$SCRIPT must list '$s'"
 done
 for s in '-t|--teach' '-p|--print' '-a|--as'; do
   for f in "$CMD" "$README"; do
@@ -95,5 +93,16 @@ done
   || fail "marketplace.json digest entry must be 3.1.0"
 grep -q 'python3' "$README" || fail "README must name python3 as a requirement of the checker"
 grep -q 'check-explainer' "$README" || fail "README must mention the explainer checker"
+
+# 13. SKILL.md stays a slim Codex entry point: the flags have one list (the script's --help), the
+#     always-loaded description is short, and what only Codex needs (Process, Teach mode) is still there.
+[[ "$(wc -c <"$SKILL" | tr -d ' ')" -lt 4800 ]] || fail "SKILL.md should stay under 4800 bytes, it is $(wc -c <"$SKILL" | tr -d ' ')"
+desc_len="$(sed -n '/^description:/p' "$SKILL" | head -1 | wc -c | tr -d ' ')"
+[[ "$desc_len" -lt 330 ]] || fail "SKILL.md description should stay under 330 characters, it is $desc_len"
+[[ "$(grep -c '^| `-' "$SKILL" || true)" == "0" ]] || fail "SKILL.md must not carry its own flag table"
+grep -q 'classify-target.sh --help' "$SKILL" || fail "SKILL.md must point to classify-target.sh --help as the list of flags"
+grep -q '^## Teach mode' "$SKILL" && grep -q '^## Process' "$SKILL" || fail "SKILL.md must keep its Process and Teach mode sections"
+sed -n '/^description:/p' "$SKILL" | head -1 | grep -q -i 'branch' && sed -n '/^description:/p' "$SKILL" | head -1 | grep -q -i 'PR' \
+  || fail "the description must still name branch and PR so the skill triggers on them"
 
 echo "ok: explain-docs"
