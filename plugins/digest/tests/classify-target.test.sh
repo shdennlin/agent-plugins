@@ -169,4 +169,56 @@ g checkout -q --detach
 run ''
 [[ "$RC" == "0" && "$(field .branch)" == "" ]] || fail "detached: rc=$RC $OUT"
 
+# --- final-review regressions ----------------------------------------------
+mk() { rm -rf "$1"; mkdir -p "$1"; git -C "$1" init -q -b "$2"; }
+gc() { echo "$2" >"$1/$2.txt"; git -C "$1" add -A; git -C "$1" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m "$2"; }
+
+# 14. For a branch target, base and the diff come from the TARGET, not from HEAD.
+R2="$TMP/r2"; mk "$R2" main
+gc "$R2" c1
+git -C "$R2" branch develop
+git -C "$R2" checkout -q develop; gc "$R2" d1; gc "$R2" d2; gc "$R2" d3
+git -C "$R2" checkout -q -b feat/y; gc "$R2" y1
+git -C "$R2" checkout -q main
+cd "$R2"
+run 'feat/y'
+[[ "$(field .kind)" == "branch" && "$(field .base)" == "develop" && "$(field .diff_empty)" == "false" ]] \
+  || fail "feat/y forked from develop must use base develop: $OUT"
+git checkout -q -b feat/z
+run 'main'
+[[ "$(field .kind)" == "branch" && "$(field .on_base)" == "true" && "$(field .diff_empty)" == "true" ]] \
+  || fail "target equal to its base must report on_base and an empty diff: $OUT"
+
+# 15. A branch target in a repo with neither develop nor main has no base.
+R3="$TMP/r3"; mk "$R3" master
+gc "$R3" c1
+git -C "$R3" branch feat/x
+cd "$R3"
+run 'feat/x'
+[[ "$(field .kind)" == "branch" && "$(field .base)" == "" && "$(field .diff_empty)" == "true" ]] \
+  || fail "branch target without a base: $OUT"
+cd "$REPO"
+
+# 16. An apostrophe inside an unquoted question is literal and does not swallow later flags.
+run "why doesn't the queue retry -f manager"
+[[ "$RC" == "0" && "$(field .kind)" == "question" && "$(field .audience)" == "manager" \
+  && "$(field .target)" == "why doesn't the queue retry" ]] || fail "apostrophe: $OUT"
+# ...while a quote at the start of a token still groups, so a quoted question may contain flags.
+run '"what does grep -e do"'
+[[ "$RC" == "0" && "$(field .kind)" == "question" && "$(field .target)" == "what does grep -e do" ]] \
+  || fail "quoted question with a flag inside: rc=$RC $OUT"
+
+# 17. Removed 2.x flags fail loudly with the migration hint instead of becoming question text.
+run 'feat/auth -e html'
+[[ "$RC" == "2" ]] || fail "-e should exit 2, got $RC"
+grep -q -- '--html' "$TMP/err" || fail "-e error should point to --html: $(cat "$TMP/err")"
+run '--export'
+[[ "$RC" == "2" ]] || fail "--export should exit 2, got $RC"
+
+# 18. --as branch accepts any commit-ish (tag, short hash, HEAD~1) but still rejects nonsense.
+run '--as branch v1'
+[[ "$RC" == "0" && "$(field .kind)" == "branch" && "$(field .target)" == "v1" ]] || fail "--as branch v1: rc=$RC $OUT"
+run '--as branch nosuchref'
+[[ "$RC" == "2" ]] || fail "--as branch nosuchref should exit 2, got $RC"
+
 echo "ok: classify-target"

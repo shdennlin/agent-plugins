@@ -26,8 +26,8 @@ $explain src/ -f "new teammate"       # onboarding tour
 |------|-------------|
 | `-f, --for <audience>` | Tailor for an audience — free-form string (manager, non-technical, "new teammate", ...). Default: developer |
 | `--teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--html`) |
-| `--html` | Also write the HTML explainer for a change target (`#PR`, branch, current branch) |
-| `--as <kind>` | Force how the target is read: `file`, `pr`, `branch`, `symbol`, or `question` |
+| `--html` | For a change target (`#PR`, branch, current branch), write the HTML explainer instead of the chat card (prints a short conclusion and the file path) |
+| `--as <kind>` | Force how the target is read: `file`, `pr`, `branch`, `symbol`, or `question` (`branch` also accepts a tag or a commit) |
 
 State targets (path, symbol, question, the conversation's findings) default to a self-contained HTML explainer written to the project root (`explain-<slug>-<YYYY-MM-DD>.html`), plus a one-paragraph conclusion in the terminal. Change targets default to a card in chat and write no file unless `--html` is given.
 

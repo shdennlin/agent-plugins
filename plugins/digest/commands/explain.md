@@ -17,7 +17,7 @@ argument-hint: "[path|symbol|question|#PR|branch] [-f/--for <audience>] [--teach
 Turn an investigation into understanding. `explain` covers **the current state** — what something is, how it works end-to-end, why it was designed this way, where a bug comes from — and **a change** — what a pull request, a branch, or the current branch does and why.
 
 - **State targets** (path, symbol, question, the conversation's findings): a self-contained HTML explainer.
-- **Change targets** (`#PR`, branch, current branch): a card in chat. `--html` writes the HTML explainer too.
+- **Change targets** (`#PR`, branch, current branch): a card in chat. `--html` writes the HTML explainer instead and prints a short conclusion plus the file path.
 - `--teach`: a short, read-only lesson in chat.
 
 ## MANDATORY FIRST STEP — DO NOT SKIP
@@ -25,9 +25,9 @@ Turn an investigation into understanding. `explain` covers **the current state**
 You MUST run this BEFORE doing anything else. The script parses the arguments, classifies the target, and prints a JSON object. Never classify the target or parse flags yourself.
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/classify-target.sh" <<'ARGS'
+"${CLAUDE_PLUGIN_ROOT}/scripts/classify-target.sh" <<'DIGEST_EXPLAIN_ARGS_9f3a'
 $ARGUMENTS
-ARGS
+DIGEST_EXPLAIN_ARGS_9f3a
 ```
 
 **If the script exits non-zero**, show its stderr verbatim and stop.
@@ -51,8 +51,12 @@ Print `resolved_line` as the first line of your reply, unchanged. (For `empty`, 
       `Nothing to explain from this conversation yet. Pass a path, symbol, question, #PR, or branch: /digest:explain <target>`
 3. **`kind` is `pr` and `gh_ok` is false** → print this and stop:
    `gh is unavailable or not logged in, so PR #<n> cannot be read. Pass the branch name instead: /digest:explain <branch>`
-4. **`kind` is `pr` or `branch`** → **Change mode**.
-5. **`kind` is `file`, `symbol`, or `question`** → **Investigation mode** (state target).
+4. **`kind` is `branch` and `base` is empty** → print this and stop:
+   `No base branch (develop or main) found, so <target> cannot be compared. Ask a question about it instead: /digest:explain "<question>"`
+5. **`kind` is `branch` and (`on_base` is true or `diff_empty` is true)** → print this and stop:
+   `<target> has no changes against <base>, so there is nothing to summarize.`
+6. **`kind` is `pr` or `branch`** → **Change mode**.
+7. **`kind` is `file`, `symbol`, or `question`** → **Investigation mode** (state target).
 
 **Output mode** for any dispatch: `card` for a change target unless `html` is true; `html` for every state target.
 

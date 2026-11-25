@@ -59,7 +59,7 @@ The first line of every run says how the target was read (`解析為:branch main
 | Target | Default output |
 |--------|----------------|
 | path, symbol, question, the conversation's findings | self-contained HTML explainer |
-| `#PR`, branch, current branch | change card in chat (no file); `--html` also writes the HTML explainer |
+| `#PR`, branch, current branch | change card in chat (no file); `--html` writes the HTML explainer instead (a short conclusion plus the file path) |
 | any target with `--teach` | short read-only lesson in chat |
 
 With no target, `explain` uses the current conversation's findings; if there are none, it explains the current branch against its base (`develop` or `main`, whichever is nearer); if there is nothing to diff either, it says so. A path, symbol, or question dispatches an investigation with git archaeology (`git log --follow`, `blame`, commit messages, PR discussions). A `#PR` needs `gh` installed and logged in; without it, `explain` stops and asks for the branch name instead.
@@ -73,10 +73,14 @@ With no target, `explain` uses the current conversation's findings; if there are
 | `/digest:digest` | `/digest:explain` |
 | `/digest:digest feat/auth`, `#42`, a design doc path | `/digest:explain feat/auth`, `#42`, the same path |
 | `/digest:digest ... -f manager` | `/digest:explain ... -f manager` |
-| `-e html` | `--html` |
+| `-e html` | `--html` (prints a short conclusion and the path, not the card) |
 | `-e md` | no replacement |
 
+Any `-e` or `--export` now stops with an error and this hint, instead of being read as part of a question. To explain text that contains `-e`, put the whole question in quotes.
+
 A design doc path is now explained as a file (what it says), not summarized as a change; pass the branch or PR to see what changed.
+
+2.x read any non-path text as a branch. Now only a local or remote-tracking branch is detected as one, so a tag (`v1`), a short commit hash, or `HEAD~1` is read as a symbol or a question. To summarize what such a commit-ish changes, force it: `/digest:explain v1 --as branch`.
 
 ### Release
 

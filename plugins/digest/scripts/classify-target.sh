@@ -6,9 +6,9 @@
 # The raw argument text arrives on STDIN, never on the command line, so question text such as
 # "why does a;b fail?" is data and is never parsed by a shell. Called from
 # plugins/digest/commands/explain.md as:
-#   "${CLAUDE_PLUGIN_ROOT}/scripts/classify-target.sh" <<'ARGS'
+#   "${CLAUDE_PLUGIN_ROOT}/scripts/classify-target.sh" <<'DIGEST_EXPLAIN_ARGS_9f3a'
 #   $ARGUMENTS
-#   ARGS
+#   DIGEST_EXPLAIN_ARGS_9f3a
 #
 # Kept compatible with macOS /bin/bash 3.2: no associative arrays, no empty-array expansion
 # under set -u, no (( i++ )) as a statement.
@@ -40,8 +40,10 @@ Targets:
 Options:
   -f, --for <audience>  Tailor for an audience (manager, non-technical, "new teammate", ...)
       --teach           Short, read-only explanation in chat (cannot be combined with --html)
-      --html            Write the HTML explainer for a change target as well
+      --html            For a change target, write the HTML explainer instead of the chat card
+                        (prints a short conclusion and the file path)
       --as <kind>       Force the reading of the target: file, pr, branch, symbol, question
+                        (branch also accepts a tag or a commit, e.g. --as branch v1)
   -h, --help            Show this help message
 
 The first line of every run says how the target was read; use --as to force another reading.
@@ -60,8 +62,9 @@ EOF
 die() { echo "ERROR: $*" >&2; exit 2; }
 
 # ---------------------------------------------------------------------------
-# Tokenize: whitespace separates, "..." and '...' group, an unmatched quote consumes the
-# rest of the text literally.
+# Tokenize: whitespace separates; "..." and '...' group only when the quote STARTS a token
+# (so an apostrophe inside "doesn't" stays a literal character); an unmatched opening quote
+# consumes the rest of the text literally.
 # ---------------------------------------------------------------------------
 
 TOKENS=()
@@ -71,7 +74,7 @@ tokenize() {
     c=${s:i:1}
     if [ -n "$q" ]; then
       if [ "$c" = "$q" ]; then q=""; else cur+=$c; fi
-    elif [ "$c" = '"' ] || [ "$c" = "'" ]; then
+    elif [ "$has" -eq 0 ] && { [ "$c" = '"' ] || [ "$c" = "'" ]; }; then
       q=$c
       has=1
     elif [[ $c == [[:space:]] ]]; then
@@ -106,6 +109,8 @@ while [ "$i" -lt "$count" ]; do
     -f|--for)
       i=$((i + 1)); [ "$i" -lt "$count" ] || die "$t needs an audience"
       audience=${TOKENS[$i]} ;;
+    -e|--export)
+      die "$t was removed in 3.0.0: use --html to write an HTML file (-e md has no replacement). To explain text that contains $t, put the whole question in quotes." ;;
     --teach) teach=true ;;
     --html) html=true ;;
     --as)
@@ -133,25 +138,6 @@ cd "$root"
 
 branch="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
 
-# Base: local develop or main. When both exist, take the one nearer to HEAD (fewer commits
-# ahead of it) so a stale develop never hides that main is the real base; a tie keeps develop.
-base=""
-best=0
-for cand in develop main; do
-  if git show-ref --verify --quiet "refs/heads/$cand"; then
-    ahead="$(git rev-list --count "$cand..HEAD" 2>/dev/null || echo 999999999)"
-    if [ -z "$base" ] || [ "$ahead" -lt "$best" ]; then base="$cand"; best="$ahead"; fi
-  fi
-done
-
-on_base=false
-if [ -n "$branch" ] && [ "$branch" = "$base" ]; then on_base=true; fi
-
-diff_empty=true
-if [ -n "$base" ]; then
-  if git diff --quiet "$base...HEAD" 2>/dev/null; then diff_empty=true; else diff_empty=false; fi
-fi
-
 gh_ok=false
 if command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then gh_ok=true; fi
 
@@ -173,7 +159,8 @@ elif [ -n "$forced" ]; then
     file)   [ -e "$target" ] || die "--as file: '$target' does not exist" ;;
     pr)     [[ $target =~ ^#?[0-9]+$ ]] || die "--as pr: '$target' is not a PR number (#42)"
             target="#${target#\#}" ;;
-    branch) is_branch "$target" || die "--as branch: '$target' is not a local or remote-tracking branch" ;;
+    branch) is_branch "$target" || git rev-parse --verify --quiet "$target^{commit}" >/dev/null 2>&1 \
+              || die "--as branch: '$target' is not a branch, tag, or commit" ;;
   esac
 elif [ -e "$target" ]; then
   kind="file"
@@ -185,6 +172,43 @@ elif [[ $target =~ ^[A-Za-z0-9_][A-Za-z0-9_.:]*$ ]]; then
   kind="symbol"
 else
   kind="question"
+fi
+
+# ---------------------------------------------------------------------------
+# Base and diff, measured from the subject: the target for a branch, HEAD otherwise.
+# Base is local develop or main. When both exist, take the one nearer to the subject (fewer
+# commits ahead of it) so a stale develop never hides that main is the real base; a tie keeps
+# develop. on_base: the subject IS the base branch. diff_empty: nothing to compare.
+# ---------------------------------------------------------------------------
+
+subject="HEAD"
+if [ "$kind" = "branch" ]; then subject="$target"; fi
+
+base=""
+best=0
+for cand in develop main; do
+  if git show-ref --verify --quiet "refs/heads/$cand"; then
+    ahead="$(git rev-list --count "$cand..$subject" 2>/dev/null || echo 999999999)"
+    if [ -z "$base" ] || [ "$ahead" -lt "$best" ]; then base="$cand"; best="$ahead"; fi
+  fi
+done
+
+# A target that is itself develop or main is its own base (nothing to compare it against).
+if [ "$kind" = "branch" ] && { [ "$target" = "develop" ] || [ "$target" = "main" ]; } \
+   && git show-ref --verify --quiet "refs/heads/$target"; then
+  base="$target"
+fi
+
+on_base=false
+if [ "$kind" = "branch" ]; then
+  if [ "$target" = "$base" ]; then on_base=true; fi
+elif [ -n "$branch" ] && [ "$branch" = "$base" ]; then
+  on_base=true
+fi
+
+diff_empty=true
+if [ -n "$base" ]; then
+  if git diff --quiet "$base...$subject" 2>/dev/null; then diff_empty=true; else diff_empty=false; fi
 fi
 
 # ---------------------------------------------------------------------------
