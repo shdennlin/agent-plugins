@@ -1,0 +1,114 @@
+/* Reference stylesheet for /digest:explain pages. Copy this whole block into the page's <style> element, unchanged,
+   then add only what the page needs. Every color is a token defined here; no rule uses a raw color.
+   Contrast was measured against the background in both modes (about 7:1 or more for every text color). */
+:root {
+  color-scheme: light dark;
+  --bg: #fdfdfc;
+  --panel: #f3f3f0;
+  --ink: #17171a;
+  --muted: #4a4a52;
+  --line: #d6d6d0;
+  --accent: #1f4f94;
+  --hl: #fff1a8;
+  --ok: #135c2c;
+  --warn: #7a4a00;
+  --bad: #9e1d16;
+  --m-bg: #dbeef5; --m-ink: #0b4a5e;
+  --r-bg: #ece6f8; --r-ink: #3d2a72;
+  --i-bg: #f6ecc8; --i-ink: #5a4500;
+  --kw: #7a2e8a; --str: #135c2c; --com: #4a4a52; --num: #6b3f00;
+  --code: #f6f6f3;
+  --add-bg: #ecf8ef; --del-bg: #fdf0ee; --hl-line: #fff6cc;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #26262e;
+    --panel: #2e2e37;
+    --ink: #eeeef2;
+    --muted: #c8c8d2;
+    --line: #42424d;
+    --accent: #9cc4ef;
+    --hl: #4d4212;
+    --ok: #7fdca1;
+    --warn: #f0bd6e;
+    --bad: #ffa59e;
+    --m-bg: #173a46; --m-ink: #a6e6f7;
+    --r-bg: #2b2543; --r-ink: #d6c9f7;
+    --i-bg: #3d3414; --i-ink: #f3d983;
+    --kw: #e0b3f5; --str: #7fdca1; --com: #c8c8d2; --num: #f0bd6e;
+    --code: #202027;
+    --add-bg: #1b3023; --del-bg: #3f2528; --hl-line: #2f2f39;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.55; font-size: 15px;
+}
+/* Wide enough for a five-column file table; running text fills the same width. */
+main { max-width: 64rem; margin: 0 auto; padding: 2.5rem 1.25rem 3rem; }
+ol, ul { padding-left: 1.3rem; }
+ol li, ul li { margin: .45rem 0; }
+p { margin: 1em 0; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; overflow-wrap: anywhere; }
+td code, th code { white-space: nowrap; overflow-wrap: normal; }
+mark { background: var(--hl); color: var(--ink); padding: 0 .15em; border-radius: .15em; }
+/* Headings: a thin rule above each section, an accent underline under its heading. */
+h1, h2, h3 { color: var(--ink); line-height: 1.25; text-wrap: balance; }
+h1 { font-size: 2rem; margin: 0 0 .6rem; }
+h2 { font-size: 1.3rem; margin: 2.6rem 0 .8rem; padding: 1.4rem 0 .45rem; border-top: 1px solid var(--line); border-bottom: 2px solid var(--accent); }
+h3 { font-size: 1.05rem; margin: 1.5rem 0 .4rem; }
+.kicker { font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 .4rem; }
+.meta { color: var(--muted); font-size: .9rem; margin: 0; }
+figcaption, .meta { color: var(--muted); }
+/* Summary box: full border and a tint, never a colored edge bar. */
+.summary { border: 1px solid var(--line); background: var(--panel); border-radius: .5rem; padding: 1rem 1.2rem; margin: 1.5rem 0 0; }
+.summary p { margin: 0; }
+/* Key figures on the page, not inside a boxed parent. */
+.figures { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.5rem 0 .5rem; }
+.fig { flex: 1 1 9rem; border-top: 3px solid var(--ink); padding: .6rem 0 0; }
+.fig b { display: block; font-size: 1.9rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.fig span { font-size: .88rem; color: var(--muted); }
+/* Evidence labels: outline pills, one color per kind. */
+.g { display: inline-block; font-size: .72rem; font-weight: 600; padding: 0 .5em; border: 1px solid currentColor; border-radius: 999px; white-space: nowrap; vertical-align: .1em; letter-spacing: .02em; }
+.g.measured { color: var(--m-ink); }
+.g.read { color: var(--r-ink); }
+.g.inferred { color: var(--i-ink); }
+.ok { color: var(--ok); font-weight: 600; }
+.warn { color: var(--warn); font-weight: 600; }
+.bad { color: var(--bad); font-weight: 600; }
+/* Tables scroll in their own container. */
+.scroll { overflow-x: auto; max-width: 100%; margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; min-width: 26rem; font-size: .93rem; }
+th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--line); vertical-align: top; font-variant-numeric: tabular-nums; }
+th { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+td.num, th.num { text-align: right; }
+td.ok, td.warn, td.bad, td .ok, td .warn, td .bad { white-space: nowrap; }
+tbody tr:hover td { background: var(--panel); }
+/* Code blocks: a deep inset with a border, scroll sideways, colored tokens. */
+pre { background: var(--code); border: 1px solid var(--line); padding: .75rem 1rem; overflow-x: auto; font-size: .84rem; line-height: 1.55; border-radius: .35rem; margin: .8rem 0; }
+pre code { font-size: inherit; }
+.tk-kw { color: var(--kw); font-weight: 600; }
+.tk-str { color: var(--str); }
+.tk-com { color: var(--com); font-style: italic; }
+.tk-num { color: var(--num); }
+/* Diagrams and figures. */
+figure { margin: 1.25rem 0; }
+figure .scroll { margin: 0; }
+svg text { font-family: system-ui, sans-serif; font-size: 13px; fill: var(--ink); }
+svg .box { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+svg .arrow { stroke: var(--muted); stroke-width: 1.6; fill: none; }
+svg .ah { fill: var(--muted); }
+/* Collapsible detail and the Expand all button. */
+button.toggle { font: inherit; font-size: .88rem; cursor: pointer; padding: .3rem .8rem; margin: 1rem 0 0; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: .4rem; }
+details { border-top: 1px solid var(--line); padding: .6rem 0; }
+details:last-of-type { border-bottom: 1px solid var(--line); }
+summary { cursor: pointer; font-weight: 600; }
+/* Unverified section: full border, not an edge bar. */
+.unverified { border: 1px solid var(--line); background: var(--panel); border-radius: .5rem; padding: .9rem 1.2rem; margin-top: 1rem; }
+.unverified h2, .unverified h3 { margin-top: 0; padding-top: 0; border-top: 0; }
+.unverified h2 { border-bottom: 0; padding-bottom: 0; }
+.unverified ul { margin: .4rem 0 0; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }

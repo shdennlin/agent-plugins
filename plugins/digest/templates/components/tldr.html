@@ -1,0 +1,26 @@
+<!-- component: tldr
+     use when: the page is long and a reader may want only the conclusion: a button that hides everything except the
+           title, the summary and the key figures, and shows it all again.
+     copy: the <style> rules into the page's <style>; the markup right after the summary; the <script> unchanged
+           before </body>. Elements that must stay visible in short mode carry data-tldr-keep.
+     labels: the button's own text is the short-mode label, data-full the label that brings everything back.
+     without JS: the button stays hidden and the whole page shows. -->
+<style>
+html.tldr main > :not(h1):not(.kicker):not(.meta):not(.summary):not(.figures):not([data-tldr-keep]) { display: none; }
+</style>
+
+<p data-tldr-keep><button type="button" class="toggle" data-tldr data-full="Show everything" aria-pressed="false" hidden>Conclusion only</button></p>
+
+<script>
+(function () {
+  var b = document.querySelector("[data-tldr]");
+  if (!b) return;
+  var shortText = b.textContent, fullText = b.getAttribute("data-full") || shortText;
+  b.hidden = false;
+  b.addEventListener("click", function () {
+    var on = document.documentElement.classList.toggle("tldr");
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = on ? fullText : shortText;
+  });
+})();
+</script>

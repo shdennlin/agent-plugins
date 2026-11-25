@@ -1,0 +1,48 @@
+<!-- component: code-extras
+     use when: a code excerpt is long or the reader will copy it: a file-name bar with a Copy button, line numbers from
+           the real file, and highlighted lines that matter.
+     copy: the <style> rules into the page's <style>; the markup with your own file name, start line and lines (one
+           span.ln per line, NO newline between spans; set the first line number with style="counter-reset: ln N-1");
+           add class hl-line to a line to highlight it; the <script> unchanged before </body>.
+     labels: the button's own text is its label, data-done and data-fail what it shows after a click.
+     without JS: the Copy button stays hidden; the bar, numbers and highlights still show. -->
+<style>
+.code-title { display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-family: ui-monospace, Menlo, monospace; font-size: .8rem; color: var(--muted); background: var(--code); border: 1px solid var(--line); border-bottom: 0; border-radius: .35rem .35rem 0 0; padding: .3rem .6rem .3rem 1rem; margin: .8rem 0 0; }
+.code-title + pre { margin-top: 0; border-radius: 0 0 .35rem .35rem; }
+.code-title button.copy { font: inherit; font-size: .75rem; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: .3rem; padding: 0 .5rem; cursor: pointer; }
+pre.numbered { padding-left: 0; padding-right: 0; }
+pre.numbered .ln { display: block; padding: 0 1rem 0 0; counter-increment: ln; }
+pre.numbered .ln::before { content: counter(ln); display: inline-block; width: 2.6em; margin-right: 1em; text-align: right; color: var(--muted); }
+pre .hl-line { background: var(--hl-line); }
+</style>
+
+<div class="code-title"><span>commands/case.md</span><button type="button" class="copy" data-copy data-done="Copied" data-fail="Copy failed" hidden>Copy</button></div>
+<pre class="numbered" style="counter-reset: ln 76"><code><span class="ln"><span class="tk-com"># the gate</span></span><span class="ln hl-line"><span class="tk-kw">Stop if</span> beat 2 has fewer than <span class="tk-num">two</span> ruled-out items</span><span class="ln">  or beat 4 is empty.</span><span class="ln"><span class="tk-str">"It was not the network"</span> is not a ruled-out item.</span></code></pre>
+
+<script>
+(function () {
+  document.querySelectorAll("[data-copy]").forEach(function (b) {
+    var label = b.textContent;
+    b.hidden = false;
+    b.addEventListener("click", function () {
+      var pre = b.closest(".code-title").nextElementSibling;
+      var text = pre ? pre.innerText : "";
+      function done(ok) { b.textContent = b.getAttribute(ok ? "data-done" : "data-fail") || label; setTimeout(function () { b.textContent = label; }, 1500); }
+      function fallback() {
+        var t = document.createElement("textarea");
+        t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+        document.body.appendChild(t); t.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+        document.body.removeChild(t);
+        done(ok);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+      } else {
+        fallback();
+      }
+    });
+  });
+})();
+</script>

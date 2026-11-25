@@ -2,28 +2,32 @@
 Prints a JSON report. Exit 0 clean, 1 violations, 5 the checker itself failed (the report is then {"ok": false,
 "error": ...}). Standard library only.
 
-Four groups of violations (a page with any of them fails) and a list of warnings (polish and "could not check",
-never fails). All checks are mechanical and deliberately approximate, so a clean report means "no rule is visibly
-broken", not "the page is good":
+Violations fail the page; warnings are advice or "could not check" and never fail it. The violations keep to the
+rules that must hold (a self-contained page, readable on a narrow window, dark mode, evidence grades, the avoid
+list, every changed file accounted for, real references). Layout suggestions such as Expand all, jump links, a
+review-focus list or a how-to-verify section are warnings.
+All checks are mechanical and deliberately approximate, so a clean report means "no rule is visibly broken", not
+"the page is good":
   hard    - external requests, dark mode, color-scheme, a focus style, raw colors outside :root, overflow hidden on
-            the page, every table in a scroll container with whole paths in its cells, <details> open by default,
-            Expand all
-  meaning - semantic colors that are actually used, one to three <mark>, evidence grade labels
+            the page, every table in a scroll container with whole paths in its cells, evidence grade labels, a light
+            background near white and a dark one that is not near-black, the reference stylesheet (its color tokens unchanged in both modes, its pill and code-token rules), and
+            no color token used without being defined, inline scripts only from the component files
+  meaning - at least one <mark>; for a change, semantic colors (ok, warn, bad) actually used; evidence labels that
+            read only measured, read or inferred
   avoid   - colored edge bars, a card inside a card, more than 5 emoji
-  floor   - change: every changed file named with its +/- counts, the required topics, a review-focus list, risk marks,
-            a how-to-verify section; state: a code excerpt and at least 2 file:line anchors; both: a statement of
-            what was not verified, file:line anchors that resolve, jump links, no invented commit hashes
-  warnings - tabular numbers for +/- counts, text-wrap: balance, file names in anchors that are not tracked files,
-            references that could not be checked, keyword checks skipped because the page is not in English.
-
-The checker works from the repository root whatever directory it is run from. File:line anchors and commit hashes are
-judged against the branch the page explains (--ref), not the working tree; an unavailable ref skips those checks with
-a warning, never a violation."""
+  floor   - change: every changed file named with its +/- counts, stated totals that match the diff, diff-excerpt
+            lines copied verbatim from git diff <base>...<ref> and adjacent there when shown back to back; both: a statement of what was not verified,
+            file:line anchors that resolve, no invented commit hashes
+  warnings - everything else: a change page without a diff excerpt, code excerpts without token colors, more than 3 <mark>, Expand all, jump links, topics,
+            review-focus list, risk marks, how-to-verify, state evidence and anchors, tabular numbers, text-wrap:
+            balance, untracked anchor files, keyword checks skipped because the page is not in English.
+"""
 import json
 import os
 import re
 import subprocess
 import sys
+from html import unescape
 from html.parser import HTMLParser
 
 VOID = {"br", "hr", "img", "meta", "link", "input", "area", "base", "col", "embed", "source", "track", "wbr"}
@@ -173,7 +177,7 @@ class Nest(HTMLParser):
                 break
 
 
-def run(path, kind, numstat_path, ref):
+def run(path, kind, numstat_path, ref, base_branch=""):
     violations, warnings = [], []
 
     def violation(group, vid, count, message):
@@ -260,6 +264,122 @@ def run(path, kind, numstat_path, ref):
         violation("hard", "no_dark_mode", 1,
                   "No dark mode: add a @media (prefers-color-scheme: dark) block that redefines the :root color tokens.")
 
+    # Palette floor: the page must not read dim. Approximate by design: the --bg token is what is read.
+    def css_block(text, pattern):
+        mm = re.search(pattern, text, flags=re.S)
+        return mm.group(1) if mm else None
+
+    def css_decl(block, name):
+        mm = re.search(r"(?:^|[;{\s])%s\s*:\s*([^;}]+)" % re.escape(name), block or "")
+        return mm.group(1).strip() if mm else None
+
+    def lightness(value):
+        """HSL lightness (0 to 1) of a #rgb, #rrggbb or rgb() color, or None when the value is not a plain color."""
+        v = (value or "").strip().lower()
+        mm = re.match(r"#([0-9a-f]{3}|[0-9a-f]{6})$", v)
+        if mm:
+            h = mm.group(1)
+            if len(h) == 3:
+                h = "".join(c * 2 for c in h)
+            r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        else:
+            mm = re.match(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", v)
+            if not mm:
+                return None
+            r, g, b = (int(x) for x in mm.groups())
+        return (max(r, g, b) + min(r, g, b)) / 2 / 255.0
+
+    css_light = re.sub(r"@media[^{]*\{\s*:root\s*\{[^}]*\}\s*\}", "", css)
+    light_root = css_block(css_light, r":root\s*\{([^}]*)\}")
+    dark_root = css_block(css, r"prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}")
+    light_l = lightness(css_decl(light_root, "--bg"))
+    dark_l = lightness(css_decl(dark_root, "--bg"))
+    palette_info = {"light": None if light_l is None else round(light_l, 3),
+                    "dark": None if dark_l is None else round(dark_l, 3)}
+    if light_l is None or dark_l is None:
+        warning("palette_not_checked", "The --bg token was not found in both :root blocks, so the background floor was not checked.")
+    else:
+        if light_l < 0.97:
+            violation("hard", "light_background_dim", 1,
+                      "The light background is %d%% lightness. Use near white (97%% or brighter) so the page does not read grey."
+                      % round(light_l * 100))
+        if dark_l < 0.16:
+            violation("hard", "dark_background_too_dark", 1,
+                      "The dark background is %d%% lightness, close to black. Use a lifted charcoal of about 16%% to 20%%."
+                      % round(dark_l * 100))
+
+    # The reference stylesheet (html-explainer-style.css next to the template) carries the measured colors for the
+    # evidence pills and code tokens; a page that restyles them from scratch loses the contrast that was measured.
+    def root_tokens(text):
+        """The color tokens of a stylesheet: (light, dark) dicts of --name -> normalized value, later blocks winning."""
+        light_text = re.sub(r"@media[^{]*\{\s*:root\s*\{[^}]*\}\s*\}", "", text)
+        norm = lambda v: re.sub(r"\s+", " ", v.strip().lower())
+        light, dark = {}, {}
+        for blk in re.findall(r":root\s*\{([^}]*)\}", light_text):
+            light.update({k: norm(v) for k, v in re.findall(r"(--[\w-]+)\s*:\s*([^;}]+)", blk)})
+        for blk in re.findall(r"prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}", text):
+            dark.update({k: norm(v) for k, v in re.findall(r"(--[\w-]+)\s*:\s*([^;}]+)", blk)})
+        return light, dark
+
+    style_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "html-explainer-style.css")
+    try:
+        with open(style_path, encoding="utf-8") as fh:
+            ref_light, ref_dark = root_tokens(fh.read())
+    except OSError:
+        ref_light = ref_dark = None
+    if ref_light is None:
+        warning("reference_style_not_checked", "The reference stylesheet html-explainer-style.css was not found next to the "
+                "template, so the page's color tokens were not compared with it.")
+    else:
+        page_light, page_dark = root_tokens(css)
+        changed = ["%s (light)" % k for k, v in ref_light.items() if page_light.get(k) != v]
+        changed += ["%s (dark)" % k for k, v in ref_dark.items() if page_dark.get(k) != v]
+        if changed:
+            violation("hard", "reference_style_changed", len(changed),
+                      "These color tokens are missing or differ from html-explainer-style.css, whose values were measured at "
+                      "about 7:1: %s. Copy the reference block unchanged." % ", ".join(changed[:8]))
+    defined_tokens = set(re.findall(r"(--[\w-]+)\s*:", css))
+    token_uses = css + " " + inline_styles + " " + " ".join(
+        re.findall(r"\s(?:fill|stroke|stop-color|color)\s*=\s*[\"']([^\"']*)[\"']", body_markup, flags=re.I))
+    undefined = sorted({u for u in re.findall(r"var\(\s*(--[\w-]+)\s*\)", token_uses) if u not in defined_tokens})
+    if undefined:
+        violation("hard", "undefined_token", len(undefined),
+                  "These color tokens are used but never defined, so the browser falls back to black or transparent (in dark "
+                  "mode, black text on a dark page): %s. Use the reference stylesheet's tokens, such as --ink for text."
+                  % ", ".join(undefined[:5]))
+    # Scripts: a page may only carry the scripts of the component files next to the template, unchanged, so what runs
+    # in a reader's browser is code that was reviewed once, not code an agent wrote for this page.
+    comp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "components")
+    squash = lambda t: re.sub(r"\s+", " ", t).strip()
+    page_scripts = [squash(b) for b in re.findall(r"<script\b[^>]*>(.*?)</script>", s, flags=re.S | re.I) if squash(b)]
+    if os.path.isdir(comp_dir):
+        allowed = set()
+        for name in sorted(os.listdir(comp_dir)):
+            if name.endswith(".html"):
+                with open(os.path.join(comp_dir, name), encoding="utf-8") as fh:
+                    text = re.sub(r"<!--.*?-->", "", fh.read(), flags=re.S)   # the header comment names <script> too
+                    allowed.update(squash(b) for b in re.findall(r"<script>(.*?)</script>", text, flags=re.S) if squash(b))
+        foreign = [b for b in page_scripts if b not in allowed]
+        if foreign:
+            violation("hard", "script_not_from_reference", len(foreign),
+                      "%d inline script(s) are not one of the component scripts (templates/components/*.html). Copy a "
+                      "component's <script> unchanged, or drop the script; the page must read fully without it. First one "
+                      "starts: %s" % (len(foreign), foreign[0][:80]))
+    elif page_scripts:
+        warning("scripts_not_checked", "The components folder was not found next to the template, so the page's scripts "
+                "were not compared with the component scripts.")
+    missing_cls = [mk for mk in (".g.measured", ".g.read", ".g.inferred", ".tk-kw", ".tk-str", ".tk-com", ".tk-num") if mk not in css]
+    if missing_cls:
+        violation("hard", "reference_style_missing", len(missing_cls),
+                  "The page lacks the reference stylesheet's rules for %s. Copy the whole block of html-explainer-style.css "
+                  "into the page's <style> element." % ", ".join(missing_cls))
+    plain_pre = [b for b in re.findall(r"<pre\b[^>]*>(.*?)</pre>", s, flags=re.S | re.I)
+                 if len(re.sub(r"<[^>]+>", "", b).strip()) >= 20 and not re.search(r"tk-|d-add|d-del", b)]
+    if plain_pre:
+        warning("code_not_highlighted",
+                "%d code excerpt(s) have no token colors. Wrap keywords, strings, comments and numbers in tk-kw, tk-str, "
+                "tk-com and tk-num spans." % len(plain_pre))
+
     # Raw colors: in CSS outside :root, in style attributes and in SVG color attributes, not in prose or <pre>.
     css_wo_root = re.sub(r":root[^{]*\{[^}]*\}", "", css)
     svg_values = " ".join(re.findall(r"\s(?:fill|stroke|stop-color|flood-color)\s*=\s*[\"']([^\"']*)[\"']", body_markup))
@@ -280,8 +400,7 @@ def run(path, kind, numstat_path, ref):
         if re.search(r"(?:^|\s)open(?=[\s=/]|$)", attrs, flags=re.I):
             open_details += 1
     if open_details:
-        violation("hard", "details_open_by_default", open_details,
-                  "A <details> starts open. Deep detail must be collapsed by default: remove the open attribute.")
+        warning("details_open_by_default", "A <details> starts open. Deep detail must be collapsed by default: remove the open attribute.")
 
     page_hidden = [sel for sel, body in rules
                    if any(t.strip() in ("html", "body", ":root") for t in sel.split(","))
@@ -333,8 +452,7 @@ def run(path, kind, numstat_path, ref):
     n_details = len(re.findall(r"<details\b", s, flags=re.I))
     has_toggle = bool(re.search(r"<button\b[^>]*>(?:(?!</button>).)*?(?:expand|collapse|展開|收合|全部)", s, flags=re.I | re.S)) and ".open" in s
     if n_details >= 2 and not has_toggle:
-        violation("hard", "expand_all_missing", 1,
-                  "The page has %d <details> but no Expand all / Collapse all button. Add one small button above the first <details>." % n_details)
+        warning("expand_all_missing", "The page has %d <details> but no Expand all / Collapse all button. Add one small button above the first <details>." % n_details)
 
     if not re.search(r":focus(?:-visible)?\b", css):
         violation("hard", "focus_style_missing", 1,
@@ -355,17 +473,15 @@ def run(path, kind, numstat_path, ref):
             sem_classes.update(re.findall(r"\.([\w-]+)", sel))
     sem_used = sum(len(re.findall(r'class\s*=\s*["\'][^"\']*\b%s\b' % re.escape(c), body_markup)) for c in sem_classes)
     sem_used += sum(len(re.findall(r'style\s*=\s*["\'][^"\']*var\(--%s\)' % re.escape(t), body_markup)) for t in sem_tokens)
-    if sem_used < 2:
-        violation("meaning", "semantic_color_unused", 1,
-                  "Semantic colors (ok, warn, bad) are not used on the page (%d element(s)). Use them on risk marks and on the +N and −M "
+    if sem_used < 2 and kind == "change":
+        violation("meaning", "semantic_color_unused", 1, "Semantic colors (ok, warn, bad) are not used on the page (%d element(s)). Use them on risk marks and on the +N and −M "
                   "counts, so color carries meaning, not just decoration." % sem_used)
 
     marks = len(re.findall(r"<mark\b", body_markup, flags=re.I))
     if marks == 0:
         violation("meaning", "mark_missing", 1, "No highlight. Wrap the one sentence the reader must not miss in <mark>.")
     elif marks > 3:
-        violation("meaning", "mark_overused", marks,
-                  "%d highlights; use <mark> for at most 3 sentences, otherwise nothing stands out." % marks)
+        warning("mark_overused", "%d highlights; use <mark> for at most 3 sentences, otherwise nothing stands out." % marks)
 
     grades = [g.lower() for g in re.findall(r">\s*(measured|read|inferred)\s*<", body_markup, flags=re.I)]
     if len(grades) < 3 or len(set(grades)) < 2:
@@ -373,6 +489,15 @@ def run(path, kind, numstat_path, ref):
                   "Evidence grades are missing or too few (%d label(s), %d kind(s)). Tag important claims with a small label reading measured "
                   "(you ran it), read (you read the code, with file:line) or inferred (not verified); use at least 3 labels of at least 2 kinds."
                   % (len(grades), len(set(grades))))
+
+    label_texts = [re.sub(r"<[^>]+>", "", t).strip().lower()
+                   for t in re.findall(r"<span\b[^>]*\bclass\s*=\s*[\"'](?:[^\"']*\s)?g(?:\s[^\"']*)?[\"'][^>]*>(.*?)</span>",
+                                       body_markup, flags=re.S | re.I)]
+    misused = sorted({t for t in label_texts if t not in ("measured", "read", "inferred")})
+    if misused:
+        violation("meaning", "grade_label_misused", len(misused),
+                  "Evidence labels (class g) must read measured, read or inferred; found: %s. Show a risk level with the "
+                  "classes ok, warn and bad instead." % ", ".join(misused[:5]))
 
     # ------------------------------------------------------------ avoid list
     bars = []
@@ -424,6 +549,7 @@ def run(path, kind, numstat_path, ref):
 
     # ------------------------------------------------------------ content floor
     info = {"bytes": len(s.encode("utf-8")), "details": n_details, "emoji": emoji, "visible_words": len(visible.split()), "lang": lang}
+    info["background_lightness"] = palette_info
     skipped_for_language = []
 
     if kind == "change":
@@ -477,6 +603,22 @@ def run(path, kind, numstat_path, ref):
             violation("floor", "files_without_counts", len(no_counts),
                       "These files are named without their line counts as +N −M next to the name: %s." % ", ".join(no_counts[:5]))
 
+        tot_add = sum(i["added"] or 0 for i in numstat)
+        tot_rem = sum(i["removed"] or 0 for i in numstat)
+        bad_totals = []
+        for mm in re.finditer(r"(\d+)\s+(?:changed\s+)?files?\b[^.]{0,40}?(\d[\d,]*)\s+(added|new|inserted|removed|deleted)\s+lines?",
+                              visible_n, flags=re.I):
+            nf, n, what = int(mm.group(1)), int(mm.group(2).replace(",", "")), mm.group(3).lower()
+            want = tot_rem if what in ("removed", "deleted") else tot_add
+            if nf != len(numstat) or n != want:
+                bad_totals.append("'%s' (the diff has %d files, +%d -%d)" % (mm.group(0), len(numstat), tot_add, tot_rem))
+        if bad_totals:
+            violation("floor", "totals_mismatch", len(bad_totals),
+                      "The page states totals the diff does not match: %s." % "; ".join(bad_totals[:3]))
+        if not re.search(r"\bd-(?:add|del)\b", s):
+            warning("diff_excerpt_missing", "The page shows no diff excerpt. Show the key lines of the change as added and "
+                    "removed lines with the code-diff component (components/code-diff.html next to the template).")
+
         if non_en:
             skipped_for_language += ["required topics", "review-focus list", "risk marks"]
         else:
@@ -491,11 +633,10 @@ def run(path, kind, numstat_path, ref):
             }
             missing = [k for k, pat in topics.items() if not re.search(pat, visible, flags=re.I)]
             if missing:
-                violation("floor", "topics_missing", len(missing), "The page does not cover: %s." % ", ".join(missing))
+                warning("topics_missing", "The page does not cover: %s." % ", ".join(missing))
 
             if not re.search(r"where to focus|review focus|check first|start here|focus your review|what to review", visible, flags=re.I):
-                violation("floor", "focus_list_missing", 1,
-                          "No review-focus list. Add an ordered 'Where to focus' list: what a reviewer should check first, each item naming the file and why.")
+                warning("focus_list_missing", "No review-focus list. Add an ordered 'Where to focus' list: what a reviewer should check first, each item naming the file and why.")
 
             risk_words = r"\b(low|worth a look|needs attention|high|medium|critical)\b"
             marked = 0
@@ -509,20 +650,17 @@ def run(path, kind, numstat_path, ref):
             info["files_total"] = len(numstat)
             grouped_low = bool(re.search(r"low[- ]risk", visible, flags=re.I))
             if numstat and marked < (len(numstat) + 1) // 2 and not grouped_low:
-                violation("floor", "risk_marks_missing", 1,
-                          "Only %d of %d changed files carry a risk level. Mark each file low, worth a look, or needs attention on its row, "
+                warning("risk_marks_missing", "Only %d of %d changed files carry a risk level. Mark each file low, worth a look, or needs attention on its row, "
                           "or group the rest under a heading such as 'Low risk (8 files)'." % (marked, len(numstat)))
     else:
         if not re.search(r"<pre\b", s, flags=re.I):
-            violation("floor", "evidence_missing", 1,
-                      "No code excerpt. A state explainer needs an evidence section: the commands run, the key commits and the code excerpts (in <pre>).")
+            warning("evidence_missing", "No code excerpt. A state explainer needs an evidence section: the commands run, the key commits and the code excerpts (in <pre>).")
 
     if kind == "change":
         if non_en:
             skipped_for_language.append("how-to-verify section")
         elif not any(re.search(r"how to verify|test plan|how to check|verification", h, flags=re.I) for h in heads):
-            violation("floor", "how_to_verify_missing", 1,
-                      "No how-to-verify section. Add a section headed 'How to verify' listing the commands the reader should run, since you did not run everything.")
+            warning("how_to_verify_missing", "No how-to-verify section. Add a section headed 'How to verify' listing the commands the reader should run, since you did not run everything.")
 
     if non_en:
         skipped_for_language.append("what-was-not-verified statement")
@@ -572,6 +710,84 @@ def run(path, kind, numstat_path, ref):
     elif ref_state == "none":
         tracked = git("ls-files", "--full-name").stdout.split("\n")
 
+    # Diff excerpts quote the change verbatim: each added (d-add) or removed (d-del) line on the page must be a line
+    # that git diff <base>...<ref> adds or removes. Spacing may differ; wording may not. Needs a usable --ref.
+    def d_spans(body):
+        """(kind, text) for every d-add, d-del and d-ctx line span in a block of markup, in order; spans may nest."""
+        found = []
+        for m in re.finditer(r"<span\b[^>]*\bclass\s*=\s*[\"'](?:[^\"']*\s)?(d-add|d-del|d-ctx)(?:\s[^\"']*)?[\"'][^>]*>",
+                             body, flags=re.I):
+            depth, j = 1, m.end()
+            while depth and j < len(body):
+                o, c = body.find("<span", j), body.find("</span>", j)
+                if c < 0:
+                    break
+                if 0 <= o < c:
+                    depth, j = depth + 1, o + 5
+                else:
+                    depth, j = depth - 1, c + 7
+            text = re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", "", body[m.end():j - 7]))).strip()
+            found.append((m.group(1).lower(), text))
+        return found
+
+    diff_blocks = [b for b in (d_spans(pm.group(1)) for pm in re.finditer(r"<pre\b[^>]*>(.*?)</pre>", s, flags=re.S | re.I)) if b]
+    diff_lines = [(k, t) for b in diff_blocks for k, t in b if k != "d-ctx" and t]
+    if kind == "change" and diff_lines and ref_state == "ok":
+        base_ref = base_branch
+        if not base_ref:
+            # the base classify-target.sh would pick: develop or main, whichever the ref is fewer commits ahead of
+            # (a tie keeps develop), so a stale develop never stands in for main; master only when neither exists
+            best = None
+            for order, cand in enumerate(("develop", "main", "master")):
+                if cand == "master" and best is not None:
+                    break
+                if git("rev-parse", "--verify", "--quiet", cand + "^{commit}").returncode != 0:
+                    continue
+                n = git("rev-list", "--count", "%s..%s" % (cand, ref)).stdout.strip()
+                key = (int(n) if n.isdigit() else 10 ** 9, order)
+                if best is None or key < best[0]:
+                    best = (key, cand)
+            base_ref = best[1] if best else ""
+        same = base_ref and git("rev-parse", base_ref + "^{commit}").stdout.strip() == git("rev-parse", ref + "^{commit}").stdout.strip()
+        if not base_ref:
+            warning("diff_lines_unchecked", "No base branch (develop or main) was found and --base was not given, so the "
+                    "diff excerpt's lines were not compared with the change.")
+        elif not same:
+            out = git("-c", "core.quotepath=off", "diff", "-U0", "--no-color", "%s...%s" % (base_ref, ref)).stdout.split("\n")
+            squash_line = lambda t: re.sub(r"\s+", " ", t).strip()
+            added = {squash_line(l[1:]) for l in out if l.startswith("+") and not l.startswith("+++")}
+            removed = {squash_line(l[1:]) for l in out if l.startswith("-") and not l.startswith("---")}
+            wrong = ["%s '%s'" % ("+" if k == "d-add" else "-", t[:60]) for k, t in diff_lines
+                     if t not in (added if k == "d-add" else removed)]
+            # runs: lines one hunk adds (or removes) one after another; with -U0 a hunk header ends a run
+            pairs = {"d-add": set(), "d-del": set()}
+            run = {"d-add": [], "d-del": []}
+            for line in out + ["@@"]:
+                if line.startswith("@@") or line.startswith("diff "):
+                    for k in run:
+                        pairs[k].update(zip(run[k], run[k][1:]))
+                        run[k] = []
+                elif line.startswith("+") and not line.startswith("+++"):
+                    run["d-add"].append(squash_line(line[1:]))
+                elif line.startswith("-") and not line.startswith("---"):
+                    run["d-del"].append(squash_line(line[1:]))
+            apart = []
+            for block in diff_blocks:
+                for (k1, t1), (k2, t2) in zip(block, block[1:]):
+                    if k1 == k2 and k1 in pairs and t1 in (added if k1 == "d-add" else removed) \
+                            and t2 in (added if k1 == "d-add" else removed) and (t1, t2) not in pairs[k1]:
+                        apart.append("%s '%s' then '%s'" % ("+" if k1 == "d-add" else "-", t1[:40], t2[:40]))
+            if apart:
+                violation("floor", "diff_lines_not_adjacent", len(apart),
+                          "These diff lines sit next to each other on the page but not in git diff %s...%s: %s. Show the "
+                          "lines between them, or put a d-ctx line reading '…' between them to mark the gap."
+                          % (base_ref, ref, "; ".join(apart[:3])))
+            if wrong:
+                violation("floor", "diff_lines_not_in_diff", len(wrong),
+                          "These diff lines are not lines that git diff %s...%s %s: %s. Copy lines verbatim from the diff, "
+                          "mark skipped lines with a '…' context line, and never mark your own comment as added."
+                          % (base_ref, ref, "adds or removes", "; ".join(wrong[:4])))
+
     resolved = len(anchors)
     if tracked is not None:
         resolved, bad_anchors, unknown = 0, [], []
@@ -599,14 +815,12 @@ def run(path, kind, numstat_path, ref):
             violation("floor", "anchors_invalid", len(bad_anchors),
                       "These file:line anchors point past the end of the file: %s." % ", ".join(bad_anchors[:5]))
     if kind == "state" and resolved < 2:
-        violation("floor", "anchors_missing", 1,
-                  "A state explainer must cite file:line anchors (at least 2) for the code it explains, in files that exist.")
+        warning("anchors_missing", "A state explainer must cite file:line anchors (at least 2) for the code it explains, in files that exist.")
 
     link_ids = set(re.findall(r'\bid\s*=\s*"([^"]+)"', s))
     working_links = {h for h in re.findall(r'<a\b[^>]*\shref\s*=\s*"#([^"]+)"', s) if h in link_ids}
     if h_heads >= 4 and len(working_links) < 3:
-        violation("floor", "jump_links_missing", 1,
-                  "The page has %d headings but fewer than 3 working jump links. Add a small nav of #links to the main sections (each with an id)." % h_heads)
+        warning("jump_links_missing", "The page has %d headings but fewer than 3 working jump links. Add a small nav of #links to the main sections (each with an id)." % h_heads)
 
     # commit hashes: only ones in code or next to a word like commit/sha/fixed in; they must exist in the repository
     def is_hash(t):
@@ -646,7 +860,8 @@ def main():
     try:
         path, kind, numstat_path = sys.argv[1], sys.argv[2], sys.argv[3]
         ref = sys.argv[4] if len(sys.argv) > 4 else ""
-        report = run(path, kind, numstat_path, ref)
+        base = sys.argv[5] if len(sys.argv) > 5 else ""
+        report = run(path, kind, numstat_path, ref, base)
     except SystemExit:
         raise
     except Exception as e:  # the checker is broken, which is not the same as the page having violations

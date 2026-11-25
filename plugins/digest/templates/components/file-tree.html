@@ -1,0 +1,30 @@
+<!-- component: file-tree
+     use when: a change touches many files (about ten or more) or files in several folders; the tree shows where the
+           change sits. Each file still carries +N −M and its risk, so the page can drop the flat file table.
+     copy: the <style> rules into the page's <style>; the markup with your own folders and files. A folder is
+           li > span.dir followed by a nested ul; a file is li > code with its counts and risk after it.
+     without JS: works as is; there is no script. -->
+<style>
+ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 1.2rem; }
+ul.tree { padding-left: 0; margin: .8rem 0; font-family: ui-monospace, Menlo, monospace; font-size: .85rem; line-height: 1.75; }
+ul.tree li { margin: 0; }
+ul.tree .dir { color: var(--muted); }
+ul.tree .dir::after { content: "/"; }
+ul.tree code { font-size: inherit; }
+ul.tree .n { margin-left: .7rem; font-variant-numeric: tabular-nums; }
+ul.tree .risk { margin-left: .7rem; font-family: system-ui, sans-serif; font-size: .8rem; }
+</style>
+
+<ul class="tree">
+  <li><span class="dir">plugins/interview-case</span>
+    <ul>
+      <li><span class="dir">commands</span>
+        <ul><li><code>case.md</code><span class="n"><span class="ok">+134</span> <span class="bad">−0</span></span><span class="risk warn">worth a look</span></li></ul>
+      </li>
+      <li><code>README.md</code><span class="n"><span class="ok">+58</span> <span class="bad">−0</span></span><span class="risk ok">low</span></li>
+    </ul>
+  </li>
+</ul>
+
+<script>
+</script>

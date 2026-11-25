@@ -1,0 +1,26 @@
+<!-- component: expand-all
+     use when: the page has two or more <details>.
+     copy: the markup above the first <details>; the <script> unchanged before </body>. No extra CSS: the button uses
+           button.toggle from the core stylesheet.
+     labels: the button's own text is the expand label, data-collapse the collapse label; write both in the page's
+           language. The script holds no text, so it stays unchanged in any language.
+     without JS: the button stays hidden and every <details> still opens on its own. -->
+<style>
+</style>
+
+<button type="button" class="toggle" data-expand-all data-collapse="Collapse all" aria-expanded="false" hidden>Expand all</button>
+
+<script>
+(function () {
+  var b = document.querySelector("[data-expand-all]");
+  if (!b) return;
+  var expandText = b.textContent, collapseText = b.getAttribute("data-collapse") || expandText;
+  b.hidden = false;
+  b.addEventListener("click", function () {
+    var open = b.getAttribute("aria-expanded") !== "true";
+    document.querySelectorAll("details").forEach(function (d) { d.open = open; });
+    b.setAttribute("aria-expanded", String(open));
+    b.textContent = open ? collapseText : expandText;
+  });
+})();
+</script>

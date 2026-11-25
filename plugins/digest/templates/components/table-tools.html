@@ -1,0 +1,61 @@
+<!-- component: table-tools
+     use when: a file table has more than about eight rows: zebra rows, risk filter buttons, and columns that sort
+           when their header is clicked.
+     copy: the <style> rules into the page's <style>; the markup with your own rows. Put data-risk="attn", "look" or
+           "low" on each row, data-sort="num" or "text" on a sortable header, and keep the filter bar right above the
+           table's .scroll container; the <script> unchanged before </body>.
+     without JS: the filter bar stays hidden, every row shows, and the headers do not sort or show arrows. -->
+<style>
+table.zebra tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel) 60%, var(--bg)); }
+.filters { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0 0; }
+.filters button { font: inherit; font-size: .8rem; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: .1rem .75rem; cursor: pointer; }
+.filters button[aria-pressed="true"] { background: var(--panel); border-color: var(--accent); }
+table.sort-on th[data-sort] { cursor: pointer; }
+table.sort-on th[data-sort]::after { content: " ↕"; color: var(--muted); }
+</style>
+
+<div class="filters" data-filters hidden><button type="button" data-risk="all" aria-pressed="true">All</button><button type="button" data-risk="attn" aria-pressed="false">Needs attention</button><button type="button" data-risk="look" aria-pressed="false">Worth a look</button><button type="button" data-risk="low" aria-pressed="false">Low</button></div>
+<div class="scroll"><table class="zebra" data-tools>
+  <thead><tr><th data-sort="text">File</th><th class="num" data-sort="num">Added</th><th class="num" data-sort="num">Removed</th><th>Risk</th></tr></thead>
+  <tbody>
+    <tr data-risk="look"><td><code>commands/case.md</code></td><td class="num ok">+134</td><td class="num">−0</td><td class="warn">worth a look</td></tr>
+    <tr data-risk="low"><td><code>README.md</code></td><td class="num ok">+58</td><td class="num">−0</td><td class="ok">low</td></tr>
+    <tr data-risk="low"><td><code>marketplace.json</code></td><td class="num ok">+23</td><td class="num">−0</td><td class="ok">low</td></tr>
+  </tbody>
+</table></div>
+
+<script>
+(function () {
+  document.querySelectorAll("table[data-tools]").forEach(function (table) {
+    var body = table.tBodies[0];
+    var scroll = table.closest(".scroll") || table;
+    var bar = scroll.previousElementSibling;
+    if (bar && bar.hasAttribute("data-filters")) {
+      bar.hidden = false;
+      bar.querySelectorAll("button[data-risk]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var want = btn.getAttribute("data-risk");
+          bar.querySelectorAll("button[data-risk]").forEach(function (o) { o.setAttribute("aria-pressed", String(o === btn)); });
+          Array.prototype.forEach.call(body.rows, function (r) { r.hidden = want !== "all" && r.getAttribute("data-risk") !== want; });
+        });
+      });
+    }
+    table.classList.add("sort-on");
+    Array.prototype.forEach.call(table.tHead.rows[0].cells, function (th, col) {
+      var kind = th.getAttribute("data-sort");
+      if (!kind) return;
+      var asc = false;
+      th.addEventListener("click", function () {
+        asc = !asc;
+        var rows = Array.prototype.slice.call(body.rows);
+        rows.sort(function (a, b) {
+          var x = a.cells[col].textContent.trim(), y = b.cells[col].textContent.trim();
+          if (kind === "num") { x = parseFloat(x.replace(/[^\d.]/g, "")) || 0; y = parseFloat(y.replace(/[^\d.]/g, "")) || 0; }
+          return (x > y ? 1 : x < y ? -1 : 0) * (asc ? 1 : -1);
+        });
+        rows.forEach(function (r) { body.appendChild(r); });
+      });
+    });
+  });
+})();
+</script>

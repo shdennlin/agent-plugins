@@ -1,0 +1,25 @@
+<!-- component: code-diff
+     use when: a code excerpt shows what a change did; the best excerpt for a branch or PR.
+     copy: the <style> rules into the page's <style>; the markup with your own lines. One span per line, with NO newline
+           between spans (a newline between block spans adds an empty line). d-add is an added line, d-del a removed
+           line, d-ctx an unchanged one. Token spans (tk-kw, tk-str, tk-com, tk-num) may go inside a line.
+     verbatim: copy every added or removed line exactly as git diff <base>...<ref> shows it; only leading and repeated
+           spaces may differ. Do not shorten, reword or fix a line. Mark skipped lines with a d-ctx line reading "…".
+           Never mark a comment of your own as added: say it in the text around the block. The checker compares each
+           d-add and d-del line with the diff and fails the page when one is not there, or when two lines shown back
+           to back are not next to each other in the diff and no "…" line sits between them.
+     without JS: works as is; there is no script. The + and − markers are not copied with the text. -->
+<style>
+pre.diff { padding-left: 0; padding-right: 0; }
+pre.diff .d-add, pre.diff .d-del, pre.diff .d-ctx { display: block; padding: 0 1rem; }
+pre.diff .d-add { background: var(--add-bg); }
+pre.diff .d-del { background: var(--del-bg); }
+pre.diff .d-add::before { content: "+ "; color: var(--ok); font-weight: 700; }
+pre.diff .d-del::before { content: "− "; color: var(--bad); font-weight: 700; }
+pre.diff .d-ctx::before { content: "  "; }
+</style>
+
+<pre class="diff"><code><span class="d-ctx"><span class="tk-kw">if</span> [ -e <span class="tk-str">"$target"</span> ]; <span class="tk-kw">then</span></span><span class="d-del">  kind=<span class="tk-str">file</span></span><span class="d-add">  kind=<span class="tk-str">file</span>; depth=<span class="tk-num">2</span></span><span class="d-ctx">…</span><span class="d-ctx"><span class="tk-kw">fi</span></span></code></pre>
+
+<script>
+</script>

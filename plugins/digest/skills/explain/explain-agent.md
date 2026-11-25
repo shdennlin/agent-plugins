@@ -13,6 +13,7 @@ You will receive:
 - **HTML template path**: absolute path to the shared visual spec (in Codex, read `../../templates/html-explainer.md` relative to this skill directory instead)
 - **Checker script path** (`html` output only): in Codex, `../../scripts/check-explainer.sh` relative to this skill directory
 - **Render checker path** (`html` output only, optional): in Codex, `../../scripts/check-render.sh` relative to this skill directory
+- The reference stylesheet and the component files sit next to the template: `html-explainer-style.css` and `components/` (in Codex, `../../templates/html-explainer-style.css` and `../../templates/components/`)
 - **Output slug**: filename slug for the output
 
 ## Audience Calibration
@@ -78,7 +79,7 @@ cd "$PROJECT_ROOT" && git show --no-patch --format=full <hash>        # read the
 
 ### Step 4: Build the HTML Explainer
 
-**First**: Read the visual spec at the **HTML template path** and write the page to it: its constraints, content floor and avoid list; the form is yours. If it cannot be read, still honor the hard constraints: zero external requests, inline SVG only (no Mermaid), default-collapsed `<details>` with an Expand all button, `prefers-color-scheme` dark/light.
+**First**: Read the visual spec at the **HTML template path** and write the page to it: its must-hold rules, what the page must say, and the avoid list; the form is yours. Copy the reference stylesheet `html-explainer-style.css`, which sits next to the template, into the page's `<style>` unchanged, then add only what the page needs. The template lists ready-made parts in the `components/` folder next to it; read only the files you will use, copy their CSS and script unchanged, and change only their text. For a change target, show the key lines in the `code-diff` component, copied verbatim from the diff. If it cannot be read, still honor the hard constraints: zero external requests, inline SVG only (no Mermaid), default-collapsed `<details>` with an Expand all button, `prefers-color-scheme` dark/light.
 
 **Ideas by question type** (suggestions, not a required list; the conclusion comes first and the evidence is always present):
 
@@ -95,9 +96,11 @@ Calibrate all prose to the **Audience**; write in English unless the user asked 
 
 ### Step 4b: Check the explainer (`html` output only)
 
-Run the checker on the file with the **Checker script path**. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git -c core.quotepath=off diff --numstat <Base>...<target>`; for `pr`, `gh api --paginate "repos/{owner}/{repo}/pulls/<N>/files" -q '.[] | [.additions, .deletions, .filename] | @tsv'` (not `gh pr view --json files`, which stops at 100 files). Then run `<checker> <file.html> --numstat <that file> --ref <target>`, where `<target>` is the branch name, `HEAD` for `current-branch`, or `refs/pull/<N>/head` for a `pr`: anchors and hashes are then checked against the code the page explains, not the checked-out files, and skipped with a warning if that ref is not available locally. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
+Run the checker on the file with the **Checker script path**. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git -c core.quotepath=off diff --numstat <Base>...<target>`; for `pr`, `gh api --paginate "repos/{owner}/{repo}/pulls/<N>/files" -q '.[] | [.additions, .deletions, .filename] | @tsv'` (not `gh pr view --json files`, which stops at 100 files). Then run `<checker> <file.html> --numstat <that file> --ref <target> --base <Base>`, where `<target>` is the branch name, `HEAD` for `current-branch`, or `refs/pull/<N>/head` for a `pr`, and `<Base>` is the **Base** input (leave `--base` out when it is empty; the checker then picks develop or main): anchors and hashes are then checked against the code the page explains, not the checked-out files, and skipped with a warning if that ref is not available locally, and every added or removed line in a diff excerpt must be a line of `git diff <Base>...<target>`, next to each other there when they are shown next to each other. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
 
 The checker prints JSON with a `violations` list, each with an `id` and a `message`. Fix the page for every violation and run it again, at most two fix rounds. If violations remain, add one line to your report naming them; never call the page clean without a clean run. If the checker cannot run (exit code 3: python3 missing) or fails itself (exit code 5), say so in the report; exit code 5 says nothing about the page.
+
+The JSON also has a `warnings` list. Warnings never fail the page; they are notes. Weigh each one: act on it when it would help the reader (a missing diff excerpt, an Expand all button for several `<details>`, jump links on a long page), leave it when it would not, and name in your report each warning you left, with a few words on why.
 
 Then, if a render checker path was given, run `<render checker> <file.html>`: it renders the page at 400px and reports horizontal overflow the static checker cannot see. Fix what it names (let long paths wrap, put wide content in an `overflow-x: auto` container) and run it again, at most two rounds. Exit code 4 means no browser is installed and exit code 5 means the render itself failed; either way say in the report that the render was not checked.
 

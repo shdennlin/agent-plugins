@@ -1,0 +1,25 @@
+<!-- component: callouts
+     use when: one point needs to stand apart from the text: a note, a risk, or a tip. Use few; a page full of
+           callouts has none.
+     copy: the <style> rules into the page's <style>; the markup at the top level of the page or of a section, never
+           inside .summary, .unverified or another callout (that is a card inside a card). The full colored border is
+           allowed; a colored bar on one edge is not.
+     without JS: works as is; there is no script. -->
+<style>
+.callout { border: 1px solid var(--line); background: var(--panel); border-radius: .5rem; padding: .75rem 1rem; margin: 1rem 0; }
+.callout p { margin: 0; }
+.callout .callout-title { display: block; font-weight: 700; font-size: .85rem; letter-spacing: .03em; margin-bottom: .2rem; }
+.callout.note { border-color: var(--accent); }
+.callout.note .callout-title { color: var(--accent); }
+.callout.risk { border-color: var(--bad); }
+.callout.risk .callout-title { color: var(--bad); }
+.callout.tip { border-color: var(--ok); }
+.callout.tip .callout-title { color: var(--ok); }
+</style>
+
+<div class="callout risk"><span class="callout-title">Risk</span><p>"Never writes a file" rests on instruction, because <code>Bash</code> is allowed.</p></div>
+<div class="callout note"><span class="callout-title">Note</span><p>The gate is prompt text, not code, so its strictness depends on the model.</p></div>
+<div class="callout tip"><span class="callout-title">Tip</span><p>Run the validator and read its text; it exits 0 even on failure.</p></div>
+
+<script>
+</script>

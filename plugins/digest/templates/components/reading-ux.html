@@ -1,0 +1,31 @@
+<!-- component: reading-ux
+     use when: the page is long (more than about four screens): a reading-progress bar at the top, a "Top" link in the
+           corner, and a # link next to each section heading that can be copied as a link to that section.
+     copy: the <style> rules into the page's <style>; the progress div and the Top link right after <body>; id="top" on
+           the <h1>; an <a class="anchor" href="#ID">#</a> inside each <h2 id="ID">; the <script> unchanged before </body>.
+     without JS: the progress bar stays hidden; the Top link and the # links work as plain links. -->
+<style>
+.progress { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--accent); z-index: 20; }
+a.to-top { position: fixed; right: 1rem; bottom: 1rem; z-index: 20; font-size: .82rem; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: .25rem .8rem; text-decoration: none; }
+h2 a.anchor { margin-left: .45rem; color: var(--muted); text-decoration: none; font-weight: 400; opacity: 0; }
+h2:hover a.anchor, h2 a.anchor:focus-visible { opacity: 1; }
+</style>
+
+<div class="progress" data-progress hidden></div>
+<a class="to-top" href="#top">Top</a>
+<h2 id="example-section">Example section<a class="anchor" href="#example-section">#</a></h2>
+
+<script>
+(function () {
+  var bar = document.querySelector("[data-progress]");
+  if (!bar) return;
+  bar.hidden = false;
+  function update() {
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (h > 0 ? Math.min(100, window.scrollY / h * 100) : 100) + "%";
+  }
+  window.addEventListener("scroll", update, { passive: true });
+  window.addEventListener("resize", update);
+  update();
+})();
+</script>
