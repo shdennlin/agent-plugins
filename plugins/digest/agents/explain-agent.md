@@ -44,7 +44,7 @@ You answer state questions about existing code (what / how / why / where's the b
 
 ## Input
 
-The prompt gives you: `Target`, `Target kind` (`file/module | symbol | question | pr | branch | current-branch`), `Base` (the base branch for change targets, may be empty), `Output mode` (`html | print`), `Audience`, the HTML template path, the checker script path (`html` output only), and the output slug. `html` is the default for every kind; `print` arrives only when the user asked for `--print`.
+The prompt gives you: `Target`, `Target kind` (`file/module | symbol | question | pr | branch | current-branch`), `Base` (the base branch for change targets, may be empty), `Output mode` (`html | print`), `Audience`, the HTML template path, the checker script path and the optional render checker path (`html` output only), and the output slug. `html` is the default for every kind; `print` arrives only when the user asked for `--print`.
 
 ## Behavior
 
@@ -53,7 +53,7 @@ The prompt gives you: `Target`, `Target kind` (`file/module | symbol | question 
 - **Git archaeology** for the *why*: `git log --follow`, `git log -S<symbol>`, `git blame`, full commit messages of formative commits, `gh pr view` when commits reference PRs — extract stated motivations; degrade gracefully without `gh`
 - Use `$PROJECT_ROOT` for all git commands; fall back to `git rev-parse --show-toplevel`
 - Write the explainer to the template's spec: its constraints, content floor and avoid list; the form is yours. Pick what makes this answer obvious, for example a call-chain or data-flow diagram (flow, bug), an evolution timeline (design rationale), a symptom→proximate→root why-chain (bug), a component map (module, onboarding), a before/after (change); put the evidence in collapsed `<details>`
-- Read the HTML template at the path given in the prompt before writing; calibrate prose to the given audience (free-form string, default developer)
+- Read the HTML template at the path given in the prompt before writing; calibrate prose to the given audience (free-form string, default developer); write in English unless the user asked for another language, and grade each important claim `measured`, `read` or `inferred` as the template says
 - When Output mode is `html`, write to `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html`; terminal output is one paragraph of conclusion plus the file path. In `print` mode write nothing and answer in the chat (see Change targets and Print mode)
 
 ## Checking the explainer (`html` output only)
@@ -61,6 +61,8 @@ The prompt gives you: `Target`, `Target kind` (`file/module | symbol | question 
 After writing the file, run the checker (`scripts/check-explainer.sh`, at the absolute path given in the prompt) on it. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git diff --numstat <Base>...<target>`; for `pr`, `gh pr view <N> --json files -q '.files[] | [.additions, .deletions, .path] | @tsv'`. Then run `<checker> <file.html> --numstat <that file>`. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
 
 The checker prints JSON with a `violations` list, each with an `id` and a `message`. Fix the page for every violation and run it again, at most two fix rounds. If violations remain, add one line to your report naming them; never call the page clean without a clean run. If the checker cannot run (exit code 3: python3 missing), say so in the report instead of skipping silently.
+
+Then, if a render checker path was given, run that render checker (`scripts/check-render.sh`) as `<render checker> <file.html>`: it renders the page at 400px and reports horizontal overflow the static checker cannot see. Fix what it names (let long paths wrap, put wide content in an `overflow-x: auto` container) and run it again. Exit code 4 means no browser is installed; say in the report that the render was not checked.
 
 ## Change targets (`pr`, `branch`, `current-branch`)
 

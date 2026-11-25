@@ -12,6 +12,7 @@ You will receive:
 - **Audience**: a free-form audience string (default: `developer`)
 - **HTML template path**: absolute path to the shared visual spec (in Codex, read `../../templates/html-explainer.md` relative to this skill directory instead)
 - **Checker script path** (`html` output only): in Codex, `../../scripts/check-explainer.sh` relative to this skill directory
+- **Render checker path** (`html` output only, optional): in Codex, `../../scripts/check-render.sh` relative to this skill directory
 - **Output slug**: filename slug for the output
 
 ## Audience Calibration
@@ -90,13 +91,15 @@ cd "$PROJECT_ROOT" && git show --no-patch --format=full <hash>        # read the
 | Before / after | changes |
 | Evidence in collapsed `<details>` (commands run, key commits by short hash, code excerpts) | always |
 
-Calibrate all prose to the **Audience**. Write the file to `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html` using the Write tool.
+Calibrate all prose to the **Audience**; write in English unless the user asked for another language, and grade each important claim `measured`, `read` or `inferred` as the template says. Write the file to `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html` using the Write tool.
 
 ### Step 4b: Check the explainer (`html` output only)
 
 Run the checker on the file with the **Checker script path**. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git diff --numstat <Base>...<target>`; for `pr`, `gh pr view <N> --json files -q '.files[] | [.additions, .deletions, .path] | @tsv'`. Then run `<checker> <file.html> --numstat <that file>`. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
 
 The checker prints JSON with a `violations` list, each with an `id` and a `message`. Fix the page for every violation and run it again, at most two fix rounds. If violations remain, add one line to your report naming them; never call the page clean without a clean run. If the checker cannot run (exit code 3: python3 missing), say so in the report.
+
+Then, if a render checker path was given, run `<render checker> <file.html>`: it renders the page at 400px and reports horizontal overflow the static checker cannot see. Fix what it names (let long paths wrap, put wide content in an `overflow-x: auto` container) and run it again. Exit code 4 means no browser is installed; say in the report that the render was not checked.
 
 ### Step 5: Terminal Output
 

@@ -123,4 +123,20 @@ grep -q -i 'for a change, how risky' "$TEMPLATE" || fail "rule 4 must ask for ri
 grep -q -i 'earns its place' "$TEMPLATE" || fail "template must say a diagram earns its place"
 grep -q -i 'inline `code`' "$TEMPLATE" && grep -q -i 'allowed to wrap' "$TEMPLATE" || fail "template must say long paths and inline code are allowed to wrap"
 
+# 17. The template says what color, highlight and evidence grades mean, what every page must contain, and
+#     that the language defaults to English; the checker and the render check are named where they are used.
+for needle in '`--ok`' '<mark>' 'weakest link' 'What I did not verify' 'How to verify' 'jump links' ':focus-visible' \
+              'color-scheme' 'English unless' 'tabular-nums' 'text-wrap' 'check-render.sh' '`measured`' '`inferred`'; do
+  grep -q -F -- "$needle" "$TEMPLATE" || fail "template must contain '$needle'"
+done
+[[ "$(wc -l <"$TEMPLATE" | tr -d ' ')" -lt 80 ]] || fail "template should stay under 80 lines, it has $(wc -l <"$TEMPLATE" | tr -d ' ')"
+for f in "$AGENT" "$CODEX"; do
+  grep -q 'check-render.sh' "$f" || fail "$f must mention the optional render check"
+  grep -q 'English unless' "$f" || fail "$f must say pages are in English unless the user asked otherwise"
+  grep -q '`measured`' "$f" || fail "$f must ask for evidence grades"
+done
+grep -q 'check-render.sh' "$CMD" || fail "the command must pass on and mention the render checker"
+grep -q 'check-render.sh' "$SKILL" || fail "SKILL.md must mention the render checker"
+grep -q 'check-render.sh' "$README" && grep -q -i 'chrome' "$README" || fail "README must mention the render check and that Chrome is optional"
+
 echo "ok: explain-docs"

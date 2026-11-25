@@ -214,7 +214,7 @@ A single self-contained HTML file — zero external requests, inline SVG diagram
 
 For a change target (`#PR`, branch, current branch) the page accounts for every changed file with its `+N −M`, lists where a reviewer should look first, marks each file's risk (low, worth a look, needs attention), and covers what changed and why, the impact, breaking changes and migration, design decisions, questions for the author, and downstream consumers. The layout is the model's choice; the rules it must follow (no external requests, light and dark, collapsed details with an Expand all button, no colored edge bars, no cards inside cards, at most 5 emoji) are in `templates/html-explainer.md`.
 
-Each page is checked right after it is written by `scripts/check-explainer.sh`, which reports any broken rule as JSON; the agent fixes what it reports (at most two rounds) and names whatever remains. You can run it yourself: `scripts/check-explainer.sh page.html --kind state`, or `--numstat changed.tsv` (the output of `git diff --numstat`) for a change.
+Each page is checked right after it is written by `scripts/check-explainer.sh`, which reports any broken rule as JSON; the agent fixes what it reports (at most two rounds) and names whatever remains. It also checks that color, a highlight and evidence grades (`measured`, `read`, `inferred`) are actually used, that `file:line` anchors point at real lines, and that the page says what was not verified. Pages are in English unless you ask for another language. You can run it yourself: `scripts/check-explainer.sh page.html --kind state`, or `--numstat changed.tsv` (the output of `git diff --numstat`) for a change.
 
 ## Change Type Icons
 
@@ -231,7 +231,7 @@ Each page is checked right after it is written by `scripts/check-explainer.sh`, 
 
 ## Requirements
 
-`git` and `jq` (the target classifier). `gh`, installed and logged in, only for a `#PR` target. `python3` (standard library only) for the explainer checker; without it the check is skipped and the report says so.
+`git` and `jq` (the target classifier). `gh`, installed and logged in, only for a `#PR` target. `python3` (standard library only) for the explainer checker; without it the check is skipped and the report says so. A Chrome or Chromium is optional: with one, `scripts/check-render.sh` renders each page at 400px and reports horizontal overflow, and `--shots <dir>` saves light and dark screenshots; without one the render is not checked and the report says so.
 
 ## Installation
 
