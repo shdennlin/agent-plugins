@@ -142,6 +142,20 @@ g branch develop main
 run ''
 [[ "$(field .base)" == "develop" ]] || fail "base should be develop: $OUT"
 
+# 11b. A stale develop loses to main: pick the base nearer to HEAD (fewer commits ahead).
+g checkout -q main
+echo main2 >main2.txt
+g add -A
+g commit -q -m "main moves on"
+g checkout -q feat/auth
+g merge -q --no-edit main
+run ''
+[[ "$(field .base)" == "main" ]] || fail "stale develop should lose to main: $OUT"
+g checkout -q main
+run ''
+[[ "$(field .base)" == "main" && "$(field .on_base)" == "true" ]] \
+  || fail "on main with a stale develop should still be on_base: $OUT"
+
 # 12. No develop and no main: no base, and the empty diff is reported as empty.
 g checkout -q main
 g branch -D -q develop

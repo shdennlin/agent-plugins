@@ -133,12 +133,16 @@ cd "$root"
 
 branch="$(git symbolic-ref --short -q HEAD 2>/dev/null || true)"
 
+# Base: local develop or main. When both exist, take the one nearer to HEAD (fewer commits
+# ahead of it) so a stale develop never hides that main is the real base; a tie keeps develop.
 base=""
-if git show-ref --verify --quiet refs/heads/develop; then
-  base="develop"
-elif git show-ref --verify --quiet refs/heads/main; then
-  base="main"
-fi
+best=0
+for cand in develop main; do
+  if git show-ref --verify --quiet "refs/heads/$cand"; then
+    ahead="$(git rev-list --count "$cand..HEAD" 2>/dev/null || echo 999999999)"
+    if [ -z "$base" ] || [ "$ahead" -lt "$best" ]; then base="$cand"; best="$ahead"; fi
+  fi
+done
 
 on_base=false
 if [ -n "$branch" ] && [ "$branch" = "$base" ]; then on_base=true; fi
