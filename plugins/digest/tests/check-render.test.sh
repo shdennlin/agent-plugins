@@ -78,6 +78,36 @@ for f in wide-light wide-dark narrow-light narrow-dark; do
 done
 [[ "$(printf '%s' "$OUT" | jq -r '.shots | length')" == "4" ]] || fail "the report should list 4 screenshots: $OUT"
 
+# The browser is cut off from the network: a generated page may contain script (the template allows inline
+# JS) and must not be able to reach out while it is being checked, not even to this machine.
+PORT="$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+mkdir -p srv && (cd srv && python3 -I -m http.server "$PORT" --bind 127.0.0.1 >"$TMP/requests.log" 2>&1 &) 
+SERVER_UP=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -s -o /dev/null "http://127.0.0.1:$PORT/control"; then SERVER_UP=1; break; fi
+  sleep 0.3
+done
+if [[ "$SERVER_UP" == "1" ]]; then
+  sleep 0.3
+  grep -q 'GET /control' "$TMP/requests.log" || fail "the control request was not logged, so this test cannot tell anything"
+  BEFORE="$(wc -l <"$TMP/requests.log" | tr -d ' ')"
+  cat >reaches-out.html <<EOF
+<!doctype html><html><head><meta charset="utf-8"><style>:root{color-scheme:light dark}
+@media (prefers-color-scheme: dark){:root{--x:1}}body{margin:0}</style></head><body>
+<img src="http://127.0.0.1:$PORT/probe.png"><link rel="stylesheet" href="http://127.0.0.1:$PORT/probe.css">
+<script>fetch('http://127.0.0.1:'+'$PORT'+'/fetch');new Image().src='http://127.0.0.1:'+'$PORT'+'/beacon';</script>
+<p>hello</p></body></html>
+EOF
+  run_render reaches-out.html --shots "$TMP/shots2"
+  sleep 0.5
+  AFTER="$(wc -l <"$TMP/requests.log" | tr -d ' ')"
+  pkill -f "http.server $PORT" >/dev/null 2>&1 || true
+  [[ "$AFTER" == "$BEFORE" ]] || fail "the render reached the network: $(tail -n +$((BEFORE + 1)) "$TMP/requests.log" | head -3)"
+else
+  pkill -f "http.server $PORT" >/dev/null 2>&1 || true
+  echo "note: could not start a local server, network isolation was not tested"
+fi
+
 # Usage errors and a missing browser have their own exit codes.
 run_render
 [[ "$RC" == "2" ]] || fail "no file should exit 2, got $RC"

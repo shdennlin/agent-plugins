@@ -1,7 +1,8 @@
 """Render checker. Usage: python3 -I check_render.py <file.html> <width> <shots-dir-or-empty>
 Renders the page in headless Chrome inside an iframe of exactly <width> pixels (so the browser's minimum
 window width does not matter), reads the page's own scroll width back, and prints a JSON report.
-Exit 0 fits, 1 wider than the window, 4 no Chrome found. Standard library only."""
+Exit 0 fits, 1 wider than the window, 4 no Chrome found. Standard library only.
+The browser runs with the network cut off (see ISOLATION), because the page is generated content."""
 import html
 import json
 import os
@@ -62,9 +63,25 @@ def wrapper(src, w, h, probe):
             '</body></html>' % (w, h, html.escape(src, quote=True), PROBE % w if probe else ""))
 
 
+# The page being checked is generated, may contain script, and must not reach out while it is rendered:
+# not to the internet and not to services on this machine either. The proxy points at a closed port and
+# is not bypassed for loopback, every host name fails to resolve, and the profile is a throwaway.
+ISOLATION = [
+    "--proxy-server=127.0.0.1:9",
+    "--proxy-bypass-list=<-loopback>",
+    "--host-resolver-rules=MAP * ~NOTFOUND",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-sync",
+    "--no-first-run",
+]
+
+
 def run_chrome(args):
-    return subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run"] + args,
-                          capture_output=True, text=True, timeout=120)
+    with tempfile.TemporaryDirectory() as profile:
+        return subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                               "--user-data-dir=" + profile] + ISOLATION + args,
+                              capture_output=True, text=True, timeout=120)
 
 
 def probe(src, w):
