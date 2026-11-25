@@ -22,6 +22,7 @@ seq 1 40 | sed 's/^/line /' >src/alpha.ts
 seq 1 10 | sed 's/^/line /' >src/beta.ts
 seq 1 10 | sed 's/^/line /' >src/util.ts
 echo a >a.txt
+echo g >docs/gamma.md
 git add -A
 git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m "init"
 REAL="$(git rev-parse --short=7 HEAD)"
@@ -217,8 +218,6 @@ expect_only "state page cites no file:line" anchors_missing bad.html --kind stat
 # 6b. A file:line anchor must point at a real file and a line inside it.
 good_change | sed 's|src/alpha.ts:12|src/alpha.ts:999|' >bad.html
 expect_only "anchor past the end of the file" anchors_invalid bad.html --numstat numstat.tsv
-good_change | sed 's|src/alpha.ts:12|nofile.ts:3|' >bad.html
-expect_only "anchor in a file that does not exist" anchors_invalid bad.html --numstat numstat.tsv
 good_change | sed 's|src/alpha.ts:12|src/alpha.ts:10-30|' >ok-range.html
 expect_ok "anchor with a line range" ok-range.html --numstat numstat.tsv
 good_change | sed 's|src/alpha.ts:12|alpha.ts:12|' >ok-base.html
@@ -229,14 +228,16 @@ expect_ok "times and host:port are not anchors" ok-noise.html --numstat numstat.
 # 6c. Explaining a branch that is not checked out: anchors and hashes are validated against the TARGET ref, not
 #     the working tree, and are skipped (with a warning, never a violation) when the ref is not available locally.
 good_change | sed 's|src/alpha.ts:12|src/new.ts:12|' >on-feat.html
-expect_only "anchor into a file only the target has, no --ref" anchors_invalid on-feat.html --numstat numstat.tsv
+run_check on-feat.html --numstat numstat.tsv
+[[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "unknown_anchor_files" ]] \
+  || fail "without --ref an anchor into a file the working tree lacks is a warning, never a violation: rc=$RC ids=$(ids) warns=$(warn_ids)"
 expect_ok "same anchor, validated against --ref feat/x" on-feat.html --numstat numstat.tsv --ref feat/x
 good_change | sed 's|src/alpha.ts:12|src/new.ts:999|' >bad.html
 expect_only "anchor past the end of the file on the ref" anchors_invalid bad.html --numstat numstat.tsv --ref feat/x
 run_check on-feat.html --numstat numstat.tsv --ref refs/pull/9/head
 [[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "references_unchecked" ]] \
   || fail "an unavailable ref skips reference checks with a warning: rc=$RC ids=$(ids) warns=$(warn_ids)"
-good_change | sed 's|Why: the old parser|Why: deadbe1 broke the old parser|' >hash-bad.html
+good_change | sed 's|Why: the old parser|Why: commit deadbe1 broke the old parser|' >hash-bad.html
 run_check hash-bad.html --numstat numstat.tsv --ref refs/pull/9/head
 [[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "references_unchecked" ]] \
   || fail "hashes are not judged when the ref is unavailable: rc=$RC ids=$(ids) warns=$(warn_ids)"
@@ -256,6 +257,100 @@ good_change | sed 's|<nav>.*</nav>||' >bad.html
 expect_only "no jump links" jump_links_missing bad.html --numstat numstat.tsv
 good_change | sed 's|href="#\([a-z]*\)"|href="#x\1"|g' >bad.html
 expect_only "jump links to nowhere" jump_links_missing bad.html --numstat numstat.tsv
+
+# 11. Review fixes. Paths in numstat: renames and git-quoted non-ASCII names must be matchable by an honest page.
+printf '10\t2\tsrc/alpha.ts\n0\t0\tsrc/{beta.ts => gamma2.ts}\n3\t3\tdocs/gamma.md\n' >rename.tsv
+good_change | sed 's|src/beta.ts|src/gamma2.ts|g; s|+0 −5|+0 −0|' >ok-rename.html
+expect_ok "a {old => new} rename in numstat" ok-rename.html --numstat rename.tsv
+printf '1\t1\tsrc/old.ts => src/new2.ts\n' >rename2.tsv
+collide_page '<tr><td>src/new2.ts</td><td class="n">+1 −1</td><td class="low">low</td><td>moved</td></tr>' >ok-rename2.html
+expect_ok "an old => new rename in numstat" ok-rename2.html --numstat rename2.tsv
+printf '1\t1\t"src/\\346\\227\\245\\350\\252\\214.ts"\n' >quoted.tsv
+collide_page '<tr><td>src/日誌.ts</td><td class="n">+1 −1</td><td class="low">low</td><td>x</td></tr>' >ok-quoted.html
+expect_ok "a git-quoted non-ASCII path in numstat" ok-quoted.html --numstat quoted.tsv
+printf '1234\t5\tsrc/big.ts\n' >big.tsv
+collide_page '<tr><td>src/big.ts</td><td class="n">+1,234 −5</td><td class="low">low</td><td>x</td></tr>' >ok-big.html
+expect_ok "thousands separators in counts" ok-big.html --numstat big.tsv
+
+# 11b. A page in another language: the keyword checks cannot read it, so they warn instead of failing it.
+good_change | sed 's|<html lang="en">|<html lang="zh-TW">|; s|Where to focus|重點|; s|How to verify|驗證方式|; s|What I did not verify|未驗證|; s|needs attention|需注意|g; s|>low<|>低<|g; s|worth a look|值得看|g; s|Expand all|展開全部|; s|Why: .*Downstream consumers: the CLI wrapper calls the parser.|說明:舊解析器脆弱(見 src/util.ts:3),影響使用者。|; s|I did not run the CLI end to end.|我沒有端到端執行 CLI。|' >zh.html
+run_check zh.html --numstat numstat.tsv
+[[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "language_unchecked" ]] \
+  || fail "a non-English page is warned about, not failed: rc=$RC ids=$(ids) warns=$(warn_ids) $OUT"
+
+# 11c. The checker works from the repository root, whatever directory it is run from.
+OUT="$(cd docs && "$SCRIPT" ../good-change.html --numstat ../numstat.tsv 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "0" && "$(ids)" == "" ]] || fail "run from a subdirectory: rc=$RC $OUT $(cat "$TMP/err")"
+OUT="$(cd docs && "$SCRIPT" ../good-change.html --numstat ../numstat.tsv --ref main 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "0" && "$(ids)" == "" ]] || fail "run from a subdirectory with --ref: rc=$RC $OUT $(cat "$TMP/err")"
+
+# 11d. The hard rules look at CSS, resource attributes and script requests, not at prose, <pre> or <a href>.
+good_change | sed 's|Why: the old parser|Why: PR #123, #1042 and #beef changed the old parser|' >ok-pr.html
+expect_ok "PR numbers in prose are not colors" ok-pr.html --numstat numstat.tsv
+good_change | sed 's|Why: the old parser|Why: see <a href="https://github.com/o/r/pull/1">the PR</a>, the old parser|' >ok-link.html
+expect_ok "a link is not a request" ok-link.html --numstat numstat.tsv
+good_change | sed 's|Why: the old parser|Why: https://example.test/a and new URL(x) in <code>get_url(y)</code> explain the old parser|' >ok-urltext.html
+expect_ok "URLs and url( in text" ok-urltext.html --numstat numstat.tsv
+good_change | sed 's|<details id="files">|<details id="open-questions">|' >ok-openid.html
+expect_ok "an id that contains the word open" ok-openid.html --numstat numstat.tsv
+good_change | sed 's|<section id="verify"><h2>How to verify</h2>|<section id="verify"><h2>How to verify</h2><pre>a{color:#fff;background:rgba(0,0,0,.5)}</pre>|' >ok-cssexcerpt.html
+expect_ok "a CSS excerpt in <pre>" ok-cssexcerpt.html --numstat numstat.tsv
+good_change | sed 's|</main>|<img src="x.png"></main>|' >bad.html
+expect_only "a relative image is an external file" external_requests bad.html --numstat numstat.tsv
+good_change | sed 's|</main>|<script>fetch("https://x.test/y")</script></main>|' >bad.html
+expect_only "a script that fetches a URL" external_requests bad.html --numstat numstat.tsv
+good_change | sed 's|@media (prefers-color-scheme: dark){:root{[^}]*}}||; s|Why: the old parser|Why: prefers-color-scheme is not used, the old parser|' >bad.html
+expect_only "prefers-color-scheme only in prose" no_dark_mode bad.html --numstat numstat.tsv
+good_change | sed 's|</style>|:root{overflow-x:hidden}</style>|' >bad.html
+expect_only "overflow hidden on :root" overflow_hidden_on_page bad.html --numstat numstat.tsv
+
+# 11e. References: only tracked files count as anchors, and a hash needs commit context.
+good_change | sed 's|Why: the old parser|Why: the trace node_modules/express/lib/router.js:284 and db.prod:5432 show the old parser|' >ok-trace.html
+run_check ok-trace.html --numstat numstat.tsv
+[[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "unknown_anchor_files" ]] || fail "unknown files in anchors are warned about: rc=$RC ids=$(ids) warns=$(warn_ids)"
+good_change | sed 's|src/alpha.ts:12|nofile.ts:3|' >ok-unknown.html
+run_check ok-unknown.html --numstat numstat.tsv
+[[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "unknown_anchor_files" ]] || fail "an anchor in an unknown file is a warning: rc=$RC ids=$(ids) warns=$(warn_ids)"
+good_change | sed 's|Why: the old parser|Why: id 550e8400-e29b-41d4-a716-446655440000 and the color decaf12 describe the old parser|' >ok-uuid.html
+expect_ok "a UUID and a hex word are not commits" ok-uuid.html --numstat numstat.tsv
+good_state | sed 's|src/alpha.ts:12|foo.ts:1|; s|src/util.ts:3|bar.ts:2|' >bad.html
+run_check bad.html --kind state
+[[ "$RC" == "1" && "$(ids)" == "anchors_missing" ]] || fail "anchors in unknown files do not satisfy a state page: rc=$RC ids=$(ids)"
+
+# 11f. Risk marks: the template says every file, so one marked file out of three is not enough.
+good_change | sed 's|<td class="low">low</td>|<td></td>|g' >bad.html
+expect_only "one file marked out of three" risk_marks_missing bad.html --numstat numstat.tsv
+good_change | sed 's|<td class="low">low</td>|<td></td>|g; s|<h1>Change summary</h1>|<h1>Change summary</h1><h2>Low risk (2 files)</h2>|' >ok-group.html
+expect_ok "files grouped under a low-risk heading" ok-group.html --numstat numstat.tsv
+
+# 11g. Selector forms real CSS uses, and a label wrapped in a span.
+good_change | sed 's|\.wrap{overflow-x:auto}|main .wrap{overflow-x:auto}|' >ok-sel1.html
+expect_ok "scroll container with a descendant selector" ok-sel1.html --numstat numstat.tsv
+good_change | sed 's|\.wrap{overflow-x:auto}|.wrap:not(.x){overflow-x:auto}|' >ok-sel2.html
+expect_ok "scroll container with a pseudo-class" ok-sel2.html --numstat numstat.tsv
+good_change | sed 's|td code{white-space:nowrap}|.files code{white-space:nowrap}|' >ok-sel3.html
+expect_ok "nowrap on a descendant code selector" ok-sel3.html --numstat numstat.tsv
+good_change | sed 's|<button id="xall">Expand all</button>|<button id="xall"><span>Expand all</span></button>|' >ok-span.html
+expect_ok "Expand all label inside a span" ok-span.html --numstat numstat.tsv
+good_change | sed $'s|</style>|.z{border-radius:\\\n;background:var(--bg)}</style>|' >ok-radius.html
+grep -q 'border-radius:' ok-radius.html || fail "the border-radius fixture was not built"
+expect_ok "a border-radius declaration with no value" ok-radius.html --numstat numstat.tsv
+
+# 11h. Messages and warnings that tell the truth.
+run_check on-feat.html --numstat numstat.tsv --ref refs/pull/9/head
+printf '%s' "$OUT" | jq -r '.warnings[0].message' | grep -q 'pull/9/head:refs/pull/9/head' || fail "the fetch advice must name a destination ref: $OUT"
+NOREPO="$(mktemp -d)"   # not under $TMP, which is itself a repository
+OUT="$(cd "$NOREPO" && "$SCRIPT" "$TMP/good-change.html" --numstat "$TMP/numstat.tsv" 2>"$TMP/err")" && RC=0 || RC=$?
+rm -rf "$NOREPO"
+printf '%s' "$OUT" | jq -e '[.warnings[].id] | index("references_unchecked")' >/dev/null || fail "outside a git repository the reference checks are skipped with a warning: $OUT"
+
+# 11i. The wrappers find their helper through a symlink on PATH and when called by a bare name.
+mkdir -p "$TMP/symbin"
+ln -sf "$SCRIPT" "$TMP/symbin/check-explainer"
+OUT="$(PATH="$TMP/symbin:$PATH" check-explainer good-change.html --numstat numstat.tsv 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "0" && "$(printf '%s' "$OUT" | jq -r .ok)" == "true" ]] || fail "called through a symlink on PATH: rc=$RC $OUT $(cat "$TMP/err")"
+OUT="$(cd "$HERE/../scripts" && bash check-explainer.sh "$TMP/good-change.html" --numstat "$TMP/numstat.tsv" 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "0" && "$(printf '%s' "$OUT" | jq -r .ok)" == "true" ]] || fail "called by a bare name: rc=$RC $OUT $(cat "$TMP/err")"
 
 # 8. Polish items are warnings: the page still passes.
 good_change | sed 's|td.n{font-variant-numeric:tabular-nums}||' >warn.html

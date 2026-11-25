@@ -7,7 +7,8 @@
 #
 #   "${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file.html> [--width 400] [--shots <dir>] [--scripts]
 #
-# Exit codes: 0 fits, 1 the page is wider than the window or a table path is broken over lines, 2 usage error, 3 python3 missing, 4 no Chrome found.
+# Exit codes: 0 fits, 1 the page is wider than the window or a table path is broken over lines, 2 usage error,
+# 3 python3 missing, 4 no Chrome found, 5 the browser failed or timed out.
 # Set CHROME to the browser binary to use a specific one.
 
 set -euo pipefail
@@ -33,8 +34,10 @@ Options:
                    disabled, but do not use it on a page from a source you do not trust.
   -h, --help       Show this help message
 
-Exit codes: 0 fits, 1 wider than the window, 2 usage error, 3 python3 missing, 4 no Chrome found.
-Set CHROME to the browser binary to use a specific one.
+Exit codes: 0 fits, 1 wider than the window or a table path broken over lines, 2 usage error, 3 python3 missing,
+4 no Chrome found, 5 the browser failed or timed out (the report is then {"ok": false, "error": ...}).
+Set CHROME to the browser binary to use a specific one; a CHROME that does not exist is an error, not
+something to work around. CHECK_RENDER_TIMEOUT (seconds, default 120) bounds one browser run.
 EOF
 }
 
@@ -71,4 +74,13 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 3
 fi
 
-exec python3 -I "${BASH_SOURCE[0]%/*}/check_render.py" "$file" "$width" "$shots" "$scripts"
+# this script's real directory, found through symlinks and when it is called by a bare name
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+here="$(cd "$(dirname "$src")" && pwd)"
+
+exec python3 -I "$here/check_render.py" "$file" "$width" "$shots" "$scripts"

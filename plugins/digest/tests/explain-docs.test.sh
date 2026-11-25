@@ -148,4 +148,15 @@ for f in "$AGENT" "$CODEX" "$TEMPLATE"; do
   grep -q -- '--ref' "$f" || fail "$f must tell the writer to pass --ref <target> to the checker"
 done
 
+# 20. What the review of the whole branch found in the prompts and the template.
+for f in "$AGENT" "$CODEX"; do
+  grep -q -F -- 'gh api --paginate' "$f" || fail "$f: the PR file list must be paginated (gh pr view --json files stops at 100 files)"
+  grep -q -F -- 'core.quotepath=off' "$f" || fail "$f: git diff --numstat must run with core.quotepath=off so non-ASCII paths are not quoted"
+  grep -q -i 'exit code 5' "$f" || fail "$f: the writer must know exit code 5 means the checker itself failed"
+  grep -c -i 'at most two' "$f" | grep -q -E '^[2-9]' || fail "$f: both the checker and the render loop must be capped at two rounds"
+done
+for needle in '(by you)' 'Topic keywords' 'another language' 'Low risk'; do
+  grep -q -F -- "$needle" "$TEMPLATE" || fail "template must contain '$needle'"
+done
+
 echo "ok: explain-docs"

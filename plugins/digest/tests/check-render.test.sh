@@ -21,7 +21,9 @@ fi
 export CHROME="$CHROME_BIN"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+SERVER_PID=""
+cleanup() { if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; rm -rf "$TMP"; }
+trap cleanup EXIT
 cd "$TMP"
 
 fail() { echo "ASSERT FAIL: $*" >&2; exit 1; }
@@ -125,7 +127,9 @@ run_render script-widens.html --scripts
 # The browser is cut off from the network: a generated page may contain script (the template allows inline
 # JS) and must not be able to reach out while it is being checked, not even to this machine.
 PORT="$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-mkdir -p srv && (cd srv && python3 -I -m http.server "$PORT" --bind 127.0.0.1 >"$TMP/requests.log" 2>&1 &) 
+mkdir -p srv
+python3 -I -m http.server "$PORT" --bind 127.0.0.1 --directory srv >"$TMP/requests.log" 2>&1 &
+SERVER_PID=$!
 SERVER_UP=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -s -o /dev/null "http://127.0.0.1:$PORT/control"; then SERVER_UP=1; break; fi
@@ -143,13 +147,15 @@ if [[ "$SERVER_UP" == "1" ]]; then
 <p>hello</p></body></html>
 EOF
   run_render reaches-out.html --shots "$TMP/shots2"
+  [[ "$RC" == "0" ]] || fail "the page that reaches out must still render (exit 0), got $RC: $OUT $(cat "$TMP/err")"
   run_render reaches-out.html --scripts
+  [[ "$RC" == "0" ]] || fail "the page that reaches out must still render with --scripts (exit 0), got $RC: $OUT $(cat "$TMP/err")"
   sleep 0.5
   AFTER="$(wc -l <"$TMP/requests.log" | tr -d ' ')"
-  pkill -f "http.server $PORT" >/dev/null 2>&1 || true
+  kill "$SERVER_PID" 2>/dev/null || true
   [[ "$AFTER" == "$BEFORE" ]] || fail "the render reached the network: $(tail -n +$((BEFORE + 1)) "$TMP/requests.log" | head -3)"
 else
-  pkill -f "http.server $PORT" >/dev/null 2>&1 || true
+  kill "$SERVER_PID" 2>/dev/null || true
   echo "note: could not start a local server, network isolation was not tested"
 fi
 
@@ -160,12 +166,26 @@ run_render nope.html
 [[ "$RC" == "2" ]] || fail "missing file should exit 2, got $RC"
 run_render fits.html --width banana
 [[ "$RC" == "2" ]] || fail "a non-numeric width should exit 2, got $RC"
-OUT="$(env CHROME=/nonexistent/chrome PATH="/usr/bin:/bin" HOME="$TMP" /bin/bash "$SCRIPT" fits.html 2>"$TMP/err")" && RC=0 || RC=$?
-if [[ "$RC" != "4" ]]; then
-  # a Chrome may still be found on PATH or in /Applications on this machine; only check the message shape
-  [[ "$RC" == "0" || "$RC" == "1" ]] || fail "unexpected exit $RC when CHROME is wrong: $(cat "$TMP/err")"
-else
-  grep -q -i 'chrome' "$TMP/err" || fail "no Chrome should say so: $(cat "$TMP/err")"
-fi
+# An explicit CHROME that does not exist is an error (exit 4), not a silent fall back to another browser.
+OUT="$(env CHROME=/nonexistent/chrome /bin/bash "$SCRIPT" fits.html 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "4" ]] || fail "a wrong CHROME should exit 4, got $RC: $OUT"
+grep -q 'CHROME' "$TMP/err" || fail "the message should name CHROME: $(cat "$TMP/err")"
+
+# A browser that hangs or prints nothing is exit 5 with a JSON error, never a traceback or a "page overflows" exit 1.
+printf '#!/bin/sh\nsleep 30\n' >hang-chrome && chmod +x hang-chrome
+OUT="$(env CHROME="$TMP/hang-chrome" CHECK_RENDER_TIMEOUT=2 /bin/bash "$SCRIPT" fits.html 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "5" ]] || fail "a hanging browser should exit 5, got $RC: $OUT $(cat "$TMP/err")"
+grep -q 'Traceback' "$TMP/err" && fail "a hanging browser must not print a traceback: $(cat "$TMP/err")"
+[[ "$(printf '%s' "$OUT" | jq -r .ok)" == "false" && -n "$(printf '%s' "$OUT" | jq -r '.error // empty')" ]] || fail "a hanging browser should report a JSON error: $OUT"
+printf '#!/bin/sh\nexit 0\n' >silent-chrome && chmod +x silent-chrome
+OUT="$(env CHROME="$TMP/silent-chrome" /bin/bash "$SCRIPT" fits.html 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "5" ]] || fail "a browser that prints nothing should exit 5, got $RC: $OUT"
+
+# The wrapper finds its helper through a symlink on PATH and when called by a bare name.
+mkdir -p "$TMP/symbin" && ln -sf "$SCRIPT" "$TMP/symbin/check-render"
+OUT="$(PATH="$TMP/symbin:$PATH" check-render fits.html 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "0" ]] || fail "called through a symlink on PATH: rc=$RC $OUT $(cat "$TMP/err")"
+OUT="$(cd "$HERE/../scripts" && bash check-render.sh "$TMP/fits.html" 2>"$TMP/err")" && RC=0 || RC=$?
+[[ "$RC" == "0" ]] || fail "called by a bare name: rc=$RC $OUT $(cat "$TMP/err")"
 
 echo "ok: check-render"

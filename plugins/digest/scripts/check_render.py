@@ -1,13 +1,15 @@
 """Render checker. Usage: python3 -I check_render.py <file.html> <width> <shots-dir-or-empty> <0|1 run page scripts>
 Renders the page in headless Chrome inside an iframe of exactly <width> pixels (so the browser's minimum
 window width does not matter), reads the page's own scroll width back, and prints a JSON report.
-Exit 0 fits, 1 wider than the window or a path in a table cell broken over lines, 4 no Chrome found. Standard library only.
+Exit 0 fits, 1 wider than the window or a path in a table cell broken over lines, 4 no Chrome found, 5 the browser
+failed or timed out. Standard library only.
 The browser runs with the network cut off (see ISOLATION), because the page is generated content."""
 import html
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -22,10 +24,20 @@ CANDIDATES = [
 ]
 
 
+def fail(message):
+    """The browser failed or timed out: say so as an error (exit 5), never as a page that overflows."""
+    print(json.dumps({"ok": False, "error": message}, ensure_ascii=False))
+    print("ERROR: " + message, file=sys.stderr)
+    sys.exit(5)
+
+
 def find_chrome():
     env = os.environ.get("CHROME")
-    if env and os.access(env, os.X_OK):
-        return env
+    if env:
+        if os.access(env, os.X_OK):
+            return env
+        print("ERROR: CHROME=%s is not an executable browser, so the render was not checked." % env, file=sys.stderr)
+        sys.exit(4)
     for c in CANDIDATES:
         found = c if os.path.isabs(c) and os.access(c, os.X_OK) else shutil.which(c)
         if found:
@@ -63,26 +75,18 @@ window.onload = function () { setTimeout(function () {
 
 # The page is generated and untrusted. By default its scripts do not run (the iframe is sandboxed without
 # allow-scripts), so there is no fetch, no beacon and no WebRTC to worry about. With --scripts they run, and a
-# Content-Security-Policy closes everything except inline script and style on top of the network cut-off.
-CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"
-
-
-def with_csp(src):
-    meta = '<meta http-equiv="Content-Security-Policy" content="%s">' % CSP
-    m = re.search(r"<head[^>]*>", src, flags=re.I)
-    if m:
-        return src[:m.end()] + meta + src[m.end():]
-    m = re.search(r"<html[^>]*>", src, flags=re.I)
-    if m:
-        return src[:m.end()] + "<head>" + meta + "</head>" + src[m.end():]
-    return meta + src
+# Content-Security-Policy, set on the wrapper document that every srcdoc frame inherits (so a page without a <head>,
+# or with a commented-out one, cannot dodge it), closes everything except inline script and style on top of the
+# network cut-off. frame-src about: lets the wrapper hold its own srcdoc frame and nothing else, so a page cannot
+# frame a local file.
+CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src about:"
 
 
 def wrapper(src, w, h, probe):
     sandbox = "allow-same-origin allow-scripts" if run_scripts else "allow-same-origin"
-    return ('<!doctype html><html><body style="margin:0;background:#888">'
+    return ('<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="%s"></head><body style="margin:0;background:#888">'
             '<iframe id="f" width="%d" height="%d" sandbox="%s" style="border:0;background:#fff;display:block" srcdoc="%s"></iframe>%s'
-            '</body></html>' % (w, h, sandbox, html.escape(with_csp(src), quote=True), PROBE % w if probe else ""))
+            '</body></html>' % (html.escape(CSP, quote=True), w, h, sandbox, html.escape(src, quote=True), PROBE % w if probe else ""))
 
 
 # The page being checked is generated, may contain script, and must not reach out while it is rendered:
@@ -102,10 +106,21 @@ ISOLATION = [
 
 
 def run_chrome(args):
+    """Run the browser in its own process group and kill the whole group on a timeout, so no helper process lingers."""
+    timeout = float(os.environ.get("CHECK_RENDER_TIMEOUT", "120"))
     with tempfile.TemporaryDirectory() as profile:
-        return subprocess.run([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-                               "--user-data-dir=" + profile] + ISOLATION + args,
-                              capture_output=True, text=True, timeout=120)
+        proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--user-data-dir=" + profile] + ISOLATION + args,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            proc.communicate()
+            fail("the browser did not finish within %g seconds, so the render was not checked." % timeout)
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
 
 def probe(src, w):
@@ -116,8 +131,7 @@ def probe(src, w):
     # the script's own source also contains the text <pre id="probe">, so insist on a JSON object right after it
     m = re.search(r'<pre id="probe">(\{.*?\})</pre>', out, flags=re.S)
     if not m:
-        print("ERROR: the browser did not return a measurement.", file=sys.stderr)
-        sys.exit(5)
+        fail("the browser did not return a measurement, so the render was not checked.")
     return json.loads(html.unescape(m.group(1)))
 
 

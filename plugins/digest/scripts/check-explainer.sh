@@ -2,7 +2,7 @@
 # Explainer Checker
 # Checks a generated HTML explainer against the template's rules (hard constraints, the avoid list,
 # the content floor) and prints one JSON object. Exit 0 when clean, 1 when there are violations,
-# 2 for a usage error, 3 when python3 is missing.
+# 2 for a usage error, 3 when python3 is missing, 5 when the checker itself failed.
 #
 # Called by whoever writes an explainer, right after writing it, as:
 #   "${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh" <file.html> --numstat <changed.tsv> --ref <target>   # a change
@@ -31,7 +31,8 @@ Arguments:
                         those checks are skipped with a warning.
   -h, --help            Show this help message
 
-Exit codes: 0 clean, 1 violations found, 2 usage error, 3 python3 not installed.
+Exit codes: 0 clean, 1 violations found, 2 usage error, 3 python3 not installed, 5 the checker itself failed
+(then the report is {"ok": false, "error": ...} and says nothing about the page).
 EOF
 }
 
@@ -74,4 +75,13 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 3
 fi
 
-exec python3 -I "${BASH_SOURCE[0]%/*}/check_explainer.py" "$file" "$kind" "$numstat" "$ref"
+# this script's real directory, found through symlinks and when it is called by a bare name
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+here="$(cd "$(dirname "$src")" && pwd)"
+
+exec python3 -I "$here/check_explainer.py" "$file" "$kind" "$numstat" "$ref"
