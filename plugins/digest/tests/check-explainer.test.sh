@@ -107,6 +107,32 @@ expect_only "too many emoji" emoji_over_5 bad.html --numstat numstat.tsv
 good_change | sed 's|<h1>Change summary</h1>|<h1>Change summary 🔥🔥🔥🔥🔥</h1>|; s|</style>|.quote{border-left:1px solid var(--line)}</style>|; s|<header>|<header class="quote">|' >ok-edge.html
 expect_ok "five emoji and a hairline" ok-edge.html --numstat numstat.tsv
 
+# 3b. The narrow-window rule is met by fitting, not by hiding: no overflow hidden on html or body,
+#     and table cells keep their words whole.
+good_change | sed 's|body{background:var(--bg);|body{overflow-x:hidden;background:var(--bg);|' >bad.html
+expect_only "overflow hidden on body" overflow_hidden_on_page bad.html --numstat numstat.tsv
+good_change | sed 's|</style>|html{overflow:hidden}</style>|' >bad.html
+expect_only "overflow hidden on html" overflow_hidden_on_page bad.html --numstat numstat.tsv
+good_change | sed 's|</style>|td{overflow-wrap:anywhere}</style>|' >bad.html
+expect_only "table cells break anywhere" table_cells_break_words bad.html --numstat numstat.tsv
+good_change | sed 's|</style>|td{word-break:break-all}</style>|' >bad.html
+expect_only "table cells break all" table_cells_break_words bad.html --numstat numstat.tsv
+# Allowed: a clipping bar inside the page, a scrolling table wrapper, and overflow-wrap:break-word.
+good_change | sed 's|</style>|.bar{overflow:hidden}.wrap{overflow-x:auto}td{overflow-wrap:break-word}</style>|' >ok-overflow.html
+expect_ok "scrolling wrapper and a clipping bar" ok-overflow.html --numstat numstat.tsv
+
+# 3c. Two changed files with the same name are told apart by their path: naming one does not account for the other.
+printf '1\t1\tagents/explain-agent.md\n2\t2\tskills/explain/explain-agent.md\n' >collide.tsv
+collide_page() {  # collide_page <row...>: the good page with its file rows replaced
+  good_change | sed 's|<tr><td>src/beta.ts.*||; s|<tr><td>docs/gamma.md.*||' | sed "s|<tr><td>src/alpha.ts.*|$1|"
+}
+collide_page '<tr><td>agents/explain-agent.md</td><td>+1 −1</td><td>low</td><td>one copy</td></tr>' >bad.html
+expect_only "same name, only one named" files_not_named bad.html --numstat collide.tsv
+collide_page '<tr><td>plugins/digest/agents/explain-agent.md</td><td>+1 −1</td><td>low</td><td>a</td></tr><tr><td>plugins/digest/skills/explain/explain-agent.md</td><td>+2 −2</td><td>low</td><td>b</td></tr>' >ok-collide.html
+expect_ok "same name, both named" ok-collide.html --numstat collide.tsv
+collide_page '<tr><td>agents/explain-agent.md</td><td>+1 −1</td><td>low</td><td>a</td></tr><tr><td>skills/explain/explain-agent.md</td><td>+9 −9</td><td>low</td><td>b</td></tr>' >bad.html
+expect_only "same name, wrong counts on one" files_without_counts bad.html --numstat collide.tsv
+
 # 4. Content floor for a change target.
 good_change | sed 's|<tr><td>src/beta.ts.*||' >bad.html
 expect_only "file not named" files_not_named bad.html --numstat numstat.tsv

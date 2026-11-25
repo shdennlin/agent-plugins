@@ -105,4 +105,11 @@ grep -q '^## Teach mode' "$SKILL" && grep -q '^## Process' "$SKILL" || fail "SKI
 sed -n '/^description:/p' "$SKILL" | head -1 | grep -q -i 'branch' && sed -n '/^description:/p' "$SKILL" | head -1 | grep -q -i 'PR' \
   || fail "the description must still name branch and PR so the skill triggers on them"
 
+# 14. The narrow-window rule says how to fit (own scrolling container, no hidden overflow on the page, whole
+#     words in table cells) and the template covers diagram labels, which the checker cannot verify.
+grep -q 'overflow-x: auto' "$TEMPLATE" || fail "template must say wide content sits in an overflow-x: auto container"
+grep -q -i 'never put `overflow: hidden`' "$TEMPLATE" || fail "template must forbid overflow hidden on html and body"
+grep -q -i 'keep their words whole' "$TEMPLATE" || fail "template must say table cells keep their words whole"
+grep -q -i 'clear of every line' "$TEMPLATE" || fail "template must say diagram labels stay clear of every line"
+
 echo "ok: explain-docs"

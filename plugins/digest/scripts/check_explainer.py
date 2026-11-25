@@ -76,6 +76,22 @@ if open_details:
     violation("hard", "details_open_by_default", open_details,
               "A <details> starts open. Deep detail must be collapsed by default: remove the open attribute.")
 
+page_hidden = [sel for sel, body in rules
+               if any(t.strip() in ("html", "body") for t in sel.split(","))
+               and re.search(r"overflow(?:-x)?\s*:\s*hidden", body)]
+if page_hidden:
+    violation("hard", "overflow_hidden_on_page", len(page_hidden),
+              "overflow is hidden on html or body (%s). That clips content on a narrow window instead of fitting it. "
+              "Remove it and put wide tables, code and diagrams in their own container with overflow-x: auto." % ", ".join(page_hidden))
+
+cell_breaks = [sel for sel, body in rules
+               if re.search(r"\b(?:td|th)\b", sel)
+               and re.search(r"overflow-wrap\s*:\s*anywhere|word-break\s*:\s*break-all", body)]
+if cell_breaks:
+    violation("hard", "table_cells_break_words", len(cell_breaks),
+              "Table cells may break inside a word (%s), so a narrow window shows split words and numbers. "
+              "Keep words whole and let a wide table scroll in an overflow-x: auto container." % ", ".join(cell_breaks))
+
 n_details = len(re.findall(r"<details\b", s, flags=re.I))
 has_toggle = bool(re.search(r"<button\b[^>]*>[^<]*(expand|collapse|展開|收合|全部)", s, flags=re.I)) and ".open" in s
 if n_details >= 2 and not has_toggle:
@@ -180,9 +196,26 @@ if kind == "change":
             numstat.append({"file": parts[2],
                             "added": int(parts[0]) if parts[0].isdigit() else None,
                             "removed": int(parts[1]) if parts[1].isdigit() else None})
+    def needles(items):
+        """The text to look for per file: its name, or the shortest path suffix that tells it apart from
+        every other changed file with the same name."""
+        by_name = {}
+        for it in items:
+            by_name.setdefault(os.path.basename(it["file"]), []).append(it["file"])
+        out = {}
+        for name, group in by_name.items():
+            for f in group:
+                parts = f.split("/")
+                depth = 1
+                while depth < len(parts) and any(g != f and g.split("/")[-depth:] == parts[-depth:] for g in group):
+                    depth += 1
+                out[f] = "/".join(parts[-depth:])
+        return out
+
+    need = needles(numstat)
     not_named, no_counts = [], []
     for item in numstat:
-        base = os.path.basename(item["file"])
+        base = need[item["file"]]
         spots = [m.start() for m in re.finditer(re.escape(base), visible)]
         if not spots:
             not_named.append(item["file"])
@@ -226,7 +259,7 @@ if kind == "change":
     risk_words = r"\b(low|worth a look|needs attention|high|medium|critical)\b"
     marked = 0
     for item in numstat:
-        base = os.path.basename(item["file"])
+        base = need[item["file"]]
         for m in re.finditer(re.escape(base), visible):
             if re.search(risk_words, visible[m.start():m.start() + 260], flags=re.I):
                 marked += 1
