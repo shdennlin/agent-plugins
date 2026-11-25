@@ -42,7 +42,7 @@ When the user supplies `--teach`, use this mode before the HTML modes. Parse the
 ## Process
 
 1. **Classify the target with the script.** Run `../../scripts/classify-target.sh` (relative to this directory), feeding the raw arguments on stdin. It prints JSON (`audience`, `teach`, `print`, `forced`, `target`, `kind`, `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`). Never classify the target yourself. Its order is: existing path → file; `#N` → pr; local or remote-tracking branch → branch; identifier-like → symbol; anything else → question; nothing → empty. Say how the target was read by printing `resolved_line` first.
-2. **Empty target**, first match wins: the current conversation holds an investigation or finding → conversation mode (inline, no dispatch: read the visual spec at `../../templates/html-explainer.md`, assemble sections from the section library, write the file); else `on_base` is false, `base` is set and `diff_empty` is false → explain the current branch against its base as a change target; else print `Nothing to explain from this conversation yet. Pass a path, symbol, question, #PR, or branch: /digest:explain <target>` and stop.
+2. **Empty target**, first match wins: the current conversation holds an investigation or finding → conversation mode (inline, no dispatch: read the visual spec at `../../templates/html-explainer.md`, write the page to the template's spec, write the file, then check it with `../../scripts/check-explainer.sh <file> --kind state` and fix what it reports); else `on_base` is false, `base` is set and `diff_empty` is false → explain the current branch against its base as a change target; else print `Nothing to explain from this conversation yet. Pass a path, symbol, question, #PR, or branch: /digest:explain <target>` and stop.
 3. **`pr` with `gh_ok` false**: print `gh is unavailable or not logged in, so PR #<n> cannot be read. Pass the branch name instead: /digest:explain <branch>` and stop.
 4. **Otherwise dispatch the explain agent.** Output mode is `print` when `print` is true, else `html`.
 
@@ -55,5 +55,6 @@ Use the companion `explain-agent.md` in this directory as the agent prompt. Prov
 - Audience (free-form string, default `developer`)
 - Output slug (the script's `slug`)
 - The HTML template at `../../templates/html-explainer.md` relative to this directory (needed when Output mode is `html`)
+- The checker at `../../scripts/check-explainer.sh` relative to this directory (needed when Output mode is `html`); the agent runs it on the file it writes and fixes what it reports
 
 The agent uses `$PROJECT_ROOT` (set by the init hook) or falls back to `git rev-parse --show-toplevel`.

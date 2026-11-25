@@ -61,7 +61,7 @@
       "name": "digest",
       "source": "./plugins/digest",
       "description": "Explain code state with git archaeology and summarize what a PR, branch, or diff changes, as self-contained HTML explainers or cards in chat, plus release notes and multi-project weekly recall digests",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "author": {
         "name": "shdennlin"
       },

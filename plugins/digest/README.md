@@ -212,7 +212,9 @@ Free-form audience string calibrates both material and language. `-f manager` le
 
 A single self-contained HTML file — zero external requests, inline SVG diagrams (layer/dependency, call-chain, why-chain, evolution timeline), light/dark via `prefers-color-scheme`, deep sections in collapsible `<details>`. Opens from `file://` with no network. File: `explain-<slug>-<date>.html` in the project root.
 
-For a change target (`#PR`, branch, current branch) the HTML adds the full-depth sections: code walkthrough, design decisions, breaking changes & migration, risks & recommendations, questions for the author, and downstream consumers of the changed files.
+For a change target (`#PR`, branch, current branch) the page accounts for every changed file with its `+N −M`, lists where a reviewer should look first, marks each file's risk (low, worth a look, needs attention), and covers what changed and why, the impact, breaking changes and migration, design decisions, questions for the author, and downstream consumers. The layout is the model's choice; the rules it must follow (no external requests, light and dark, collapsed details with an Expand all button, no colored edge bars, no cards inside cards, at most 5 emoji) are in `templates/html-explainer.md`.
+
+Each page is checked right after it is written by `scripts/check-explainer.sh`, which reports any broken rule as JSON; the agent fixes what it reports (at most two rounds) and names whatever remains. You can run it yourself: `scripts/check-explainer.sh page.html --kind state`, or `--numstat changed.tsv` (the output of `git diff --numstat`) for a change.
 
 ## Change Type Icons
 
@@ -226,6 +228,10 @@ For a change target (`#PR`, branch, current branch) the HTML adds the full-depth
 | Test | 🧪 |
 | Chore | 🔧 |
 | Breaking Change | 🚨 |
+
+## Requirements
+
+`git` and `jq` (the target classifier). `gh`, installed and logged in, only for a `#PR` target. `python3` (standard library only) for the explainer checker; without it the check is skipped and the report says so.
 
 ## Installation
 
