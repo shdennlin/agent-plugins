@@ -3,6 +3,8 @@ allowed-tools:
   - Read
   - Bash
   - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/classify-target.sh:*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh:*)
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh:*)
   - Glob
   - Grep
   - Task
@@ -66,13 +68,14 @@ The context lives in this conversation; a subagent cannot see it. Do everything 
 
 1. Resolve the project root: `$PROJECT_ROOT`, else `git rev-parse --show-toplevel`, else `pwd`.
 2. Read the visual spec at `${CLAUDE_PLUGIN_ROOT}/templates/html-explainer.md`.
-3. Build the HTML explainer from the conversation's findings, following the spec and the section library: conclusion card (always); call-chain/data-flow SVG for flow or bug findings; why-chain (symptom → proximate cause → root cause) for bugs; evolution timeline for design rationale; component map for module overviews; evidence (commands run, code excerpts, key commits) in default-collapsed `<details>` (always). Calibrate to the audience.
+3. Write the HTML explainer from the conversation's findings, to the spec in the template: its constraints, content floor and avoid list; the form is yours. Write in English unless the user asked for another language. Pick what makes the finding obvious, for example a call-chain or data-flow diagram for flow or bug findings, a symptom → proximate cause → root cause why-chain for bugs, an evolution timeline for design rationale, a component map for module overviews, with the evidence (commands run, code excerpts, key commits) in collapsed `<details>`. Calibrate to the audience.
 4. Write to `<project-root>/explain-<topic-slug>-<YYYY-MM-DD>.html`, where `<topic-slug>` is the first ~5 significant words of the finding, kebab-cased with `/` and spaces turned into `-` (the script gives no slug for an empty target).
-5. Print a one-paragraph conclusion plus `📄 Explainer written to: <path>`. Nothing else.
+5. Check the file: run `"${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh" <file> --kind state` and fix every violation it reports, at most two rounds. If a Chrome is installed, also run `"${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file>` and fix any overflow it reports (exit 4 means no browser: say the render was not checked). If violations remain, add one line naming them to the reply.
+6. Print a one-paragraph conclusion plus `📄 Explainer written to: <path>`, and the one line about remaining violations if there is one. Nothing else.
 
 #### Investigation mode and Change mode (dispatch)
 
-1. Resolve `${CLAUDE_PLUGIN_ROOT}/templates/html-explainer.md` and `${CLAUDE_PLUGIN_ROOT}/agents/explain-agent.md` to absolute paths (a subagent cannot expand the variable). The template path is needed whenever Output mode is `html`.
+1. Resolve `${CLAUDE_PLUGIN_ROOT}/templates/html-explainer.md`, `${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh`, `${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh` and `${CLAUDE_PLUGIN_ROOT}/agents/explain-agent.md` to absolute paths (a subagent cannot expand the variable). The template and checker paths are needed whenever Output mode is `html`.
 2. Target kind for the prompt: `file` → `file/module`; `symbol`, `question`, `pr`, `branch` as is; the empty-target stage 2 → `current-branch`.
 3. Choose the dispatch mode:
    - **Fork** — the current conversation already contains investigation of this target (files read, call chains traced, findings stated about it). A fork inherits that context, so it does not redo the work, and it shares the parent's prompt cache. It always runs on the session model and does NOT load `explain-agent.md` as its system prompt, so the prompt must point it at that file.
@@ -96,6 +99,8 @@ Task tool:
     Output mode: <html | print>
     Audience: <audience string, default "developer">
     HTML template path: <absolute path to templates/html-explainer.md — include when Output mode is html>
+    Checker script path: <absolute path to scripts/check-explainer.sh — include when Output mode is html>
+    Render checker path: <absolute path to scripts/check-render.sh — optional, include when Output mode is html>
     Output slug: <slug; for current-branch use the branch name sanitized>
 ```
 
@@ -106,7 +111,7 @@ Task tool:
 - subagent_type: "fork"
 - description: "Explain code state or summarize a change"
 - prompt: |
-    Read <absolute path to agents/explain-agent.md> and follow its Input, Behavior, Change targets and Constraints sections (ignore its frontmatter). Reuse the findings already in this conversation instead of re-investigating; only investigate what is still missing.
+    Read <absolute path to agents/explain-agent.md> and follow everything below its frontmatter (ignore the frontmatter itself). Reuse the findings already in this conversation instead of re-investigating; only investigate what is still missing.
 
     Target: <target verbatim; for current-branch use HEAD>
     Target kind: <file/module | symbol | question | pr | branch | current-branch>
@@ -114,6 +119,8 @@ Task tool:
     Output mode: <html | print>
     Audience: <audience string, default "developer">
     HTML template path: <absolute path to templates/html-explainer.md — include when Output mode is html>
+    Checker script path: <absolute path to scripts/check-explainer.sh — include when Output mode is html>
+    Render checker path: <absolute path to scripts/check-render.sh — optional, include when Output mode is html>
     Output slug: <slug; for current-branch use the branch name sanitized>
 ```
 

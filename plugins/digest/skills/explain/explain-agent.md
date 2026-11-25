@@ -11,6 +11,8 @@ You will receive:
 - **Output mode**: `html` (the default for every kind) or `print` (only when the user asked for `--print`)
 - **Audience**: a free-form audience string (default: `developer`)
 - **HTML template path**: absolute path to the shared visual spec (in Codex, read `../../templates/html-explainer.md` relative to this skill directory instead)
+- **Checker script path** (`html` output only): in Codex, `../../scripts/check-explainer.sh` relative to this skill directory
+- **Render checker path** (`html` output only, optional): in Codex, `../../scripts/check-render.sh` relative to this skill directory
 - **Output slug**: filename slug for the output
 
 ## Audience Calibration
@@ -76,20 +78,28 @@ cd "$PROJECT_ROOT" && git show --no-patch --format=full <hash>        # read the
 
 ### Step 4: Build the HTML Explainer
 
-**First**: Read the visual spec at the **HTML template path**. Follow its skeleton, CSS tokens, SVG patterns, and collapse conventions. If it cannot be read, still honor the hard constraints: zero external requests, inline SVG only (no Mermaid), default-collapsed `<details>`, `prefers-color-scheme` dark/light.
+**First**: Read the visual spec at the **HTML template path** and write the page to it: its constraints, content floor and avoid list; the form is yours. If it cannot be read, still honor the hard constraints: zero external requests, inline SVG only (no Mermaid), default-collapsed `<details>` with an Expand all button, `prefers-color-scheme` dark/light.
 
-**Section library — pick by question type** (conclusion card and evidence are always present):
+**Ideas by question type** (suggestions, not a required list; the conclusion comes first and the evidence is always present):
 
-| Section | Use for |
+| Idea | Use for |
 |---|---|
-| **Conclusion card** (hero: one-line answer, topic emoji, key stats) | always |
-| **Call-chain / data-flow SVG** (nodes with `file:line`, failing edge in red) | flow questions, bug questions |
-| **Evolution timeline SVG** (formative commits/PRs with one-phrase motivations) | design-rationale questions |
-| **Why-chain SVG** (symptom → proximate cause → root cause, anchored to `file:line`) | bug questions |
-| **Component map SVG** (modules and boundaries, ≤12 nodes) | module overviews, onboarding |
-| **Evidence `<details>`** (commands run, key commits by short hash, code excerpts) | always |
+| Call-chain / data-flow diagram (nodes with `file:line`, failing edge highlighted) | flow questions, bug questions |
+| Evolution timeline (formative commits/PRs with one-phrase motivations) | design-rationale questions |
+| Why-chain (symptom → proximate cause → root cause, anchored to `file:line`) | bug questions |
+| Component map (modules and boundaries, at most 12 nodes) | module overviews, onboarding |
+| Before / after | changes |
+| Evidence in collapsed `<details>` (commands run, key commits by short hash, code excerpts) | always |
 
-Calibrate all prose to the **Audience**. Write the file to `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html` using the Write tool.
+Calibrate all prose to the **Audience**; write in English unless the user asked for another language, and grade each important claim `measured`, `read` or `inferred` as the template says. Write the file to `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html` using the Write tool.
+
+### Step 4b: Check the explainer (`html` output only)
+
+Run the checker on the file with the **Checker script path**. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git -c core.quotepath=off diff --numstat <Base>...<target>`; for `pr`, `gh api --paginate "repos/{owner}/{repo}/pulls/<N>/files" -q '.[] | [.additions, .deletions, .filename] | @tsv'` (not `gh pr view --json files`, which stops at 100 files). Then run `<checker> <file.html> --numstat <that file> --ref <target>`, where `<target>` is the branch name, `HEAD` for `current-branch`, or `refs/pull/<N>/head` for a `pr`: anchors and hashes are then checked against the code the page explains, not the checked-out files, and skipped with a warning if that ref is not available locally. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
+
+The checker prints JSON with a `violations` list, each with an `id` and a `message`. Fix the page for every violation and run it again, at most two fix rounds. If violations remain, add one line to your report naming them; never call the page clean without a clean run. If the checker cannot run (exit code 3: python3 missing) or fails itself (exit code 5), say so in the report; exit code 5 says nothing about the page.
+
+Then, if a render checker path was given, run `<render checker> <file.html>`: it renders the page at 400px and reports horizontal overflow the static checker cannot see. Fix what it names (let long paths wrap, put wide content in an `overflow-x: auto` container) and run it again, at most two rounds. Exit code 4 means no browser is installed and exit code 5 means the render itself failed; either way say in the report that the render was not checked.
 
 ### Step 5: Terminal Output
 
@@ -106,7 +116,7 @@ Steps 1–5 above are for state targets. For a change target:
 - **Gather the change**: for `pr`, `gh pr view <N> --json title,body,files,commits,baseRefName` and `gh pr diff <N>` (`<N>` is the PR number without the `#`: in a shell, `#42` starts a comment and gh would silently show the current branch's PR); for `branch` and `current-branch`, `git log <Base>..<target>` and `git diff <Base>...<target>` (the target is `HEAD` for `current-branch`). If `gh` fails at runtime for a `pr`, stop and say: `gh is unavailable or not logged in, so PR #<n> cannot be read. Pass the branch name instead: /digest:explain <branch>`.
 - **Classify**: the primary change type (feat, fix, refactor, docs, perf, test, chore, breaking) and a risk level (low, medium, high, critical) with the reason in one line.
 - **`print` output** (change targets): write nothing to disk. Return only the audience-calibrated card in rich markdown: What, Why, Impact, Key changes, Breaking changes, change type and risk, a file breakdown with a one-line note per file, a suggested reading order by dependency, and the key concepts someone unfamiliar with the codebase needs. About a one-minute read.
-- **`html` output** (the default): read the HTML template, follow its hero card (with the risk light) and file map, add its change-target deep sections, and add a downstream-consumers section found by grepping for imports of the changed files. Write `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html`, then print one paragraph of conclusion plus `📄 Explainer written to: <path>`.
+- **`html` output** (the default): read the HTML template and follow its content floor for a change (every changed file with `+N −M`, a Where-to-focus list, a risk mark per file, the required topics); find the downstream consumers by grepping for imports of the changed files. Write `$PROJECT_ROOT/explain-<slug>-<YYYY-MM-DD>.html`, check it (Step 4b), then print one paragraph of conclusion plus `📄 Explainer written to: <path>`.
 - Calibrate to the audience with the table above.
 
 ## Print mode (state targets)
