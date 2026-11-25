@@ -95,7 +95,7 @@ Calibrate all prose to the **Audience**; write in English unless the user asked 
 
 ### Step 4b: Check the explainer (`html` output only)
 
-Run the checker on the file with the **Checker script path**. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git diff --numstat <Base>...<target>`; for `pr`, `gh pr view <N> --json files -q '.files[] | [.additions, .deletions, .path] | @tsv'`. Then run `<checker> <file.html> --numstat <that file>`. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
+Run the checker on the file with the **Checker script path**. For a change target first write the changed files in `git diff --numstat` format to a temporary file: for `branch` and `current-branch`, `git diff --numstat <Base>...<target>`; for `pr`, `gh pr view <N> --json files -q '.files[] | [.additions, .deletions, .path] | @tsv'`. Then run `<checker> <file.html> --numstat <that file> --ref <target>`, where `<target>` is the branch name, `HEAD` for `current-branch`, or `refs/pull/<N>/head` for a `pr`: anchors and hashes are then checked against the code the page explains, not the checked-out files, and skipped with a warning if that ref is not available locally. For `file/module`, `symbol` and `question` run `<checker> <file.html> --kind state`.
 
 The checker prints JSON with a `violations` list, each with an `id` and a `message`. Fix the page for every violation and run it again, at most two fix rounds. If violations remain, add one line to your report naming them; never call the page clean without a clean run. If the checker cannot run (exit code 3: python3 missing), say so in the report.
 

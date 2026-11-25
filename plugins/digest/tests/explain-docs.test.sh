@@ -143,4 +143,9 @@ grep -q 'check-render.sh' "$README" && grep -q -i 'chrome' "$README" || fail "RE
 grep -q -F 'Every table sits in its own container' "$TEMPLATE" || fail "template must say every table sits in its own overflow-x container"
 grep -q -F 'white-space: nowrap' "$TEMPLATE" || fail "template must say code inside table cells uses white-space: nowrap"
 
+# 19. A change explainer is checked against the TARGET branch, so the writer passes --ref.
+for f in "$AGENT" "$CODEX" "$TEMPLATE"; do
+  grep -q -- '--ref' "$f" || fail "$f must tell the writer to pass --ref <target> to the checker"
+done
+
 echo "ok: explain-docs"

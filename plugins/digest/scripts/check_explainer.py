@@ -1,4 +1,4 @@
-"""Explainer checker. Usage: python3 -I check_explainer.py <file.html> <change|state> <numstat-file-or-empty>
+"""Explainer checker. Usage: python3 -I check_explainer.py <file.html> <change|state> <numstat-file-or-empty> <ref-or-empty>
 Prints a JSON report and exits 0 (clean) or 1 (violations). Standard library only.
 
 Four groups of violations (a page with any of them fails) and a list of warnings (polish, never fails). All
@@ -21,6 +21,7 @@ import sys
 from html.parser import HTMLParser
 
 path, kind, numstat_path = sys.argv[1], sys.argv[2], sys.argv[3]
+ref = sys.argv[4] if len(sys.argv) > 4 else ""
 s = open(path, encoding="utf-8", errors="replace").read()
 
 violations = []
@@ -75,7 +76,7 @@ if "prefers-color-scheme" not in s:
 
 without_root = re.sub(r":root[^{]*\{[^}]*\}", "", s)
 raw = 0
-for m in re.finditer(r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![\w-])", without_root):
+for m in re.finditer(r"(?<!&)#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![\w-])", without_root):
     before = without_root[max(0, m.start() - 8):m.start()]
     if re.search(r"(href\s*=\s*[\"']|url\(|id\s*=\s*[\"']|for\s*=\s*[\"'])$", before):
         continue
@@ -416,19 +417,55 @@ for m in re.finditer(r"(?<![\w/.-])([\w./-]*[\w-]\.([A-Za-z]{1,5})):(\d+)(?:[-â€
         continue
     anchors.append((m.group(1), int(m.group(3)), int(m.group(4) or m.group(3))))
 info["anchors"] = len(anchors)
+
+
+def git(*args):
+    return subprocess.run(["git"] + list(args), capture_output=True, text=True)
+
+
+# Anchors and hashes are judged against the branch the page explains (--ref), not the working tree, so a branch
+# that is not checked out is judged fairly. An unavailable ref skips those checks with a warning, never a violation.
+ref_state = "none"
+if ref:
+    try:
+        ref_state = "ok" if git("rev-parse", "--verify", "--quiet", ref + "^{commit}").returncode == 0 else "missing"
+    except Exception:
+        ref_state = "missing"
+if ref_state == "missing":
+    warning("references_unchecked",
+            "The ref %s is not available locally, so file:line anchors and commit hashes were not checked. Fetch it "
+            "(for a pull request: git fetch origin pull/N/head) and run the checker again." % ref)
+
+
+def read_at_ref(name):
+    if ref_state == "ok":
+        r = git("show", "%s:%s" % (ref, name))
+        return r.stdout if r.returncode == 0 else None
+    try:
+        return open(name, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return None
+
+
+tracked = None
 try:
-    tracked = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True).stdout.split("\n")
+    if ref_state == "ok":
+        tracked = git("ls-tree", "-r", "--full-name", "--name-only", ref).stdout.split("\n")
+    elif ref_state == "none":
+        tracked = git("ls-files", "--full-name").stdout.split("\n") if git("rev-parse", "--git-dir").returncode == 0 else None
 except Exception:
     tracked = None
 if tracked is not None:
     bad_anchors = []
     for name, a, b in anchors:
         cands = [f for f in tracked if f == name or f.endswith("/" + name)]
-        if not cands and os.path.exists(name):
+        if not cands and ref_state == "none" and os.path.exists(name):
             cands = [name]
         good = False
         for c in cands:
-            data = open(c, encoding="utf-8", errors="replace").read()
+            data = read_at_ref(c)
+            if data is None:
+                continue
             n = data.count("\n") + (0 if (not data or data.endswith("\n")) else 1)
             if 1 <= a <= b <= n:
                 good = True
@@ -456,7 +493,7 @@ if "text-wrap" not in css:
 
 # commit hashes that do not exist in this repository are invented history (skipped outside a repo)
 tokens = {t for t in re.findall(r"\b[0-9a-f]{7,12}\b", visible) if re.search(r"\d", t) and re.search(r"[a-f]", t)}
-if tokens:
+if tokens and ref_state != "missing":
     try:
         real = subprocess.run(["git", "rev-list", "--all"], capture_output=True, text=True, check=True).stdout.split()
     except Exception:

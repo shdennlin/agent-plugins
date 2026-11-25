@@ -25,6 +25,13 @@ echo a >a.txt
 git add -A
 git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m "init"
 REAL="$(git rev-parse --short=7 HEAD)"
+# A branch that is NOT checked out and has a file the working tree does not: what explaining someone else's branch looks like.
+git checkout -q -b feat/x
+seq 1 30 | sed 's/^/line /' >src/new.ts
+git add -A
+git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m "feat: new file"
+ONLY_ON_FEAT="$(git rev-parse --short=7 HEAD)"
+git checkout -q main
 
 fail() { echo "ASSERT FAIL: $*" >&2; exit 1; }
 
@@ -218,6 +225,31 @@ good_change | sed 's|src/alpha.ts:12|alpha.ts:12|' >ok-base.html
 expect_ok "anchor by file name only" ok-base.html --numstat numstat.tsv
 good_change | sed 's|Why: the old parser|Why at 10:30 and port example.com:8080: the old parser|' >ok-noise.html
 expect_ok "times and host:port are not anchors" ok-noise.html --numstat numstat.tsv
+
+# 6c. Explaining a branch that is not checked out: anchors and hashes are validated against the TARGET ref, not
+#     the working tree, and are skipped (with a warning, never a violation) when the ref is not available locally.
+good_change | sed 's|src/alpha.ts:12|src/new.ts:12|' >on-feat.html
+expect_only "anchor into a file only the target has, no --ref" anchors_invalid on-feat.html --numstat numstat.tsv
+expect_ok "same anchor, validated against --ref feat/x" on-feat.html --numstat numstat.tsv --ref feat/x
+good_change | sed 's|src/alpha.ts:12|src/new.ts:999|' >bad.html
+expect_only "anchor past the end of the file on the ref" anchors_invalid bad.html --numstat numstat.tsv --ref feat/x
+run_check on-feat.html --numstat numstat.tsv --ref refs/pull/9/head
+[[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "references_unchecked" ]] \
+  || fail "an unavailable ref skips reference checks with a warning: rc=$RC ids=$(ids) warns=$(warn_ids)"
+good_change | sed 's|Why: the old parser|Why: deadbe1 broke the old parser|' >hash-bad.html
+run_check hash-bad.html --numstat numstat.tsv --ref refs/pull/9/head
+[[ "$RC" == "0" && "$(ids)" == "" && "$(warn_ids)" == "references_unchecked" ]] \
+  || fail "hashes are not judged when the ref is unavailable: rc=$RC ids=$(ids) warns=$(warn_ids)"
+expect_only "invented hash still caught on a real ref" invented_hashes hash-bad.html --numstat numstat.tsv --ref feat/x
+good_change | sed "s|Why: the old parser|Why: $ONLY_ON_FEAT added the new file, the old parser|" >hash-feat.html
+expect_ok "a hash that exists only on another local branch" hash-feat.html --numstat numstat.tsv
+run_check good-change.html --numstat numstat.tsv --ref
+[[ "$RC" == "2" ]] || fail "--ref without a value should exit 2, got $RC"
+
+# 6d. An HTML character reference such as &#8594; is not a raw color.
+good_change | sed 's|Moderate risk|Moderate \&#8594; \&#169; risk|' >ok-entity.html
+grep -q '&#8594;' ok-entity.html || fail "the entity fixture was not built"
+expect_ok "numeric character references" ok-entity.html --numstat numstat.tsv
 
 # 7. Navigation: a page with four or more headings needs working jump links.
 good_change | sed 's|<nav>.*</nav>||' >bad.html
