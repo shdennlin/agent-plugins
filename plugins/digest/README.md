@@ -1,6 +1,6 @@
 # Digest Plugin
 
-Summarize AI-generated branches, PRs, diffs, and design docs into icon-rich structured cards — and explain existing code (what / how / why / where's the bug) as self-contained HTML explainers.
+Explain existing code (what / how / why / where's the bug) and summarize what a pull request or branch changes — as self-contained HTML explainers or icon-rich cards in chat.
 
 ## Problem
 
@@ -10,44 +10,17 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 | Command | Purpose |
 |---------|---------|
-| `/digest:digest [target] [-f <audience>] [-e [md\|html]]` | Summarize changes (delta) into a structured card, with optional full-depth export |
-| `/digest:explain [path\|symbol\|question] [-f <audience>] [--teach]` | Explain code state as a self-contained HTML explainer or a short lesson in chat |
+| `/digest:explain [target] [-f <audience>] [--teach] [--html] [--as <kind>]` | Explain code state, or summarize what a PR, branch, or the current branch changes — an HTML explainer, a card in chat, or a short lesson (`--teach`) |
 | `/digest:release [from] [to] [--dev] [--user] [--write] [--out <file>]` | Generate release notes from commit ranges |
 | `/digest:weekly [date-range] [--projects <list>] [--brief] [--detail] [--write]` | Synthesize multi-project recall digest over a time window |
 
 ## Usage
 
-### Digest
-
-```bash
-# Summarize current branch
-/digest:digest
-
-# Summarize a feature branch
-/digest:digest feat/new-auth
-
-# Summarize a PR
-/digest:digest #42
-
-# Summarize a design doc
-/digest:digest docs/plans/auth.md
-
-# Tailor for an audience (free-form: manager, pm, designer, non-technical, ...)
-/digest:digest -f manager
-/digest:digest feat/auth -f non-technical
-
-# Full-depth markdown report with Mermaid diagrams
-/digest:digest -e md
-
-# Self-contained HTML explainer (shareable single file)
-/digest:digest -e html
-/digest:digest feat/auth -e html -f pm
-```
-
 ### Explain
 
 ```bash
 # After an investigation in the current session — visualize the finding
+# (with nothing to explain, summarizes the current branch against its base)
 /digest:explain
 
 # How does this module work?
@@ -56,17 +29,54 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 # What is this function's role in the whole flow?
 /digest:explain handleRetry
 
-# Learn the key concept from a recent change in chat
-/digest:explain --teach
-
 # Why was it designed this way? (git archaeology)
 /digest:explain "why does the queue use at-least-once delivery?"
+
+# What does this pull request do? (card in chat, no file)
+/digest:explain #42
+
+# What does this branch change? (card in chat)
+/digest:explain feat/auth
+
+# Same, as a shareable HTML file
+/digest:explain feat/auth --html
+
+# Tailor for an audience (free-form: manager, pm, designer, non-technical, ...)
+/digest:explain #42 -f manager
+
+# Short lesson in chat about the key concept in a recent change
+/digest:explain --teach
+
+# Read "main" as a symbol instead of the branch
+/digest:explain main --as symbol
 
 # Onboarding tour for a new teammate
 /digest:explain src/ -f "new teammate"
 ```
 
-`digest` explains **what changed** (delta); `explain` explains **the current state** — no arguments uses the current conversation's findings, a path/symbol/question dispatches an investigation with git archaeology (`git log --follow`, `blame`, commit messages, PR discussions).
+The first line of every run says how the target was read (`解析為:branch main`); `--as <kind>` (`file`, `pr`, `branch`, `symbol`, `question`) forces another reading. A target is classified in this order: an existing path, then `#N`, then a local or remote-tracking branch, then an identifier-like symbol, then a free-form question.
+
+| Target | Default output |
+|--------|----------------|
+| path, symbol, question, the conversation's findings | self-contained HTML explainer |
+| `#PR`, branch, current branch | change card in chat (no file); `--html` also writes the HTML explainer |
+| any target with `--teach` | short read-only lesson in chat |
+
+With no target, `explain` uses the current conversation's findings; if there are none, it explains the current branch against its base (`develop` or `main`, whichever is nearer); if there is nothing to diff either, it says so. A path, symbol, or question dispatches an investigation with git archaeology (`git log --follow`, `blame`, commit messages, PR discussions). A `#PR` needs `gh` installed and logged in; without it, `explain` stops and asks for the branch name instead.
+
+#### Migrating from 2.x
+
+`/digest:digest` was removed in 3.0.0 and has no alias. Use `/digest:explain` with the same target:
+
+| 2.x | 3.0 |
+|-----|-----|
+| `/digest:digest` | `/digest:explain` |
+| `/digest:digest feat/auth`, `#42`, a design doc path | `/digest:explain feat/auth`, `#42`, the same path |
+| `/digest:digest ... -f manager` | `/digest:explain ... -f manager` |
+| `-e html` | `--html` |
+| `-e md` | no replacement |
+
+A design doc path is now explained as a file (what it says), not summarized as a change; pass the branch or PR to see what changed.
 
 ### Release
 
@@ -160,7 +170,7 @@ Output is **synthesized** (themed clusters), not enumerated (commit dumps). Sect
 
 ## Output Format
 
-### Default (Structured Card)
+### Change card (default for `#PR`, branch, and the current branch)
 
 ```
 ✨ Type: Feature | 📁 3 files changed | ⚠️ Risk: Low
@@ -193,20 +203,11 @@ Free-form audience string calibrates both material and language. `-f manager` le
 🚨 Breaking changes: None
 ```
 
-### Export (`-e md`)
+### HTML explainer (`--html`, and the default for state targets)
 
-Writes the full-depth report to `digest-report-<target>-<YYYY-MM-DD>.md` with Mermaid diagrams. Adds (~5 min read):
-- Architecture impact with module dependencies and blast radius
-- Design decisions with trade-off analysis
-- Breaking changes and migration steps
-- Risk assessment and recommendations
-- Questions for the author
+A single self-contained HTML file — zero external requests, inline SVG diagrams (layer/dependency, call-chain, why-chain, evolution timeline), light/dark via `prefers-color-scheme`, deep sections in collapsible `<details>`. Opens from `file://` with no network. File: `explain-<slug>-<date>.html` in the project root.
 
-### HTML Explainer (`-e html` / explain)
-
-A single self-contained HTML file — zero external requests, inline SVG diagrams (layer/dependency, call-chain, why-chain, evolution timeline), light/dark via `prefers-color-scheme`, deep sections in collapsible `<details>`. Opens from `file://` with no network. Files: `digest-report-<target>-<date>.html` and `explain-<slug>-<date>.html`.
-
-Terminal output is always the concise card; exports are always full depth. Removed flags: `-r` → use `-e md`/`-e html`; `-s` → use `-f non-technical`.
+For a change target (`#PR`, branch, current branch) the HTML adds the full-depth sections: code walkthrough, design decisions, breaking changes & migration, risks & recommendations, questions for the author, and downstream consumers of the changed files.
 
 ## Change Type Icons
 
@@ -235,7 +236,6 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation.
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
-| digest-agent | sonnet | Analyzes diffs, commits, PRs, and docs to produce structured summaries |
-| explain-agent | sonnet | Reads code and git history to explain what/how/why, producing HTML explainers |
+| explain-agent | sonnet | Reads code and git history to explain what/how/why, and analyzes pull requests and branches into change cards; produces a card in chat or an HTML explainer |
 | release-agent | sonnet | Gathers commits between tags and produces developer/user release notes |
 | weekly-agent | sonnet | Scans multiple project repos over a time window and synthesizes themed recall notes |

@@ -20,7 +20,7 @@ Plugins are grouped by what they do. **Type** is how each one is built: *Command
 
 | Plugin | Description | Type | Entry points |
 |--------|-------------|------|--------------|
-| [digest](./plugins/digest) | Summarize branches, PRs, diffs, and docs into structured cards, plus multi-project weekly recall digests | Command + Agent + Skill | `/digest:digest`, `/digest:release`, `/digest:weekly` |
+| [digest](./plugins/digest) | Explain code and summarize what a PR or branch changes (HTML explainers or cards in chat), plus release notes and multi-project weekly recall digests | Command + Agent + Skill | `/digest:explain`, `/digest:release`, `/digest:weekly` |
 | [mermaid-validator](./plugins/mermaid-validator) | Validates and fixes Mermaid diagram syntax in Markdown files | Command + Agent | `/mermaid-validator:check` |
 | [project-notes](./plugins/project-notes) | Capture sessions to a structured journal, then harvest ⭐ items into permanent-note drafts | Command + Agent | `/project-notes:log`, `/project-notes:harvest` |
 
