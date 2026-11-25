@@ -1,12 +1,18 @@
 """Explainer checker. Usage: python3 -I check_explainer.py <file.html> <change|state> <numstat-file-or-empty>
 Prints a JSON report and exits 0 (clean) or 1 (violations). Standard library only.
 
-Three groups, all mechanical and deliberately approximate, so a clean report means "no rule is visibly
-broken", not "the page is good":
-  hard  - external requests, dark mode, raw colors outside :root, <details> open by default, Expand all
-  avoid - colored edge bars, a card inside a card, more than 5 emoji
-  floor - change: every changed file named with its +/- counts, the required topics, a review-focus list,
-          risk marks; state: a code excerpt; both: no invented commit hashes."""
+Four groups of violations (a page with any of them fails) and a list of warnings (polish, never fails). All
+checks are mechanical and deliberately approximate, so a clean report means "no rule is visibly broken",
+not "the page is good":
+  hard    - external requests, dark mode, color-scheme, a focus style, raw colors outside :root, overflow
+            hidden on the page, <details> open by default, Expand all
+  meaning - semantic colors that are actually used, one to three <mark>, evidence grade labels
+  avoid   - colored edge bars, a card inside a card, more than 5 emoji
+  floor   - change: every changed file named with its +/- counts, the required topics, a review-focus list,
+            risk marks, a how-to-verify section; state: a code excerpt and file:line anchors;
+            both: a statement of what was not verified, working file:line anchors, jump links, no invented
+            commit hashes
+  warnings - tabular numbers for +/- counts, text-wrap: balance on headings."""
 import json
 import os
 import re
@@ -18,10 +24,15 @@ path, kind, numstat_path = sys.argv[1], sys.argv[2], sys.argv[3]
 s = open(path, encoding="utf-8", errors="replace").read()
 
 violations = []
+warnings = []
 
 
 def violation(group, vid, count, message):
     violations.append({"id": vid, "group": group, "count": count, "message": message})
+
+
+def warning(wid, message):
+    warnings.append({"id": wid, "message": message})
 
 
 # ---------------------------------------------------------------- parse helpers
@@ -33,6 +44,9 @@ visible = re.sub(r"<[^>]+>", " ", visible)
 visible = re.sub(r"&minus;|&#8722;", "−", visible)
 visible = re.sub(r"&amp;", "&", visible)
 visible = re.sub(r"\s+", " ", visible)
+body_markup = re.sub(r"<(script|style)\b.*?</\1>", " ", s, flags=re.I | re.S)
+heads = [re.sub(r"<[^>]+>", "", h).strip()
+         for h in re.findall(r"<(?:h[1-6]|summary)\b[^>]*>(.*?)</(?:h[1-6]|summary)>", s, flags=re.S | re.I)]
 
 
 def px(value):
@@ -97,6 +111,45 @@ has_toggle = bool(re.search(r"<button\b[^>]*>[^<]*(expand|collapse|展開|收合
 if n_details >= 2 and not has_toggle:
     violation("hard", "expand_all_missing", 1,
               "The page has %d <details> but no Expand all / Collapse all button. Add one small button above the first <details>." % n_details)
+
+if not re.search(r":focus(?:-visible)?\b", css):
+    violation("hard", "focus_style_missing", 1,
+              "No visible keyboard focus style. Add a :focus-visible rule (an outline) for buttons, summaries and links.")
+
+if not re.search(r"(?:^|[;{\s])color-scheme\s*:", css):
+    violation("hard", "color_scheme_missing", 1,
+              "No color-scheme property. Declare color-scheme: light dark on :root so form controls and scrollbars follow the theme.")
+
+# ---------------------------------------------------------------- meaning
+SEMANTIC = r"(?:ok|good|warn|warning|bad|danger|err|error|add|del|risk|crit|critical)"
+sem_tokens = set(re.findall(r"--(" + SEMANTIC + r"[\w-]*)\s*:", css))
+sem_classes = set()
+for sel, body in rules:
+    if sel.strip().startswith(":root"):
+        continue
+    if any(re.search(r"var\(--%s\)" % re.escape(t), body) for t in sem_tokens):
+        sem_classes.update(re.findall(r"\.([\w-]+)", sel))
+sem_used = sum(len(re.findall(r'class\s*=\s*"[^"]*\b%s\b' % re.escape(c), body_markup)) for c in sem_classes)
+sem_used += sum(len(re.findall(r'style\s*=\s*"[^"]*var\(--%s\)' % re.escape(t), body_markup)) for t in sem_tokens)
+if sem_used < 2:
+    violation("meaning", "semantic_color_unused", 1,
+              "Semantic colors (ok, warn, bad) are not used on the page (%d element(s)). Use them on risk marks and on the +N and −M "
+              "counts, so color carries meaning, not just decoration." % sem_used)
+
+marks = len(re.findall(r"<mark\b", body_markup, flags=re.I))
+if marks == 0:
+    violation("meaning", "mark_missing", 1,
+              "No highlight. Wrap the one sentence the reader must not miss in <mark>.")
+elif marks > 3:
+    violation("meaning", "mark_overused", marks,
+              "%d highlights; use <mark> for at most 3 sentences, otherwise nothing stands out." % marks)
+
+grades = [g.lower() for g in re.findall(r">\s*(measured|read|inferred)\s*<", body_markup, flags=re.I)]
+if len(grades) < 3 or len(set(grades)) < 2:
+    violation("meaning", "grades_missing", 1,
+              "Evidence grades are missing or too few (%d label(s), %d kind(s)). Tag important claims with a small label reading measured "
+              "(you ran it), read (you read the code, with file:line) or inferred (not verified); use at least 3 labels of at least 2 kinds."
+              % (len(grades), len(set(grades))))
 
 # ---------------------------------------------------------------- avoid list
 bars = []
@@ -274,6 +327,60 @@ else:
         violation("floor", "evidence_missing", 1,
                   "No code excerpt. A state explainer needs an evidence section: the commands run, the key commits and the code excerpts (in <pre>).")
 
+if kind == "change" and not any(re.search(r"how to verify|test plan|how to check|verification", h, flags=re.I) for h in heads):
+    violation("floor", "how_to_verify_missing", 1,
+              "No how-to-verify section. Add a section headed 'How to verify' listing the commands the reader should run, since you did not run everything.")
+
+if not re.search(r"not verified|not checked|did not (?:run|verify|check|measure)|was not (?:run|measured)|not (?:run|measured)|unverified|what i did not", visible, flags=re.I):
+    violation("floor", "not_verified_missing", 1,
+              "The page never says what was not verified. Add a section headed 'What I did not verify' (grade it inferred).")
+
+# file:line anchors: validated against the repository's tracked files (skipped outside a repo)
+SKIP_TLDS = {"com", "org", "net", "io", "dev", "app", "gov", "edu"}
+anchors = []
+for m in re.finditer(r"(?<![\w/.-])([\w./-]*[\w-]\.([A-Za-z]{1,5})):(\d+)(?:[-–](\d+))?(?!\d)", visible):
+    if m.group(2).lower() in SKIP_TLDS:
+        continue
+    anchors.append((m.group(1), int(m.group(3)), int(m.group(4) or m.group(3))))
+info["anchors"] = len(anchors)
+try:
+    tracked = subprocess.run(["git", "ls-files"], capture_output=True, text=True, check=True).stdout.split("\n")
+except Exception:
+    tracked = None
+if tracked is not None:
+    bad_anchors = []
+    for name, a, b in anchors:
+        cands = [f for f in tracked if f == name or f.endswith("/" + name)]
+        if not cands and os.path.exists(name):
+            cands = [name]
+        good = False
+        for c in cands:
+            data = open(c, encoding="utf-8", errors="replace").read()
+            n = data.count("\n") + (0 if (not data or data.endswith("\n")) else 1)
+            if 1 <= a <= b <= n:
+                good = True
+                break
+        if not good:
+            bad_anchors.append("%s:%d%s" % (name, a, "" if a == b else "-%d" % b))
+    if bad_anchors:
+        violation("floor", "anchors_invalid", len(bad_anchors),
+                  "These file:line anchors do not resolve (no such tracked file, or a line past its end): %s." % ", ".join(bad_anchors[:5]))
+if kind == "state" and len(anchors) < 2:
+    violation("floor", "anchors_missing", 1,
+              "A state explainer must cite file:line anchors (at least 2) for the code it explains.")
+
+link_ids = set(re.findall(r'\bid\s*=\s*"([^"]+)"', s))
+working_links = {h for h in re.findall(r'<a\b[^>]*\shref\s*=\s*"#([^"]+)"', s) if h in link_ids}
+if len(heads) >= 4 and len(working_links) < 3:
+    violation("floor", "jump_links_missing", 1,
+              "The page has %d headings but fewer than 3 working jump links. Add a small nav of #links to the main sections (each with an id)." % len(heads))
+
+# polish: warnings only
+if kind == "change" and re.search(r"[+]\s*\d+\s*[−\-–]\s*\d+", visible) and "tabular-nums" not in css:
+    warning("tabular_nums_missing", "Add font-variant-numeric: tabular-nums to the cells with +N −M so the digits line up.")
+if "text-wrap" not in css:
+    warning("text_wrap_balance_missing", "Add text-wrap: balance to headings so they do not end in a lone word.")
+
 # commit hashes that do not exist in this repository are invented history (skipped outside a repo)
 tokens = {t for t in re.findall(r"\b[0-9a-f]{7,12}\b", visible) if re.search(r"\d", t) and re.search(r"[a-f]", t)}
 if tokens:
@@ -287,6 +394,8 @@ if tokens:
             violation("floor", "invented_hashes", len(invented),
                       "Commit hashes that do not exist in this repository: %s. Cite only real commits." % ", ".join(invented[:5]))
 
-report = {"ok": not violations, "kind": kind, "violations": violations, "info": info}
+info["marks"] = marks
+info["grades"] = len(grades)
+report = {"ok": not violations, "kind": kind, "violations": violations, "warnings": warnings, "info": info}
 print(json.dumps(report, ensure_ascii=False))
 sys.exit(0 if report["ok"] else 1)
