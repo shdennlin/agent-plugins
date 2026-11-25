@@ -221,4 +221,19 @@ run '--as branch v1'
 run '--as branch nosuchref'
 [[ "$RC" == "2" ]] || fail "--as branch nosuchref should exit 2, got $RC"
 
+# 19. HTML is the default for every target; --print asks for the answer in chat instead.
+run 'feat/auth'
+[[ "$(field .print)" == "false" ]] || fail "print defaults to false: $OUT"
+run '--print feat/auth'
+[[ "$RC" == "0" && "$(field .print)" == "true" && "$(field .html)" == "false" && "$(field .target)" == "feat/auth" ]] \
+  || fail "--print: rc=$RC $OUT"
+run '--html feat/auth'
+[[ "$(field .html)" == "true" && "$(field .print)" == "false" ]] || fail "--html stays an accepted explicit default: $OUT"
+run '--print --html'
+[[ "$RC" == "2" ]] || fail "--print --html should exit 2, got $RC"
+run '--print --teach'
+[[ "$RC" == "2" ]] || fail "--print --teach should exit 2, got $RC"
+run '-h'
+[[ "$OUT" == *--print* ]] || fail "help must list --print"
+
 echo "ok: classify-target"

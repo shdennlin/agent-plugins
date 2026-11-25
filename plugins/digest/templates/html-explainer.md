@@ -1,6 +1,6 @@
 # HTML Explainer — Shared Visual Spec
 
-Used by `/digest:explain` for state targets and, with `--html`, for change targets. Big visuals and few words up top; depth lives in collapsed sections. The reader should get the point in 3 seconds, the shape in 30, and the full story only if they expand.
+Used by `/digest:explain` for every target by default. Big visuals and few words up top; depth lives in collapsed sections. The reader should get the point in 3 seconds, the shape in 30, and the full story only if they expand.
 
 ## 1. Self-Containment Rules (hard constraints)
 

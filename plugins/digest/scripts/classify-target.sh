@@ -25,8 +25,8 @@ show_help() {
   cat <<'EOF'
 Usage: /digest:explain [target] [options]
 
-Explain code or a change. State targets (path, symbol, question) produce a self-contained
-HTML explainer; change targets (#PR, branch, current branch) produce a card in chat.
+Explain code or a change. Every target produces a self-contained HTML explainer by default;
+--print answers in the chat instead.
 
 Targets:
   (no argument)         The current conversation's findings; else the current branch vs its
@@ -39,9 +39,10 @@ Targets:
 
 Options:
   -f, --for <audience>  Tailor for an audience (manager, non-technical, "new teammate", ...)
-      --teach           Short, read-only explanation in chat (cannot be combined with --html)
-      --html            For a change target, write the HTML explainer instead of the chat card
-                        (prints a short conclusion and the file path)
+      --teach           Short, read-only explanation in chat (cannot be combined with --html or --print)
+      --print           Answer in the chat and write no file: a card for #PR, branch and current
+                        branch, a concise answer for a path, symbol or question
+      --html            Write the HTML explainer (the default; accepted so 2.x habits keep working)
       --as <kind>       Force the reading of the target: file, pr, branch, symbol, question
                         (branch also accepts a tag or a commit, e.g. --as branch v1)
   -h, --help            Show this help message
@@ -54,7 +55,8 @@ Examples:
   /digest:explain handleRetry              # role of a function
   /digest:explain "why is retry jittered?" # design rationale
   /digest:explain #42                      # summarize a pull request
-  /digest:explain feat/auth --html         # branch summary as an HTML file
+  /digest:explain feat/auth                # branch summary as an HTML file
+  /digest:explain #42 --print              # pull request summary, printed in the chat
   /digest:explain main --as symbol         # read "main" as a symbol, not the branch
 EOF
 }
@@ -97,6 +99,7 @@ tokenize "$(cat)"
 audience="developer"
 teach=false
 html=false
+print=false
 forced=""
 REST=()
 
@@ -110,9 +113,10 @@ while [ "$i" -lt "$count" ]; do
       i=$((i + 1)); [ "$i" -lt "$count" ] || die "$t needs an audience"
       audience=${TOKENS[$i]} ;;
     -e|--export)
-      die "$t was removed in 3.0.0: use --html to write an HTML file (-e md has no replacement). To explain text that contains $t, put the whole question in quotes." ;;
+      die "$t was removed in 3.0.0: HTML is now the default (--html also works) and --print answers in the chat (-e md has no replacement). To explain text that contains $t, put the whole question in quotes." ;;
     --teach) teach=true ;;
     --html) html=true ;;
+    --print) print=true ;;
     --as)
       i=$((i + 1)); [ "$i" -lt "$count" ] || die "--as needs a kind ($KINDS)"
       forced=${TOKENS[$i]}
@@ -122,8 +126,12 @@ while [ "$i" -lt "$count" ]; do
   i=$((i + 1))
 done
 
-if [ "$teach" = true ] && [ "$html" = true ]; then
-  die "--teach and --html cannot be combined"
+chosen=0
+for flag in "$teach" "$html" "$print"; do
+  if [ "$flag" = true ]; then chosen=$((chosen + 1)); fi
+done
+if [ "$chosen" -gt 1 ]; then
+  die "--teach, --html and --print cannot be combined"
 fi
 
 target=""
@@ -258,6 +266,7 @@ jq -n \
   --arg audience "$audience" \
   --argjson teach "$teach" \
   --argjson html "$html" \
+  --argjson print "$print" \
   --arg forced "$forced" \
   --arg target "$target" \
   --arg kind "$kind" \
@@ -268,6 +277,6 @@ jq -n \
   --argjson on_base "$on_base" \
   --argjson diff_empty "$diff_empty" \
   --argjson gh_ok "$gh_ok" \
-  '{help: false, audience: $audience, teach: $teach, html: $html, forced: $forced,
+  '{help: false, audience: $audience, teach: $teach, html: $html, print: $print, forced: $forced,
     target: $target, kind: $kind, slug: $slug, resolved_line: $resolved_line,
     branch: $branch, base: $base, on_base: $on_base, diff_empty: $diff_empty, gh_ok: $gh_ok}'

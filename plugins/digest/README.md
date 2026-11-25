@@ -1,6 +1,6 @@
 # Digest Plugin
 
-Explain existing code (what / how / why / where's the bug) and summarize what a pull request or branch changes — as self-contained HTML explainers or icon-rich cards in chat.
+Explain existing code (what / how / why / where's the bug) and summarize what a pull request or branch changes — as self-contained HTML explainers, or printed in chat with `--print`.
 
 ## Problem
 
@@ -10,7 +10,7 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 | Command | Purpose |
 |---------|---------|
-| `/digest:explain [target] [-f <audience>] [--teach] [--html] [--as <kind>]` | Explain code state, or summarize what a PR, branch, or the current branch changes — an HTML explainer, a card in chat, or a short lesson (`--teach`) |
+| `/digest:explain [target] [-f <audience>] [--teach] [--print] [--html] [--as <kind>]` | Explain code state, or summarize what a PR, branch, or the current branch changes — an HTML explainer (`--print` answers in chat instead), or a short lesson (`--teach`) |
 | `/digest:release [from] [to] [--dev] [--user] [--write] [--out <file>]` | Generate release notes from commit ranges |
 | `/digest:weekly [date-range] [--projects <list>] [--brief] [--detail] [--write]` | Synthesize multi-project recall digest over a time window |
 
@@ -32,14 +32,14 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 # Why was it designed this way? (git archaeology)
 /digest:explain "why does the queue use at-least-once delivery?"
 
-# What does this pull request do? (card in chat, no file)
+# What does this pull request do? (HTML file)
 /digest:explain #42
 
-# What does this branch change? (card in chat)
+# What does this branch change? (HTML file)
 /digest:explain feat/auth
 
-# Same, as a shareable HTML file
-/digest:explain feat/auth --html
+# Same, printed in the chat instead of a file
+/digest:explain feat/auth --print
 
 # Tailor for an audience (free-form: manager, pm, designer, non-technical, ...)
 /digest:explain #42 -f manager
@@ -58,8 +58,8 @@ The first line of every run says how the target was read (`解析為:branch main
 
 | Target | Default output |
 |--------|----------------|
-| path, symbol, question, the conversation's findings | self-contained HTML explainer |
-| `#PR`, branch, current branch | change card in chat (no file); `--html` writes the HTML explainer instead (a short conclusion plus the file path) |
+| any target (default) | self-contained HTML explainer plus a short conclusion in the terminal; `--html` is accepted and means the same |
+| any target with `--print` | the answer in chat and no file: a card for `#PR`, branch and current branch, a concise answer for a path, symbol or question |
 | any target with `--teach` | short read-only lesson in chat |
 
 With no target, `explain` uses the current conversation's findings; if there are none, it explains the current branch against its base (`develop` or `main`, whichever is nearer); if there is nothing to diff either, it says so. A path, symbol, or question dispatches an investigation with git archaeology (`git log --follow`, `blame`, commit messages, PR discussions). A `#PR` needs `gh` installed and logged in; without it, `explain` stops and asks for the branch name instead.
@@ -73,7 +73,8 @@ With no target, `explain` uses the current conversation's findings; if there are
 | `/digest:digest` | `/digest:explain` |
 | `/digest:digest feat/auth`, `#42`, a design doc path | `/digest:explain feat/auth`, `#42`, the same path |
 | `/digest:digest ... -f manager` | `/digest:explain ... -f manager` |
-| `-e html` | `--html` (prints a short conclusion and the path, not the card) |
+| `-e html` | the default (`--html` also works) |
+| the terminal card (the 2.x default) | `--print` |
 | `-e md` | no replacement |
 
 Any `-e` or `--export` now stops with an error and this hint, instead of being read as part of a question. To explain text that contains `-e`, put the whole question in quotes.
@@ -174,7 +175,7 @@ Output is **synthesized** (themed clusters), not enumerated (commit dumps). Sect
 
 ## Output Format
 
-### Change card (default for `#PR`, branch, and the current branch)
+### Change card (`--print` for `#PR`, branch, and the current branch)
 
 ```
 ✨ Type: Feature | 📁 3 files changed | ⚠️ Risk: Low
@@ -207,7 +208,7 @@ Free-form audience string calibrates both material and language. `-f manager` le
 🚨 Breaking changes: None
 ```
 
-### HTML explainer (`--html`, and the default for state targets)
+### HTML explainer (the default for every target)
 
 A single self-contained HTML file — zero external requests, inline SVG diagrams (layer/dependency, call-chain, why-chain, evolution timeline), light/dark via `prefers-color-scheme`, deep sections in collapsible `<details>`. Opens from `file://` with no network. File: `explain-<slug>-<date>.html` in the project root.
 
@@ -240,6 +241,6 @@ See [`.codex/INSTALL.md`](.codex/INSTALL.md) for Codex-native installation.
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
-| explain-agent | sonnet | Reads code and git history to explain what/how/why, and analyzes pull requests and branches into change cards; produces a card in chat or an HTML explainer |
+| explain-agent | sonnet | Reads code and git history to explain what/how/why, and analyzes pull requests and branches into change cards; produces an HTML explainer, or a printed answer with `--print` |
 | release-agent | sonnet | Gathers commits between tags and produces developer/user release notes |
 | weekly-agent | sonnet | Scans multiple project repos over a time window and synthesizes themed recall notes |

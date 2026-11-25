@@ -21,10 +21,6 @@ fail() { echo "ASSERT FAIL: $*" >&2; exit 1; }
 grep -n "^ARGS$\|<<'ARGS'" "$CMD" "$SCRIPT" && fail "bare ARGS heredoc terminator still present"
 grep -q "<<'DIGEST_EXPLAIN_ARGS_9f3a'" "$CMD" || fail "command must use the unique heredoc terminator"
 
-# 2. --html replaces the card with a conclusion and the file path; nothing may say it is "also"/"as well".
-grep -n -i -E -- '--html.*(also|as well|too)' "$CMD" "$SKILL" "$README" "$SCRIPT" \
-  && fail "--html is described as additive, but it replaces the card"
-
 # 3. The PR number handed to gh has no '#': in a shell, '#42' starts a comment and gh would show the
 #    current branch's PR instead.
 for f in "$AGENT" "$CODEX"; do
@@ -41,5 +37,17 @@ grep -q 'No base branch' "$CMD" || fail "command needs the no-base stop for a br
 # 6. The migration note admits that tags, short hashes and HEAD~n are no longer branches.
 grep -q -- '--as branch' "$README" || fail "README migration note must mention --as branch"
 grep -q -- '-e` / `--export' "$README" || grep -q -- '`-e`' "$README" || fail "README must mention the -e error"
+
+# 7. HTML is the default for every target and --print is the way to get the answer in chat: the
+#    old card-default wording must be gone and every file must know --print.
+for f in "$CMD" "$SKILL" "$README" "$SCRIPT"; do
+  grep -q -- '--print' "$f" || fail "$f must document --print"
+done
+grep -n -i -E 'card in chat|chat card|unless `html`' "$CMD" "$SKILL" "$README" "$SCRIPT" "$AGENT" "$CODEX" \
+  && fail "a file still says change targets default to a chat card"
+grep -n 'card | html' "$CMD" "$SKILL" "$AGENT" "$CODEX" && fail "Output mode must be html | print, not card | html"
+for f in "$CMD" "$SKILL" "$AGENT" "$CODEX"; do
+  grep -q 'html | print\|html` or `print\|`print`' "$f" || fail "$f must name the print output mode"
+done
 
 echo "ok: explain-docs"

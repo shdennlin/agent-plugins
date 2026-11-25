@@ -9,15 +9,15 @@ allowed-tools:
   - Write
   - AskUserQuestion
 description: Explain what code is, how it works, or why it was designed this way, and summarize what a branch or pull request changes — from the current conversation or by investigating a path, symbol, question, #PR, or branch
-argument-hint: "[path|symbol|question|#PR|branch] [-f/--for <audience>] [--teach] [--html] [--as <kind>] [--help/-h]"
+argument-hint: "[path|symbol|question|#PR|branch] [-f/--for <audience>] [--teach] [--print] [--html] [--as <kind>] [--help/-h]"
 ---
 
 # Explain Command
 
 Turn an investigation into understanding. `explain` covers **the current state** — what something is, how it works end-to-end, why it was designed this way, where a bug comes from — and **a change** — what a pull request, a branch, or the current branch does and why.
 
-- **State targets** (path, symbol, question, the conversation's findings): a self-contained HTML explainer.
-- **Change targets** (`#PR`, branch, current branch): a card in chat. `--html` writes the HTML explainer instead and prints a short conclusion plus the file path.
+- **Default, every target** (path, symbol, question, `#PR`, branch, current branch, the conversation's findings): a self-contained HTML explainer; the reply is a short conclusion plus the file path. `--html` means the same.
+- **`--print`**: the answer in the chat and no file: a card for a change target, a concise answer for a state target.
 - `--teach`: a short, read-only lesson in chat.
 
 ## MANDATORY FIRST STEP — DO NOT SKIP
@@ -33,7 +33,7 @@ DIGEST_EXPLAIN_ARGS_9f3a
 **If the script exits non-zero**, show its stderr verbatim and stop.
 **If `--help` or `-h` was in the arguments**, the script prints the help text and exits 0. Show it verbatim and stop.
 
-The JSON has: `audience`, `teach`, `html`, `forced`, `target`, `kind` (`file | pr | branch | symbol | question | empty`), `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`.
+The JSON has: `audience`, `teach`, `html`, `print`, `forced`, `target`, `kind` (`file | pr | branch | symbol | question | empty`), `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`.
 
 ## Instructions
 
@@ -58,11 +58,11 @@ Print `resolved_line` as the first line of your reply, unchanged. (For `empty`, 
 6. **`kind` is `pr` or `branch`** → **Change mode**.
 7. **`kind` is `file`, `symbol`, or `question`** → **Investigation mode** (state target).
 
-**Output mode** for any dispatch: `card` for a change target unless `html` is true; `html` for every state target.
+**Output mode** for any dispatch: `print` when `print` is true, else `html`.
 
 #### Conversation mode (inline — do NOT dispatch)
 
-The context lives in this conversation; a subagent cannot see it. Do everything inline:
+The context lives in this conversation; a subagent cannot see it. Do everything inline. If `print` is true, answer directly in the chat (a short conclusion, then the key evidence with `file:line` anchors) and stop; otherwise:
 
 1. Resolve the project root: `$PROJECT_ROOT`, else `git rev-parse --show-toplevel`, else `pwd`.
 2. Read the visual spec at `${CLAUDE_PLUGIN_ROOT}/templates/html-explainer.md`.
@@ -93,7 +93,7 @@ Task tool:
     Target: <target verbatim; for current-branch use HEAD>
     Target kind: <file/module | symbol | question | pr | branch | current-branch>
     Base: <base from the JSON, empty for state targets>
-    Output mode: <card | html>
+    Output mode: <html | print>
     Audience: <audience string, default "developer">
     HTML template path: <absolute path to templates/html-explainer.md — include when Output mode is html>
     Output slug: <slug; for current-branch use the branch name sanitized>
@@ -111,13 +111,13 @@ Task tool:
     Target: <target verbatim; for current-branch use HEAD>
     Target kind: <file/module | symbol | question | pr | branch | current-branch>
     Base: <base from the JSON, empty for state targets>
-    Output mode: <card | html>
+    Output mode: <html | print>
     Audience: <audience string, default "developer">
     HTML template path: <absolute path to templates/html-explainer.md — include when Output mode is html>
     Output slug: <slug; for current-branch use the branch name sanitized>
 ```
 
-5. Report the agent's output back to the user verbatim: the card for `card`, or the one-paragraph conclusion plus the written file path for `html`.
+5. Report the agent's output back to the user verbatim: for `print` the answer itself (the card for a change target), for `html` the one-paragraph conclusion plus the written file path.
 
 ## Examples
 
@@ -137,8 +137,11 @@ Task tool:
 # What does this pull request do?
 /digest:explain #42
 
-# What does this branch change, as a shareable HTML file?
-/digest:explain feat/auth --html
+# What does this branch change? (HTML file)
+/digest:explain feat/auth
+
+# Same, printed in the chat instead of a file
+/digest:explain feat/auth --print
 
 # Read "main" as a symbol instead of the branch
 /digest:explain main --as symbol

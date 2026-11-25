@@ -1,6 +1,6 @@
 ---
 name: digest:explain
-description: "Explain what a file, module, or symbol is, how it works end-to-end, why it was designed this way, or where a bug comes from — code reading plus git archaeology (log, blame, PR history), output as a self-contained HTML explainer with inline SVG diagrams. Also summarizes what a pull request, branch, or the current branch changes and why — a card in chat, or an HTML file with --html. Use for state questions about existing code (a path, a symbol, a free-form how/why question, or no arguments to explain the current conversation's findings) and for requests like 'what does this branch do', 'explain PR #42', or 'summarize the changes on feat/auth'. Use --teach for a short, read-only explanation in chat."
+description: "Explain what a file, module, or symbol is, how it works end-to-end, why it was designed this way, or where a bug comes from — code reading plus git archaeology (log, blame, PR history), output as a self-contained HTML explainer with inline SVG diagrams. Also summarizes what a pull request, branch, or the current branch changes and why — as an HTML explainer, or printed in chat with --print. Use for state questions about existing code (a path, a symbol, a free-form how/why question, or no arguments to explain the current conversation's findings) and for requests like 'what does this branch do', 'explain PR #42', or 'summarize the changes on feat/auth'. Use --teach for a short, read-only explanation in chat."
 ---
 
 # Explain
@@ -14,8 +14,8 @@ $explain                              # the conversation's findings; else the cu
 $explain src/auth/                    # how this module works
 $explain handleRetry                  # this function's role in the flow
 $explain "why saga pattern here?"     # design rationale via git archaeology
-$explain #42                          # what a pull request does (card in chat)
-$explain feat/auth --html             # what a branch changes, as an HTML file
+$explain #42                          # what a pull request does (HTML file)
+$explain feat/auth --print            # what a branch changes, printed in chat
 $explain main --as symbol             # read "main" as a symbol, not the branch
 $explain src/ -f "new teammate"       # onboarding tour
 ```
@@ -25,11 +25,12 @@ $explain src/ -f "new teammate"       # onboarding tour
 | Flag | Description |
 |------|-------------|
 | `-f, --for <audience>` | Tailor for an audience — free-form string (manager, non-technical, "new teammate", ...). Default: developer |
-| `--teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--html`) |
-| `--html` | For a change target (`#PR`, branch, current branch), write the HTML explainer instead of the chat card (prints a short conclusion and the file path) |
+| `--teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--html` or `--print`) |
+| `--print` | Answer in chat and write no file: a card for a change target, a concise answer for a state target |
+| `--html` | Write the HTML explainer. This is the default for every target; the flag is accepted so 2.x habits keep working |
 | `--as <kind>` | Force how the target is read: `file`, `pr`, `branch`, `symbol`, or `question` (`branch` also accepts a tag or a commit) |
 
-State targets (path, symbol, question, the conversation's findings) default to a self-contained HTML explainer written to the project root (`explain-<slug>-<YYYY-MM-DD>.html`), plus a one-paragraph conclusion in the terminal. Change targets default to a card in chat and write no file unless `--html` is given.
+Every target defaults to a self-contained HTML explainer written to the project root (`explain-<slug>-<YYYY-MM-DD>.html`), plus a one-paragraph conclusion in the terminal. With `--print` nothing is written: a change target gets a card, a state target a concise answer.
 
 ## Teach mode
 
@@ -41,17 +42,17 @@ When the user supplies `--teach`, use this mode before the HTML modes. Parse the
 
 ## Process
 
-1. **Classify the target with the script.** Run `../../scripts/classify-target.sh` (relative to this directory), feeding the raw arguments on stdin. It prints JSON (`audience`, `teach`, `html`, `forced`, `target`, `kind`, `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`). Never classify the target yourself. Its order is: existing path → file; `#N` → pr; local or remote-tracking branch → branch; identifier-like → symbol; anything else → question; nothing → empty. Say how the target was read by printing `resolved_line` first.
+1. **Classify the target with the script.** Run `../../scripts/classify-target.sh` (relative to this directory), feeding the raw arguments on stdin. It prints JSON (`audience`, `teach`, `html`, `print`, `forced`, `target`, `kind`, `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`). Never classify the target yourself. Its order is: existing path → file; `#N` → pr; local or remote-tracking branch → branch; identifier-like → symbol; anything else → question; nothing → empty. Say how the target was read by printing `resolved_line` first.
 2. **Empty target**, first match wins: the current conversation holds an investigation or finding → conversation mode (inline, no dispatch: read the visual spec at `../../templates/html-explainer.md`, assemble sections from the section library, write the file); else `on_base` is false, `base` is set and `diff_empty` is false → explain the current branch against its base as a change target; else print `Nothing to explain from this conversation yet. Pass a path, symbol, question, #PR, or branch: /digest:explain <target>` and stop.
 3. **`pr` with `gh_ok` false**: print `gh is unavailable or not logged in, so PR #<n> cannot be read. Pass the branch name instead: /digest:explain <branch>` and stop.
-4. **Otherwise dispatch the explain agent.** Output mode is `card` for a change target (`pr`, `branch`, current branch) unless `html` is true, and `html` for a state target.
+4. **Otherwise dispatch the explain agent.** Output mode is `print` when `print` is true, else `html`.
 
 ## Agent Dispatch
 
 Use the companion `explain-agent.md` in this directory as the agent prompt. Provide it with:
 - Target and target kind (file/module | symbol | question | pr | branch | current-branch)
 - Base (the base branch for change targets, empty otherwise)
-- Output mode (`card` | `html`)
+- Output mode (`html` | `print`)
 - Audience (free-form string, default `developer`)
 - Output slug (the script's `slug`)
 - The HTML template at `../../templates/html-explainer.md` relative to this directory (needed when Output mode is `html`)
