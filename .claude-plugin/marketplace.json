@@ -60,8 +60,8 @@
     {
       "name": "digest",
       "source": "./plugins/digest",
-      "description": "Summarize AI-generated branches, PRs, and diffs into icon-rich cards, explain code state with git archaeology as self-contained HTML explainers, plus multi-project weekly recall digests",
-      "version": "2.1.0",
+      "description": "Explain code state with git archaeology and summarize what a PR, branch, or diff changes, as self-contained HTML explainers or cards in chat, plus release notes and multi-project weekly recall digests",
+      "version": "3.0.0",
       "author": {
         "name": "shdennlin"
       },

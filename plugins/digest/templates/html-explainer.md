@@ -1,6 +1,6 @@
 # HTML Explainer — Shared Visual Spec
 
-Shared by `digest -e html` and `/digest:explain`. Big visuals and few words up top; depth lives in collapsed sections. The reader should get the point in 3 seconds, the shape in 30, and the full story only if they expand.
+Used by `/digest:explain` for every target by default. Big visuals and few words up top; depth lives in collapsed sections. The reader should get the point in 3 seconds, the shape in 30, and the full story only if they expand.
 
 ## 1. Self-Containment Rules (hard constraints)
 
@@ -146,7 +146,7 @@ details .body { padding: 0 1rem 1rem; }
 .ctl button:hover { color: var(--fg); border-color: var(--accent); }
 ```
 
-Digest deep sections: code walkthrough, design decisions, breaking changes & migration, risks & recommendations, questions for author. Explain deep section: evidence (commands run, key commits with short hashes, code excerpts).
+Change-target deep sections (`pr`, `branch`, `current-branch`): code walkthrough, design decisions, breaking changes & migration, risks & recommendations, questions for author, downstream consumers. State-target deep section (`file/module`, `symbol`, `question`): evidence (commands run, key commits with short hashes, code excerpts).
 
 ## 8. QA Checklist (verify before finishing)
 

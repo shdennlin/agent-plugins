@@ -43,7 +43,7 @@ Confirm the symlink resolves correctly:
 
 ```bash
 ls -la ~/.agents/skills/digest/
-# Should list: digest/  explain/  release/  weekly/
+# Should list: explain/  release/  weekly/
 ```
 
 ## Update
