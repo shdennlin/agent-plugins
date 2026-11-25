@@ -9,7 +9,7 @@ allowed-tools:
   - Write
   - AskUserQuestion
 description: Explain what code is, how it works, or why it was designed this way, and summarize what a branch or pull request changes — from the current conversation or by investigating a path, symbol, question, #PR, or branch
-argument-hint: "[path|symbol|question|#PR|branch] [-f/--for <audience>] [--teach] [--print] [--html] [--as <kind>] [--help/-h]"
+argument-hint: "[path|symbol|question|#PR|branch] [-f|--for <audience>] [-t|--teach] [-p|--print] [-H|--html] [-a|--as <kind>] [-h|--help]"
 ---
 
 # Explain Command

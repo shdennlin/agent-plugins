@@ -39,13 +39,16 @@ Targets:
 
 Options:
   -f, --for <audience>  Tailor for an audience (manager, non-technical, "new teammate", ...)
-      --teach           Short, read-only explanation in chat (cannot be combined with --html or --print)
-      --print           Answer in the chat and write no file: a card for #PR, branch and current
+  -t, --teach           Short, read-only explanation in chat (cannot be combined with -H or -p)
+  -p, --print           Answer in the chat and write no file: a card for #PR, branch and current
                         branch, a concise answer for a path, symbol or question
-      --html            Write the HTML explainer (the default; accepted so 2.x habits keep working)
-      --as <kind>       Force the reading of the target: file, pr, branch, symbol, question
-                        (branch also accepts a tag or a commit, e.g. --as branch v1)
+  -H, --html            Write the HTML explainer (the default; accepted so 2.x habits keep working)
+  -a, --as <kind>       Force the reading of the target: file, pr, branch, symbol, question
+                        (branch also accepts a tag or a commit, e.g. -a branch v1)
   -h, --help            Show this help message
+
+Every flag also has its long form. Flags must stand alone (no -tp clusters). Put a question that
+contains a flag-like word in quotes.
 
 The first line of every run says how the target was read; use --as to force another reading.
 
@@ -114,11 +117,11 @@ while [ "$i" -lt "$count" ]; do
       audience=${TOKENS[$i]} ;;
     -e|--export)
       die "$t was removed in 3.0.0: HTML is now the default (--html also works) and --print answers in the chat (-e md has no replacement). To explain text that contains $t, put the whole question in quotes." ;;
-    --teach) teach=true ;;
-    --html) html=true ;;
-    --print) print=true ;;
-    --as)
-      i=$((i + 1)); [ "$i" -lt "$count" ] || die "--as needs a kind ($KINDS)"
+    -t|--teach) teach=true ;;
+    -H|--html) html=true ;;
+    -p|--print) print=true ;;
+    -a|--as)
+      i=$((i + 1)); [ "$i" -lt "$count" ] || die "$t needs a kind ($KINDS)"
       forced=${TOKENS[$i]}
       case " $KINDS " in *" $forced "*) ;; *) die "--as: unknown kind '$forced' (use: $KINDS)" ;; esac ;;
     *) REST+=("$t") ;;

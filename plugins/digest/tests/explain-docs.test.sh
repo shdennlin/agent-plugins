@@ -50,4 +50,16 @@ for f in "$CMD" "$SKILL" "$AGENT" "$CODEX"; do
   grep -q 'html | print\|html` or `print\|`print`' "$f" || fail "$f must name the print output mode"
 done
 
+# 8. Every flag's short form is documented where the flags are listed.
+for s in '-t, --teach' '-p, --print' '-H, --html' '-a, --as'; do
+  for f in "$SCRIPT" "$SKILL"; do
+    grep -q -- "$s" "$f" || fail "$f must list '$s'"
+  done
+done
+for s in '-t|--teach' '-p|--print' '-H|--html' '-a|--as'; do
+  for f in "$CMD" "$README"; do
+    grep -q -F -- "$s" "$f" || fail "$f must list '$s' in the usage line"
+  done
+done
+
 echo "ok: explain-docs"

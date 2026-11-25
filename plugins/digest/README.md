@@ -10,7 +10,7 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 | Command | Purpose |
 |---------|---------|
-| `/digest:explain [target] [-f <audience>] [--teach] [--print] [--html] [--as <kind>]` | Explain code state, or summarize what a PR, branch, or the current branch changes — an HTML explainer (`--print` answers in chat instead), or a short lesson (`--teach`) |
+| `/digest:explain [target] [-f|--for <audience>] [-t|--teach] [-p|--print] [-H|--html] [-a|--as <kind>]` | Explain code state, or summarize what a PR, branch, or the current branch changes — an HTML explainer (`--print` answers in chat instead), or a short lesson (`--teach`) |
 | `/digest:release [from] [to] [--dev] [--user] [--write] [--out <file>]` | Generate release notes from commit ranges |
 | `/digest:weekly [date-range] [--projects <list>] [--brief] [--detail] [--write]` | Synthesize multi-project recall digest over a time window |
 

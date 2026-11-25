@@ -236,4 +236,27 @@ run '--print --teach'
 run '-h'
 [[ "$OUT" == *--print* ]] || fail "help must list --print"
 
+# 20. Every flag has a short form that behaves exactly like the long one.
+run '-t handleRetry'
+[[ "$RC" == "0" && "$(field .teach)" == "true" && "$(field .target)" == "handleRetry" ]] || fail "-t: rc=$RC $OUT"
+run '-p feat/auth'
+[[ "$RC" == "0" && "$(field .print)" == "true" && "$(field .target)" == "feat/auth" ]] || fail "-p: rc=$RC $OUT"
+run '-H feat/auth'
+[[ "$RC" == "0" && "$(field .html)" == "true" && "$(field .target)" == "feat/auth" ]] || fail "-H: rc=$RC $OUT"
+run '-a symbol main'
+[[ "$RC" == "0" && "$(field .kind)" == "symbol" && "$(field .forced)" == "symbol" ]] || fail "-a: rc=$RC $OUT"
+run '-a branch handleRetry'
+[[ "$RC" == "2" ]] || fail "-a branch handleRetry should exit 2 like --as, got $RC"
+run '-t -p'
+[[ "$RC" == "2" ]] || fail "-t -p should exit 2, got $RC"
+run '-p -H'
+[[ "$RC" == "2" ]] || fail "-p -H should exit 2, got $RC"
+run '-f manager -p #42'
+[[ "$RC" == "0" && "$(field .audience)" == "manager" && "$(field .print)" == "true" && "$(field .kind)" == "pr" ]] \
+  || fail "-f with -p: rc=$RC $OUT"
+run '-h'
+for s in '-t, --teach' '-p, --print' '-H, --html' '-a, --as'; do
+  [[ "$OUT" == *"$s"* ]] || fail "help must list '$s'"
+done
+
 echo "ok: classify-target"

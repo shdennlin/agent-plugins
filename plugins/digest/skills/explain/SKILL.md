@@ -25,10 +25,10 @@ $explain src/ -f "new teammate"       # onboarding tour
 | Flag | Description |
 |------|-------------|
 | `-f, --for <audience>` | Tailor for an audience — free-form string (manager, non-technical, "new teammate", ...). Default: developer |
-| `--teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--html` or `--print`) |
-| `--print` | Answer in chat and write no file: a card for a change target, a concise answer for a state target |
-| `--html` | Write the HTML explainer. This is the default for every target; the flag is accepted so 2.x habits keep working |
-| `--as <kind>` | Force how the target is read: `file`, `pr`, `branch`, `symbol`, or `question` (`branch` also accepts a tag or a commit) |
+| `-t, --teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--html` or `--print`) |
+| `-p, --print` | Answer in chat and write no file: a card for a change target, a concise answer for a state target |
+| `-H, --html` | Write the HTML explainer. This is the default for every target; the flag is accepted so 2.x habits keep working |
+| `-a, --as <kind>` | Force how the target is read: `file`, `pr`, `branch`, `symbol`, or `question` (`branch` also accepts a tag or a commit) |
 
 Every target defaults to a self-contained HTML explainer written to the project root (`explain-<slug>-<YYYY-MM-DD>.html`), plus a one-paragraph conclusion in the terminal. With `--print` nothing is written: a change target gets a card, a state target a concise answer.
 
