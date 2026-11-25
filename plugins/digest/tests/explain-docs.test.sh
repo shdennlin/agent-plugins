@@ -112,4 +112,15 @@ grep -q -i 'never put `overflow: hidden`' "$TEMPLATE" || fail "template must for
 grep -q -i 'keep their words whole' "$TEMPLATE" || fail "template must say table cells keep their words whole"
 grep -q -i 'clear of every line' "$TEMPLATE" || fail "template must say diagram labels stay clear of every line"
 
+# 15. A forked explain must follow the whole agent prompt, including the checking step. A hand-written list
+#     of sections goes stale the moment a section is added, so the fork prompt says "everything below".
+grep -n -E 'follow its Input, Behavior' "$CMD" && fail "the fork prompt lists agent sections by name; it must say everything below the frontmatter"
+grep -q 'everything below its frontmatter' "$CMD" || fail "the fork prompt must tell the fork to follow everything below the agent's frontmatter"
+
+# 16. Prompt wording that came out of review of generated pages: risk only for a change, a diagram must earn
+#     its place, and inline code has to be allowed to wrap on a phone.
+grep -q -i 'for a change, how risky' "$TEMPLATE" || fail "rule 4 must ask for risk only for a change"
+grep -q -i 'earns its place' "$TEMPLATE" || fail "template must say a diagram earns its place"
+grep -q -i 'inline `code`' "$TEMPLATE" && grep -q -i 'allowed to wrap' "$TEMPLATE" || fail "template must say long paths and inline code are allowed to wrap"
+
 echo "ok: explain-docs"

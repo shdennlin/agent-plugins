@@ -109,7 +109,7 @@ Task tool:
 - subagent_type: "fork"
 - description: "Explain code state or summarize a change"
 - prompt: |
-    Read <absolute path to agents/explain-agent.md> and follow its Input, Behavior, Change targets and Constraints sections (ignore its frontmatter). Reuse the findings already in this conversation instead of re-investigating; only investigate what is still missing.
+    Read <absolute path to agents/explain-agent.md> and follow everything below its frontmatter (ignore the frontmatter itself). Reuse the findings already in this conversation instead of re-investigating; only investigate what is still missing.
 
     Target: <target verbatim; for current-branch use HEAD>
     Target kind: <file/module | symbol | question | pr | branch | current-branch>
