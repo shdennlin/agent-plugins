@@ -42,6 +42,8 @@ h1,h2{text-wrap:balance}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem}
 details{border:1px solid var(--line);border-radius:10px;margin:.5rem 0}
 td.n{font-variant-numeric:tabular-nums}
+.wrap{overflow-x:auto}
+td code{white-space:nowrap}
 .low{color:var(--ok)}.look{color:var(--warn)}.attn{color:var(--bad)}
 .g{border:1px solid var(--line);border-radius:4px;padding:0 .3rem;font-size:.8rem}
 mark{background:var(--card)}
@@ -52,11 +54,11 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var
 <p>Key: <span class="low">low</span> <span class="look">worth a look</span> <span class="attn">needs attention</span></p></header>
 <section class="panel" id="focus"><h2>Where to focus</h2><ol><li>src/alpha.ts:12: the new parser, check the error paths. <span class="g">read</span></li></ol></section>
 <div class="ctl"><button id="xall">Expand all</button></div>
-<details id="files"><summary>Files</summary><table>
-<tr><td>src/alpha.ts</td><td class="n">+10 −2</td><td class="attn">needs attention</td><td>adds the parser</td></tr>
+<details id="files"><summary>Files</summary><div class="wrap"><table>
+<tr><td>src/alpha.ts</td><td class="n">+10 −2</td><td class="attn">needs attention</td><td>adds the <code>parser</code></td></tr>
 <tr><td>src/beta.ts</td><td class="n">+0 −5</td><td class="low">low</td><td>drops dead code</td></tr>
 <tr><td>docs/gamma.md</td><td class="n">+3 −3</td><td class="low">low</td><td>rewords the guide</td></tr>
-</table></details>
+</table></div></details>
 <details><summary>Details</summary><p>Why: the old parser was fragile (see src/util.ts:3). Impact: users see clearer errors. Breaking: the old flag is removed, migrate to the new one. Risk: error paths are new. Design decisions: one parser instead of two, a trade-off for size. Questions for the author: should the flag stay as an alias? Downstream consumers: the CLI wrapper calls the parser.</p></details>
 <section id="verify"><h2>How to verify</h2><p>Run <code>bash tests/run.sh</code> and read the last line.</p></section>
 <section id="gaps"><h2>What I did not verify</h2><p>I did not run the CLI end to end. <span class="g">inferred</span> The unit tests passed locally. <span class="g">measured</span></p></section>
@@ -128,6 +130,19 @@ good_change | sed 's|</style>|td{word-break:break-all}</style>|' >bad.html
 expect_only "table cells break all" table_cells_break_words bad.html --numstat numstat.tsv
 good_change | sed 's|</style>|.bar{overflow:hidden}.wrap{overflow-x:auto}td{overflow-wrap:break-word}</style>|' >ok-overflow.html
 expect_ok "scrolling wrapper and a clipping bar" ok-overflow.html --numstat numstat.tsv
+
+# 2c. A table never squeezes a path into one letter per line: every table sits in its own overflow-x container,
+#     and code inside a table cell stays whole, so a narrow window scrolls the table instead.
+good_change | sed 's|<div class="wrap"><table>|<table>|; s|</table></div>|</table>|' >bad.html
+expect_only "table outside a scroll container" table_not_scrollable bad.html --numstat numstat.tsv
+good_change | sed 's|\.wrap{overflow-x:auto}||' >bad.html
+expect_only "scroll container class without the rule" table_not_scrollable bad.html --numstat numstat.tsv
+good_change | sed 's|\.wrap{overflow-x:auto}||; s|<div class="wrap">|<div style="overflow-x:auto">|' >ok-inline.html
+expect_ok "scroll container by inline style" ok-inline.html --numstat numstat.tsv
+good_change | sed 's|td code{white-space:nowrap}||' >bad.html
+expect_only "code in a table cell may wrap" table_code_not_whole bad.html --numstat numstat.tsv
+good_change | sed 's|td code{white-space:nowrap}||; s|<code>parser</code>|parser|' >ok-nocode.html
+expect_ok "no code in the table, no rule needed" ok-nocode.html --numstat numstat.tsv
 
 # 3. Meaning: semantic color that is actually used, one highlight, evidence grades, what was not verified.
 good_change | sed 's| class="low"||g; s| class="attn"||g; s| class="look"||g' >bad.html

@@ -1,7 +1,7 @@
 """Render checker. Usage: python3 -I check_render.py <file.html> <width> <shots-dir-or-empty> <0|1 run page scripts>
 Renders the page in headless Chrome inside an iframe of exactly <width> pixels (so the browser's minimum
 window width does not matter), reads the page's own scroll width back, and prints a JSON report.
-Exit 0 fits, 1 wider than the window, 4 no Chrome found. Standard library only.
+Exit 0 fits, 1 wider than the window or a path in a table cell broken over lines, 4 no Chrome found. Standard library only.
 The browser runs with the network cut off (see ISOLATION), because the page is generated content."""
 import html
 import json
@@ -51,8 +51,12 @@ window.onload = function () { setTimeout(function () {
     var cls = (typeof el.className === 'string' && el.className) ? '.' + el.className.split(' ')[0] : '';
     bad.push(el.tagName.toLowerCase() + cls + ':' + Math.round(r.right));
   });
+  var wrapped = [];
+  d.querySelectorAll('td code, th code').forEach(function (el) {
+    if (el.getClientRects().length > 1) wrapped.push((el.textContent || '').slice(0, 40));
+  });
   document.body.insertAdjacentHTML('beforeend', '<pre id="probe">' + JSON.stringify({
-    w: d.documentElement.scrollWidth, h: d.documentElement.scrollHeight, bad: bad.slice(0, 8)}) + '</pre>');
+    w: d.documentElement.scrollWidth, h: d.documentElement.scrollHeight, bad: bad.slice(0, 8), wc: wrapped.slice(0, 8)}) + '</pre>');
 }, 400); };
 </script>"""
 
@@ -124,11 +128,12 @@ def themed(src, dark):
 
 result = probe(source, width)
 report = {
-    "ok": result["w"] <= width + 1,
+    "ok": result["w"] <= width + 1 and not result["wc"],
     "width": width,
     "doc_scroll_width": result["w"],
     "doc_scroll_height": result["h"],
     "overflowing": result["bad"],
+    "table_code_wrapped": result["wc"],
     "shots": [],
 }
 

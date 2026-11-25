@@ -106,6 +106,79 @@ if cell_breaks:
               "Table cells may break inside a word (%s), so a narrow window shows split words and numbers. "
               "Keep words whole and let a wide table scroll in an overflow-x: auto container." % ", ".join(cell_breaks))
 
+# Every table scrolls in its own container, and code inside a table cell stays whole, so a narrow window
+# scrolls the table instead of squeezing a path into one letter per line.
+SCROLLS = r"overflow(?:-x)?\s*:\s*(?:auto|scroll)"
+scroll_classes, scroll_tags, scroll_ids = [], set(), set()
+for sel, body in rules:
+    if not re.search(SCROLLS, body):
+        continue
+    for one in sel.split(","):
+        one = one.strip()
+        m = re.fullmatch(r"([a-zA-Z][\w-]*)?((?:\.[\w-]+)*)(#[\w-]+)?", one)
+        if not m or not one:
+            continue
+        tag, classes, ident = m.group(1), [c for c in m.group(2).split(".") if c], m.group(3)
+        if ident:
+            scroll_ids.add(ident[1:])
+        elif classes:
+            scroll_classes.append(frozenset(classes))
+        elif tag and tag not in ("html", "body"):
+            scroll_tags.add(tag)
+
+
+class TableScroll(HTMLParser):
+    VOID = {"br", "hr", "img", "meta", "link", "input", "area", "base", "col", "embed", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__()
+        self.stack, self.tables, self.unscrolled, self.code_in_table, self.table_depth = [], 0, 0, 0, 0
+
+    def scrolls(self, tag, attrs):
+        a = dict(attrs)
+        if re.search(SCROLLS, a.get("style") or ""):
+            return True
+        if tag in scroll_tags or a.get("id") in scroll_ids:
+            return True
+        cs = set((a.get("class") or "").split())
+        return any(c <= cs for c in scroll_classes)
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.VOID:
+            return
+        if tag == "table":
+            self.tables += 1
+            if not any(scrolls for _, scrolls in self.stack):
+                self.unscrolled += 1
+            self.table_depth += 1
+        if tag == "code" and self.table_depth:
+            self.code_in_table += 1
+        self.stack.append((tag, self.scrolls(tag, attrs)))
+
+    def handle_endtag(self, tag):
+        if tag in self.VOID:
+            return
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                if tag == "table":
+                    self.table_depth = max(0, self.table_depth - 1)
+                del self.stack[i:]
+                break
+
+
+tbl = TableScroll()
+tbl.feed(s)
+if tbl.unscrolled:
+    violation("hard", "table_not_scrollable", tbl.unscrolled,
+              "%d table(s) are not inside a container with overflow-x: auto. A narrow window squeezes the cells until a path "
+              "breaks into one letter per line; put each table in a wrapper that scrolls." % tbl.unscrolled)
+cells_stay_whole = any(re.search(r"(?:td|th|table)[^,{]*\bcode\b", sel) and re.search(r"white-space\s*:\s*(?:nowrap|pre)\b", body)
+                       for sel, body in rules)
+if tbl.code_in_table and not cells_stay_whole:
+    violation("hard", "table_code_not_whole", tbl.code_in_table,
+              "Code inside table cells is allowed to wrap (%d element(s)). Add 'td code { white-space: nowrap }' so a path stays whole "
+              "and the table scrolls instead." % tbl.code_in_table)
+
 n_details = len(re.findall(r"<details\b", s, flags=re.I))
 has_toggle = bool(re.search(r"<button\b[^>]*>[^<]*(expand|collapse|展開|收合|全部)", s, flags=re.I)) and ".open" in s
 if n_details >= 2 and not has_toggle:

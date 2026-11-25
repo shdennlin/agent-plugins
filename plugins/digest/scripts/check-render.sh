@@ -7,7 +7,7 @@
 #
 #   "${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file.html> [--width 400] [--shots <dir>] [--scripts]
 #
-# Exit codes: 0 fits, 1 the page is wider than the window, 2 usage error, 3 python3 missing, 4 no Chrome found.
+# Exit codes: 0 fits, 1 the page is wider than the window or a table path is broken over lines, 2 usage error, 3 python3 missing, 4 no Chrome found.
 # Set CHROME to the browser binary to use a specific one.
 
 set -euo pipefail
@@ -17,9 +17,11 @@ show_help() {
 Usage: check-render.sh <file.html> [--width N] [--shots <dir>] [--scripts]
 
 Render the page at N pixels wide (default 400) in headless Chrome and print a JSON report:
-  {"ok": bool, "width": N, "doc_scroll_width": N, "doc_scroll_height": N, "overflowing": [...], "shots": [...]}
-The page fails when its own width is larger than the window. Content inside an overflow-x: auto
-container is allowed to be wider.
+  {"ok": bool, "width": N, "doc_scroll_width": N, "doc_scroll_height": N, "overflowing": [...],
+   "table_code_wrapped": [...], "shots": [...]}
+The page fails when its own width is larger than the window, or when code inside a table cell is
+broken over several lines (a squeezed table). Content inside an overflow-x: auto container is
+allowed to be wider.
 
 Options:
   --width N        Window width in pixels (default 400)

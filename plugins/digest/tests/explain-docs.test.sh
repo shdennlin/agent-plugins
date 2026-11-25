@@ -139,4 +139,8 @@ grep -q 'check-render.sh' "$CMD" || fail "the command must pass on and mention t
 grep -q 'check-render.sh' "$SKILL" || fail "SKILL.md must mention the render checker"
 grep -q 'check-render.sh' "$README" && grep -q -i 'chrome' "$README" || fail "README must mention the render check and that Chrome is optional"
 
+# 18. The narrow-window rule for tables: every table in its own scroll container and whole paths in cells.
+grep -q -F 'Every table sits in its own container' "$TEMPLATE" || fail "template must say every table sits in its own overflow-x container"
+grep -q -F 'white-space: nowrap' "$TEMPLATE" || fail "template must say code inside table cells uses white-space: nowrap"
+
 echo "ok: explain-docs"

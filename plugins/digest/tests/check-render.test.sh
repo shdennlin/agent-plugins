@@ -65,6 +65,38 @@ run_render overflows.html
 [[ "$(printf '%s' "$OUT" | jq -r '.overflowing | length')" -ge 1 ]] || fail "overflows: the offending element should be named: $OUT"
 printf '%s' "$OUT" | jq -r '.overflowing[0]' | grep -q 'code' || fail "overflows: the offender should be the code element: $OUT"
 
+# The symptom of a squeezed table: a path inside a table cell broken over several lines. The page itself may
+# still fit the window, so the report names the table code that wrapped and the page fails.
+cat >table-breaks.html <<EOF
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#111}
+@media (prefers-color-scheme: dark){:root{--bg:#111;--fg:#eee}}
+body{margin:0;padding:1rem;background:var(--bg);color:var(--fg)}
+table{width:100%;border-collapse:collapse}
+code{overflow-wrap:anywhere}
+</style></head><body><main><table>
+<tr><td><code>$LONG</code></td><td>+401 −0</td><td>needs attention</td><td>New rule engine with several checks and a long description</td></tr>
+</table></main></body></html>
+EOF
+run_render table-breaks.html
+[[ "$RC" == "1" ]] || fail "a table path broken over lines should exit 1, got $RC: $OUT"
+[[ "$(printf '%s' "$OUT" | jq -r '.table_code_wrapped | length')" -ge 1 ]] || fail "the wrapped table code should be named: $OUT"
+cat >table-whole.html <<EOF
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#111}
+@media (prefers-color-scheme: dark){:root{--bg:#111;--fg:#eee}}
+body{margin:0;padding:1rem;background:var(--bg);color:var(--fg)}
+.wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+td code{white-space:nowrap}
+</style></head><body><main><div class="wrap"><table>
+<tr><td><code>$LONG</code></td><td>+401 −0</td><td>needs attention</td><td>New rule engine with several checks and a long description</td></tr>
+</table></div></main></body></html>
+EOF
+run_render table-whole.html
+[[ "$RC" == "0" ]] || fail "a table that scrolls with whole paths should exit 0, got $RC: $OUT"
+[[ "$(printf '%s' "$OUT" | jq -r '.table_code_wrapped | length')" == "0" ]] || fail "no table code should be wrapped: $OUT"
+
 # The width is configurable: the same fitting page also fits at 320.
 run_render fits.html --width 320
 [[ "$RC" == "0" ]] || fail "fits at 320 should exit 0, got $RC: $OUT"
