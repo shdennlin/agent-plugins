@@ -1,4 +1,4 @@
-"""Render checker. Usage: python3 -I check_render.py <file.html> <width> <shots-dir-or-empty>
+"""Render checker. Usage: python3 -I check_render.py <file.html> <width> <shots-dir-or-empty> <0|1 run page scripts>
 Renders the page in headless Chrome inside an iframe of exactly <width> pixels (so the browser's minimum
 window width does not matter), reads the page's own scroll width back, and prints a JSON report.
 Exit 0 fits, 1 wider than the window, 4 no Chrome found. Standard library only.
@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-path, width, shots_dir = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+path, width, shots_dir, run_scripts = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4] == "1"
 source = open(path, encoding="utf-8", errors="replace").read()
 
 CANDIDATES = [
@@ -57,10 +57,28 @@ window.onload = function () { setTimeout(function () {
 </script>"""
 
 
+# The page is generated and untrusted. By default its scripts do not run (the iframe is sandboxed without
+# allow-scripts), so there is no fetch, no beacon and no WebRTC to worry about. With --scripts they run, and a
+# Content-Security-Policy closes everything except inline script and style on top of the network cut-off.
+CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+
+
+def with_csp(src):
+    meta = '<meta http-equiv="Content-Security-Policy" content="%s">' % CSP
+    m = re.search(r"<head[^>]*>", src, flags=re.I)
+    if m:
+        return src[:m.end()] + meta + src[m.end():]
+    m = re.search(r"<html[^>]*>", src, flags=re.I)
+    if m:
+        return src[:m.end()] + "<head>" + meta + "</head>" + src[m.end():]
+    return meta + src
+
+
 def wrapper(src, w, h, probe):
+    sandbox = "allow-same-origin allow-scripts" if run_scripts else "allow-same-origin"
     return ('<!doctype html><html><body style="margin:0;background:#888">'
-            '<iframe id="f" width="%d" height="%d" style="border:0;background:#fff;display:block" srcdoc="%s"></iframe>%s'
-            '</body></html>' % (w, h, html.escape(src, quote=True), PROBE % w if probe else ""))
+            '<iframe id="f" width="%d" height="%d" sandbox="%s" style="border:0;background:#fff;display:block" srcdoc="%s"></iframe>%s'
+            '</body></html>' % (w, h, sandbox, html.escape(with_csp(src), quote=True), PROBE % w if probe else ""))
 
 
 # The page being checked is generated, may contain script, and must not reach out while it is rendered:
@@ -74,6 +92,8 @@ ISOLATION = [
     "--disable-background-networking",
     "--disable-sync",
     "--no-first-run",
+    # WebRTC sends UDP that ignores the proxy; only matters when page scripts run (--scripts)
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
 ]
 
 

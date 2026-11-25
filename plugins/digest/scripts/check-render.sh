@@ -5,7 +5,7 @@
 # for a human to look at. Needs python3 and a Chrome or Chromium; without a browser it exits 4 and the
 # caller should say the render was not checked.
 #
-#   "${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file.html> [--width 400] [--shots <dir>]
+#   "${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file.html> [--width 400] [--shots <dir>] [--scripts]
 #
 # Exit codes: 0 fits, 1 the page is wider than the window, 2 usage error, 3 python3 missing, 4 no Chrome found.
 # Set CHROME to the browser binary to use a specific one.
@@ -14,7 +14,7 @@ set -euo pipefail
 
 show_help() {
   cat <<'EOF'
-Usage: check-render.sh <file.html> [--width N] [--shots <dir>]
+Usage: check-render.sh <file.html> [--width N] [--shots <dir>] [--scripts]
 
 Render the page at N pixels wide (default 400) in headless Chrome and print a JSON report:
   {"ok": bool, "width": N, "doc_scroll_width": N, "doc_scroll_height": N, "overflowing": [...], "shots": [...]}
@@ -24,6 +24,11 @@ container is allowed to be wider.
 Options:
   --width N        Window width in pixels (default 400)
   --shots <dir>    Also write wide-light.png, wide-dark.png, narrow-light.png and narrow-dark.png there
+  --scripts        Let the page's own scripts run. They are off by default because the page is generated
+                   and untrusted, and layout is measured from HTML and CSS; the cost is that content a
+                   script builds (a chart) is not measured. With --scripts the network is still cut off
+                   (proxy, name resolution and a Content-Security-Policy) and WebRTC's non-proxied UDP is
+                   disabled, but do not use it on a page from a source you do not trust.
   -h, --help       Show this help message
 
 Exit codes: 0 fits, 1 wider than the window, 2 usage error, 3 python3 missing, 4 no Chrome found.
@@ -36,6 +41,7 @@ die() { echo "ERROR: $*" >&2; exit 2; }
 file=""
 width="400"
 shots=""
+scripts="0"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -46,6 +52,7 @@ while [ "$#" -gt 0 ]; do
     --shots)
       [ "$#" -ge 2 ] || die "--shots needs a directory"
       shots="$2"; shift 2 ;;
+    --scripts) scripts="1"; shift ;;
     -*) die "unknown option: $1" ;;
     *)
       [ -z "$file" ] || die "only one file can be checked at a time"
@@ -62,4 +69,4 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 3
 fi
 
-exec python3 -I "${BASH_SOURCE[0]%/*}/check_render.py" "$file" "$width" "$shots"
+exec python3 -I "${BASH_SOURCE[0]%/*}/check_render.py" "$file" "$width" "$shots" "$scripts"

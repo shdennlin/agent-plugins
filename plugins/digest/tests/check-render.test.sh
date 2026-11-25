@@ -78,6 +78,18 @@ for f in wide-light wide-dark narrow-light narrow-dark; do
 done
 [[ "$(printf '%s' "$OUT" | jq -r '.shots | length')" == "4" ]] || fail "the report should list 4 screenshots: $OUT"
 
+# Page scripts do not run unless asked: layout is measured from HTML and CSS, and a generated page's script
+# is untrusted. A script that widens the page is ignored by default and counted with --scripts.
+cat >script-widens.html <<'EOF'
+<!doctype html><html><head><meta charset="utf-8"><style>:root{color-scheme:light dark}
+@media (prefers-color-scheme: dark){:root{--x:1}}body{margin:0}</style></head><body><p>hello</p>
+<script>document.body.style.width='3000px'</script></body></html>
+EOF
+run_render script-widens.html
+[[ "$RC" == "0" ]] || fail "by default page scripts must not run, so the page fits: rc=$RC $OUT"
+run_render script-widens.html --scripts
+[[ "$RC" == "1" ]] || fail "with --scripts the page's script runs and widens it: rc=$RC $OUT"
+
 # The browser is cut off from the network: a generated page may contain script (the template allows inline
 # JS) and must not be able to reach out while it is being checked, not even to this machine.
 PORT="$(python3 -I -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
@@ -99,6 +111,7 @@ if [[ "$SERVER_UP" == "1" ]]; then
 <p>hello</p></body></html>
 EOF
   run_render reaches-out.html --shots "$TMP/shots2"
+  run_render reaches-out.html --scripts
   sleep 0.5
   AFTER="$(wc -l <"$TMP/requests.log" | tr -d ' ')"
   pkill -f "http.server $PORT" >/dev/null 2>&1 || true
