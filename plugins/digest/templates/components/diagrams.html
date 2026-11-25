@@ -1,0 +1,43 @@
+<!-- component: diagrams
+     use when: the answer has actors that call each other in order (sequence diagram) or events over time (timeline).
+           For steps with a branch, draw boxes and arrows with the core .box, .arrow and .ah classes instead.
+     copy: the <style> rules into the page's <style>; one of the two SVGs, with your own actors, messages or events.
+           Keep every label inside its box and clear of every line, give every arrow a head, and check the coordinates.
+           Use real dates or versions on a timeline, never made-up commit hashes.
+     without JS: works as is; there is no script. -->
+<style>
+svg .lane { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 4 4; }
+svg .actor { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; }
+svg .axis { stroke: var(--line); stroke-width: 2; }
+svg .dot { fill: var(--accent); }
+svg .msg { font-size: 12px; fill: var(--muted); }
+</style>
+
+<figure><div class="scroll">
+<svg viewBox="0 0 600 250" width="600" height="250" role="img" aria-labelledby="seq-t">
+  <title id="seq-t">Sequence: the user runs the command, the command asks the model for beats, the model returns them, the command asks the user about the gaps.</title>
+  <defs><marker id="seq-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker></defs>
+  <rect class="actor" x="20" y="10" width="120" height="34" rx="6"/><text x="80" y="32" text-anchor="middle">User</text>
+  <rect class="actor" x="240" y="10" width="120" height="34" rx="6"/><text x="300" y="32" text-anchor="middle">Command</text>
+  <rect class="actor" x="460" y="10" width="120" height="34" rx="6"/><text x="520" y="32" text-anchor="middle">Model</text>
+  <line class="lane" x1="80" y1="44" x2="80" y2="240"/><line class="lane" x1="300" y1="44" x2="300" y2="240"/><line class="lane" x1="520" y1="44" x2="520" y2="240"/>
+  <path class="arrow" d="M80,80 L296,80" marker-end="url(#seq-ah)"/><text class="msg" x="188" y="72" text-anchor="middle">/interview-case:case</text>
+  <path class="arrow" d="M300,120 L516,120" marker-end="url(#seq-ah)"/><text class="msg" x="408" y="112" text-anchor="middle">draft four beats</text>
+  <path class="arrow" d="M520,160 L304,160" marker-end="url(#seq-ah)"/><text class="msg" x="412" y="152" text-anchor="middle">beats and gate result</text>
+  <path class="arrow" d="M300,200 L84,200" marker-end="url(#seq-ah)"/><text class="msg" x="192" y="192" text-anchor="middle">ask about the gaps</text>
+</svg></div>
+<figcaption>Sequence diagram: who calls whom, top to bottom.</figcaption></figure>
+
+<figure><div class="scroll">
+<svg viewBox="0 0 600 110" width="600" height="110" role="img" aria-labelledby="tl-t">
+  <title id="tl-t">Timeline: proposal, review, gate added, merged.</title>
+  <line class="axis" x1="20" y1="55" x2="580" y2="55"/>
+  <circle class="dot" cx="70" cy="55" r="6"/><text class="msg" x="70" y="35" text-anchor="middle">Nov 18</text><text x="70" y="85" text-anchor="middle">proposal</text>
+  <circle class="dot" cx="230" cy="55" r="6"/><text class="msg" x="230" y="35" text-anchor="middle">Nov 20</text><text x="230" y="85" text-anchor="middle">review</text>
+  <circle class="dot" cx="390" cy="55" r="6"/><text class="msg" x="390" y="35" text-anchor="middle">Nov 22</text><text x="390" y="85" text-anchor="middle">gate added</text>
+  <circle class="dot" cx="540" cy="55" r="6"/><text class="msg" x="540" y="35" text-anchor="middle">Nov 24</text><text x="540" y="85" text-anchor="middle">merged</text>
+</svg></div>
+<figcaption>Timeline: events left to right.</figcaption></figure>
+
+<script>
+</script>

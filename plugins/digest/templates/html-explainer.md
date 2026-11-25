@@ -1,55 +1,60 @@
-# HTML Explainer — Constraints, Meaning, Content Floor, Things to Avoid
+# HTML Explainer — What Must Hold, What the Page Must Say, and What Is Yours
 
-Used by `/digest:explain` for every target by default. The reader should get the point in 3 seconds, the shape in 30, and the full story only if they expand. Write the page to this spec, then run the checker (see Checking) and fix what it reports. Rules marked (by you) cannot be checked mechanically; follow them anyway. Write in English unless the user asked for another language; then keep the labels `measured`, `read` and `inferred` as they are, and expect the checker to warn that it cannot read your headings.
+Used by `/digest:explain` for every target by default. A reader often gets one pass at the page, so it has to make the point in the first screen and let them understand the rest without a second read: short sections, a clear order, a diagram or table where the shape helps, and paragraphs they can follow. Write in English unless the user asked for another language; then keep the labels `measured`, `read` and `inferred` as they are.
 
-## Must hold (the checker enforces these)
+## Must hold (the checker fails the page when these break)
 
-1. **One file, zero network requests.** No `<script src>`, no `<link>`, no `@import`, no remote images, fonts, CDN or Mermaid. Inline CSS, inline SVG and inline JS are fine. Small images only as `data:` URIs.
-2. **Light and dark.** Define every color as a CSS custom property on `:root`, with `color-scheme: light dark` there; a `@media (prefers-color-scheme: dark)` block redefines only those properties. No other rule uses a raw color.
-3. **Deep detail is collapsed.** Anything the reader does not need in the first 30 seconds goes in `<details>` without the `open` attribute. The page must read coherently with every `<details>` closed (by you).
-4. **The conclusion comes first.** The first thing on the page answers "what is this" and, for a change, how risky it is, without scrolling (by you).
-5. **It must work on a narrow window.** The body never scrolls horizontally (by you), and you get there by fitting, not hiding: never put `overflow: hidden` or `overflow-x: hidden` on `html` or `body`. Every table sits in its own container with `overflow-x: auto`, as do wide code blocks and diagrams, and table cells keep their words whole: no `overflow-wrap: anywhere` or `word-break: break-all` on `td` or `th`, and `code` inside a cell gets `white-space: nowrap`. A narrow window then scrolls the table instead of squeezing a path into one letter per line. Long file paths and inline `code` in running text must be allowed to wrap (`overflow-wrap: anywhere` on `code` outside table cells), or the page grows wider than a phone. A diagram has to stay readable at the width it is shown: if it needs a wide viewBox, let it scroll in its container instead of shrinking its text below 11px.
-6. **Expand all.** When the page has two or more `<details>`, include one small button above the first one that toggles all of them (label it "Expand all" / "Collapse all"). Inline JS is allowed for this. Without JS each `<details>` still opens natively.
-7. **Keyboard focus.** Buttons, `<summary>` and links get a visible `:focus-visible` style.
+1. **Use the reference stylesheet.** Copy the whole of `html-explainer-style.css`, which sits next to this template, into the page's `<style>` element, unchanged, then add only what the page needs. It defines the heading colors, the evidence pills, the code token colors and the tables, and every text color in it was measured at about 7:1 in both modes; the checker compares the page's color tokens with it in both modes. Use its hooks: wrap the content in `<main>`, write a label as `<span class="g measured">measured</span>` (or `read`, `inferred`), put each table in `<div class="scroll">`, and color code with `tk-*` spans. Do not restyle these elements from scratch, and use only tokens the stylesheet defines (text is `--ink`, not `--fg`): an undefined token falls back to black, which disappears in dark mode.
+2. **One file, zero network requests.** No `<script src>`, `<link>`, `@import`, remote images, fonts, CDN or Mermaid. Inline CSS, SVG and JS are fine. Small images only as `data:` URIs.
+3. **Light and dark, both readable.** Define every color as a CSS custom property on `:root`, with `color-scheme: light dark`. A `@media (prefers-color-scheme: dark)` block redefines only those properties; no other rule uses a raw color. The light background is near white (97% lightness or brighter). The dark background is a lifted charcoal, about 16% to 20% lightness, never near-black. Body text, muted text, the evidence labels and the `ok`, `warn` and `bad` colors each reach about 7:1 against their background in both modes; the reference stylesheet already meets this, which is why its tokens must not change.
+4. **Fits a narrow window.** Never put `overflow: hidden` or `overflow-x: hidden` on `html` or `body`. Every table sits in its own container with `overflow-x: auto`, as do wide code blocks and diagrams. Table cells keep their words whole: no `overflow-wrap: anywhere` or `word-break: break-all` on `td` or `th`, and `code` inside a cell gets `white-space: nowrap`. Long paths and inline `code` in running text may wrap.
+5. **Keyboard focus.** Buttons, `<summary>` and links get a visible `:focus-visible` style.
+6. **Grade the evidence.** Tag important claims `measured` (you ran it), `read` (you read the code; cite `file:line`) or `inferred` (not verified). Use at least three labels of at least two kinds. A label reads only `measured`, `read` or `inferred`; show a risk level with the `ok`, `warn` and `bad` classes, never in a label. Grade a conclusion separately from the fact under it; a sentence takes the grade of its weakest link.
+7. **Real references.** Cite only commits that exist and `file:line` anchors that point at an existing file and line. A hash that does not exist is invented history.
+8. **What I did not verify.** A section that says what was not checked, graded `inferred`.
+9. **Every changed file is accounted for** (for a change target). Each file appears by name with `+N −M` and one line on what changed, any total you state ("4 files, 232 added lines") matches the diff, and its risk mark and counts carry the semantic colors `--ok`, `--warn` and `--bad` (through the classes `ok`, `warn`, `bad`).
+10. **One highlight.** At least one `<mark>`, on the sentence the reader must not miss. More than three is a warning, since nothing then stands out.
+11. **Scripts only from the components.** Every inline `<script>` is a component's script, copied unchanged (spacing may differ). Do not write your own; the page must read fully with scripts off, which is how the render check sees it.
 
-## Meaning (the checker enforces these)
+## Avoid (the checker fails the page when these break)
 
-- **Semantic color.** Define `--ok`, `--warn` and `--bad` and use them where color carries meaning: each file's risk mark (low is ok, worth a look is warn, needs attention is bad) and the `+N` and `−M` counts. A color that is defined but not used does not count. Never as an edge stripe.
-- **One highlight.** Wrap the sentence the reader must not miss in `<mark>`; at most 3 on the page.
-- **Grade the evidence.** Tag important claims with a small label reading `measured` (you ran it), `read` (you read the code; cite `file:line`) or `inferred` (not verified), each kind in its own color (by you). Use at least 3 labels of at least 2 kinds. Grade a conclusion separately from the fact under it, and let a sentence take the grade of its weakest link ("X is slow (`measured`), so Y (`inferred`)").
+- **No colored bars on the edge of a card, callout, banner or quote.** No `border-left`, `border-right` or inset accent shadow. Set things apart with spacing, a tint, a label, or a full border.
+- **No cards inside cards.** A tinted or bordered box inside another boxed section, a stat tile inside a boxed section, or a box per item inside a `<details>`, all count. Lay things out directly on the page.
+- **Emoji sparingly:** at most five on the page, none in running prose.
 
-## Content floor (the checker enforces these too)
+## The page must say (the checker warns when these are missing)
 
-For a **change** (a pull request, a branch, the current branch):
+- **Conclusion first.** Say what this is, and for a change how risky it is, before any detail.
+- **For a change:** what changed and why; the impact, what users now see; breaking changes and how to migrate; risks; design decisions and trade-offs; questions for the author; and downstream consumers or callers, meaning what else depends on the changed files. Name each file with `+N −M` and a risk level (low, worth a look, needs attention) on its row, or group the low-risk files under a heading such as "Low risk (8 files)". Show the key lines of the change as a diff with the `code-diff` component, copied verbatim from the diff. Add a "Where to focus" list, most important first, naming the file and why. End with a "How to verify" section listing the commands to run.
+- **For a state question** (a file, symbol or how-or-why): the commands you ran, the key commits by short hash, code excerpts in `<pre>`, and at least two `file:line` anchors.
+- **Highlighted code.** In every code excerpt, wrap keywords, strings, comments and numbers in `<span class="tk-kw">`, `tk-str`, `tk-com` and `tk-num`.
+- Pick the words and order that suit the answer. Diagrams and tables earn their place when they show something the text cannot.
 
-- **Every changed file is accounted for.** Each file appears by its name with its added and removed line counts written as `+N −M` and one line saying what changed in it (by you). Group by directory if you like, but do not leave a file out.
-- **Where to focus.** An ordered (by you) list, most important first, of what a reviewer should check first. Each item names the file and says why it matters.
-- **Risk per file.** Mark every changed file with a risk level (low, worth a look, or needs attention) on its row, or group files under a heading such as "Low risk (8 files)". Files marked low may be collapsed; the others stay visible. The checker needs half the files marked or a low-risk group.
-- **How to verify.** A section headed "How to verify" with the commands the reader should run.
-- Topic keywords the checker looks for: why or because, impact or what users see, breaking or migrate, risk, decision or trade-off, question, downstream or consumers or callers. The page covers, wherever it fits best: what changed and why, the impact (what users now see), breaking changes and how to migrate, risks, design decisions, questions for the author, and downstream consumers (what else depends on the changed files).
+## Components (read only the ones you use)
 
-For a **state** question (a file, a symbol, a how/why question): an evidence section with the commands run (by you), the key commits by short hash (by you), the code excerpts (in `<pre>`), and at least 2 `file:line` anchors.
+Ready-made parts in `components/`, next to this template. Each file says when to use it, what to copy, and how it reads with scripts off. Pick from this list and read only the files you will use; copy their CSS and script unchanged, and change only the markup's text and data.
 
-For **every** page:
+- `expand-all.html`: an Expand all / Collapse all button, for a page with two or more `<details>`.
+- `code-diff.html`: a diff-style excerpt with added and removed lines; the best excerpt for a branch or PR.
+- `code-extras.html`: a file-name bar with a Copy button, real line numbers, and highlighted lines, for a long excerpt.
+- `file-tree.html`: changed files as a folder tree with `+N −M` and risk, for about ten or more files.
+- `table-tools.html`: zebra rows, risk filter buttons and sortable columns, for a file table of more than about eight rows.
+- `callouts.html`: a note, risk or tip box, for the one point that must stand apart.
+- `diagrams.html`: a sequence diagram (who calls whom) and a timeline (events over time).
+- `reading-ux.html`: a reading-progress bar, a Top link and `#` links on headings, for a page longer than about four screens.
+- `tldr.html`: a "Conclusion only" toggle, for a long page whose reader may want only the answer.
 
-- **What I did not verify.** A section headed "What I did not verify" (grade it `inferred`).
-- **Real references.** Cite only real commits, and only `file:line` anchors that point at an existing file and line. A hash that does not exist is invented history.
-- **Jump links.** A page with four or more headings has a small nav of jump links (`#` links) to its main sections.
+## Yours (suggestions; the checker only notes them)
 
-## Avoid
-
-- **No colored bars on the edge of a card, callout, banner or quote.** Do not use `border-left`, `border-right` or an inset box-shadow as an accent stripe. Set things apart with spacing, a background tint, a small label, or a full border.
-- **No cards inside cards.** A box that has its own background tint or border is a card. All of these count as a card inside a card: a row of number tiles (stat boxes) inside a section or panel that already has a background or border; a tinted or bordered box for each file or item inside a `<details>` (a `<details>` with a border is itself a card); a callout inside a card. Lay such things out directly on the page, or inside one container using spacing, dividers and type. If you want number tiles, let the tiles be the only boxes: put them on the page, not in a boxed parent.
-- **Emoji sparingly.** At most 5 on the whole page, none in running prose. A page that needs none is fine.
-
-## Everything else is yours
-
-Choose the layout, typography, diagram types and sections that make this particular answer obvious. There is no required skeleton and no required component. Do not reuse the same form out of habit: a bug trace, a module map, a design history and a change summary should not look alike. Prefer fewer, bigger, clearer things over many small ones. A diagram earns its place only when it shows something the text cannot, such as branching, a timeline or a comparison; do not draw a straight chain of boxes that restates a sentence. Diagrams are inline SVG drawn with the color tokens, big enough to read. Labels stay clear of every line and inside their box, and every arrow has an arrowhead. The checker cannot verify this one, so check the coordinates yourself. Polish the checker only warns about: `font-variant-numeric: tabular-nums` on cells with counts, and `text-wrap: balance` on headings.
+- **Shape.** The layout, sections and typography that make this answer obvious. A bug trace, a module map, a design history and a change summary should not look alike.
+- **Collapse depth.** Put detail the reader does not need at first in `<details>` (without `open`). With several, add the `expand-all` component.
+- **Navigation.** On a long page, a short row of jump links to the main sections.
+- **Diagrams.** Inline SVG, drawn with the color tokens, when the shape shows branching, a timeline or a comparison. Keep labels inside their boxes and clear of lines, give every arrow a head, and check the coordinates yourself.
 
 ## Checking
 
-After writing the file, run the checker on it. For a change, pass the changed files in `git diff --numstat` format (added, removed, path, tab separated):
+After writing the file, run the checker. For a change, pass the changed files in `git diff --numstat` format:
 
 `"${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh" <file.html> --numstat <changed.tsv> --ref <target>`
 
-`--ref` is the branch the page explains (`HEAD` for the current branch, `refs/pull/<N>/head` for a PR): anchors and hashes are checked against it, and skipped with a warning when it is not available locally. For a state question: `"${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh" <file.html> --kind state`. If it reports violations, fix the page and run it again, at most twice. If violations remain, name them in your report; do not call the page clean without a clean run. If a Chrome is installed, also run `"${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file.html>`, which renders the page at 400px and reports horizontal overflow; exit 4 means no browser, so say the render was not checked. In Codex the scripts are at `../../scripts/` relative to the skill directory.
+`--ref` is the branch the page explains (`HEAD` for the current branch, `refs/pull/<N>/head` for a PR). For a state question: `"${CLAUDE_PLUGIN_ROOT}/scripts/check-explainer.sh" <file.html> --kind state`. Fix every violation and run it again, at most twice. If violations remain, name them in your report; do not call the page clean without a clean run. Warnings are notes: weigh them and say which you took. If a Chrome is installed, `"${CLAUDE_PLUGIN_ROOT}/scripts/check-render.sh" <file.html>` renders the page at 400px and reports horizontal overflow; exit 4 means no browser, so say the render was not checked.

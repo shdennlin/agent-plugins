@@ -15,7 +15,7 @@ set -euo pipefail
 
 show_help() {
   cat <<'EOF'
-Usage: check-explainer.sh <file.html> [--kind change|state] [--numstat <file>] [--ref <ref>]
+Usage: check-explainer.sh <file.html> [--kind change|state] [--numstat <file>] [--ref <ref>] [--base <base>]
 
 Check a generated HTML explainer and print a JSON report:
   {"ok": bool, "kind": "...", "violations": [{"id", "group", "count", "message"}], "info": {...}}
@@ -29,6 +29,9 @@ Arguments:
                         file:line anchors and commit hashes are checked against it, not the working tree, so a
                         branch that is not checked out is judged fairly. If the ref is not available locally
                         those checks are skipped with a warning.
+  --base <base>         The branch the change is compared with (change only). A diff excerpt's added and removed
+                        lines must be lines of git diff <base>...<ref>. Without it, develop or main is used, the
+                        way /digest:explain finds a base; without --ref the check is skipped.
   -h, --help            Show this help message
 
 Exit codes: 0 clean, 1 violations found, 2 usage error, 3 python3 not installed, 5 the checker itself failed
@@ -42,6 +45,7 @@ file=""
 kind="change"
 numstat=""
 ref=""
+base=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -55,6 +59,9 @@ while [ "$#" -gt 0 ]; do
     --ref)
       [ "$#" -ge 2 ] || die "--ref needs a branch, tag or commit"
       ref="$2"; shift 2 ;;
+    --base)
+      [ "$#" -ge 2 ] || die "--base needs a branch, tag or commit"
+      base="$2"; shift 2 ;;
     -*) die "unknown option: $1" ;;
     *)
       [ -z "$file" ] || die "only one file can be checked at a time"
@@ -68,6 +75,11 @@ case "$kind" in change|state) ;; *) die "--kind must be change or state, not '$k
 if [ "$kind" = "change" ]; then
   [ -n "$numstat" ] || die "a change explainer needs --numstat <file> (git diff --numstat format)"
   [ -f "$numstat" ] || die "numstat file not found: $numstat"
+fi
+
+if [ -n "$base" ] && git rev-parse --git-dir >/dev/null 2>&1 \
+   && ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+  die "--base '$base' is not a branch, tag or commit in this repository"
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -84,4 +96,4 @@ while [ -L "$src" ]; do
 done
 here="$(cd "$(dirname "$src")" && pwd)"
 
-exec python3 -I "$here/check_explainer.py" "$file" "$kind" "$numstat" "$ref"
+exec python3 -I "$here/check_explainer.py" "$file" "$kind" "$numstat" "$ref" "$base"
