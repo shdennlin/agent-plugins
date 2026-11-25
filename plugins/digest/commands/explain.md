@@ -8,12 +8,12 @@ allowed-tools:
   - Write
   - AskUserQuestion
 description: Explain what code is, how it works, or why it was designed this way — from the current conversation or by investigating a path, symbol, or question
-argument-hint: "[path|symbol|question] [-f/--for <audience>] [--help/-h]"
+argument-hint: "[path|symbol|question] [-f/--for <audience>] [--teach] [--help/-h]"
 ---
 
 # Explain Command
 
-Turn an investigation into understanding. `digest` explains **what changed** (delta); `explain` explains **the current state** — what something is, how it works end-to-end, why it was designed this way, or where a bug comes from. Output is a self-contained HTML explainer.
+Turn an investigation into understanding. `digest` explains **what changed** (delta); `explain` explains **the current state** — what something is, how it works end-to-end, why it was designed this way, or where a bug comes from. The default output is a self-contained HTML explainer. Teach mode replies in chat.
 
 ## Arguments
 
@@ -21,6 +21,7 @@ Parse the following from `$ARGUMENTS`:
 
 - `[path|symbol|question]` — What to explain: a file/directory path, a function/class name, or a free-form question. **Omit entirely** to explain the findings of the current conversation (e.g. right after a debugging session).
 - `-f, --for <audience>` — Tailor the explainer for an audience (free-form string, same as digest). Default: developer.
+- `--teach` — Give a short, read-only explanation in chat.
 - `--help` or `-h` — Show usage information and exit.
 
 ## Instructions
@@ -29,7 +30,8 @@ Parse the following from `$ARGUMENTS`:
 
 1. **help**: if `--help` or `-h` is present, show usage info below and stop.
 2. **audience**: if `-f` or `--for` is present, the next token is the audience string, verbatim. Default: `developer`.
-3. **target**: everything else joined as-is (a question may be multiple words).
+3. **teach**: remove the standalone `--teach` flag from the remaining arguments and select Teach mode when present.
+4. **target**: everything else joined as-is (a question may be multiple words).
 
 ### Help Output
 
@@ -50,6 +52,7 @@ Modes:
 
 Options:
   -f, --for <audience>  Tailor for an audience (manager, non-technical, "new teammate", ...)
+      --teach           Give a short, read-only explanation in chat
   -h, --help            Show this help message
 
 Examples:
@@ -62,7 +65,11 @@ Examples:
 
 ### Step 2: Select Mode
 
-**Slug rule** (both modes): path → basename without extension; symbol → kebab-cased name; question/topic → first ~5 significant words kebab-cased. Sanitize `/` and spaces to `-`.
+**Slug rule** (both HTML modes): path → basename without extension; symbol → kebab-cased name; question/topic → first ~5 significant words kebab-cased. Sanitize `/` and spaces to `-`.
+
+#### `--teach` → Teach mode (inline)
+
+Read the Teach mode section of `${CLAUDE_PLUGIN_ROOT}/skills/explain/SKILL.md` and follow it with the parsed target and audience. Reply in chat and stop before the HTML modes.
 
 #### No target → Conversation mode (inline — do NOT dispatch)
 

@@ -11,7 +11,7 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 | Command | Purpose |
 |---------|---------|
 | `/digest:digest [target] [-f <audience>] [-e [md\|html]]` | Summarize changes (delta) into a structured card, with optional full-depth export |
-| `/digest:explain [path\|symbol\|question] [-f <audience>]` | Explain code state (what/how/why/bug source) as a self-contained HTML explainer |
+| `/digest:explain [path\|symbol\|question] [-f <audience>] [--teach]` | Explain code state as a self-contained HTML explainer or a short lesson in chat |
 | `/digest:release [from] [to] [--dev] [--user] [--write] [--out <file>]` | Generate release notes from commit ranges |
 | `/digest:weekly [date-range] [--projects <list>] [--brief] [--detail] [--write]` | Synthesize multi-project recall digest over a time window |
 
@@ -55,6 +55,9 @@ AI agents generate specs, branches, PRs, and docs — but understanding what the
 
 # What is this function's role in the whole flow?
 /digest:explain handleRetry
+
+# Learn the key concept from a recent change in chat
+/digest:explain --teach
 
 # Why was it designed this way? (git archaeology)
 /digest:explain "why does the queue use at-least-once delivery?"
