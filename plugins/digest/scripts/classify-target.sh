@@ -39,10 +39,9 @@ Targets:
 
 Options:
   -f, --for <audience>  Tailor for an audience (manager, non-technical, "new teammate", ...)
-  -t, --teach           Short, read-only explanation in chat (cannot be combined with -H or -p)
+  -t, --teach           Short, read-only explanation in chat (cannot be combined with -p)
   -p, --print           Answer in the chat and write no file: a card for #PR, branch and current
                         branch, a concise answer for a path, symbol or question
-  -H, --html            Write the HTML explainer (the default; accepted so 2.x habits keep working)
   -a, --as <kind>       Force the reading of the target: file, pr, branch, symbol, question
                         (branch also accepts a tag or a commit, e.g. -a branch v1)
   -h, --help            Show this help message
@@ -101,7 +100,6 @@ tokenize "$(cat)"
 
 audience="developer"
 teach=false
-html=false
 print=false
 forced=""
 REST=()
@@ -116,9 +114,10 @@ while [ "$i" -lt "$count" ]; do
       i=$((i + 1)); [ "$i" -lt "$count" ] || die "$t needs an audience"
       audience=${TOKENS[$i]} ;;
     -e|--export)
-      die "$t was removed in 3.0.0: HTML is now the default (--html also works) and --print answers in the chat (-e md has no replacement). To explain text that contains $t, put the whole question in quotes." ;;
+      die "$t was removed in 3.0.0: HTML is already the default; to answer in the chat use -p (--print) (-e md has no replacement). To explain text that contains $t, put the whole question in quotes." ;;
     -t|--teach) teach=true ;;
-    -H|--html) html=true ;;
+    -H|--html)
+      die "$t was removed: HTML is already the default. To answer in the chat instead, use -p (--print)." ;;
     -p|--print) print=true ;;
     -a|--as)
       i=$((i + 1)); [ "$i" -lt "$count" ] || die "$t needs a kind ($KINDS)"
@@ -130,11 +129,11 @@ while [ "$i" -lt "$count" ]; do
 done
 
 chosen=0
-for flag in "$teach" "$html" "$print"; do
+for flag in "$teach" "$print"; do
   if [ "$flag" = true ]; then chosen=$((chosen + 1)); fi
 done
 if [ "$chosen" -gt 1 ]; then
-  die "--teach, --html and --print cannot be combined"
+  die "--teach and --print cannot be combined"
 fi
 
 target=""
@@ -268,7 +267,6 @@ fi
 jq -n \
   --arg audience "$audience" \
   --argjson teach "$teach" \
-  --argjson html "$html" \
   --argjson print "$print" \
   --arg forced "$forced" \
   --arg target "$target" \
@@ -280,6 +278,6 @@ jq -n \
   --argjson on_base "$on_base" \
   --argjson diff_empty "$diff_empty" \
   --argjson gh_ok "$gh_ok" \
-  '{help: false, audience: $audience, teach: $teach, html: $html, print: $print, forced: $forced,
+  '{help: false, audience: $audience, teach: $teach, print: $print, forced: $forced,
     target: $target, kind: $kind, slug: $slug, resolved_line: $resolved_line,
     branch: $branch, base: $base, on_base: $on_base, diff_empty: $diff_empty, gh_ok: $gh_ok}'

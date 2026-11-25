@@ -83,18 +83,16 @@ run '--as branch handleRetry'
 [[ "$RC" == "2" ]] || fail "--as branch handleRetry should exit 2, got $RC"
 [[ -s "$TMP/err" ]] || fail "--as branch handleRetry should explain itself on stderr"
 
-# 4. Flags: audience (quoted), html, teach; teach+html is mutually exclusive.
+# 4. Flags: audience (quoted), teach; teach+print is mutually exclusive.
 run '-f "new teammate" docs/plan.md'
 [[ "$(field .audience)" == "new teammate" && "$(field .kind)" == "file" ]] || fail "quoted audience: $OUT"
 run 'docs/plan.md'
-[[ "$(field .audience)" == "developer" && "$(field .teach)" == "false" && "$(field .html)" == "false" ]] \
+[[ "$(field .audience)" == "developer" && "$(field .teach)" == "false" && "$(field .print)" == "false" ]] \
   || fail "defaults: $OUT"
-run '--html feat/auth'
-[[ "$(field .html)" == "true" && "$(field .target)" == "feat/auth" ]] || fail "--html: $OUT"
 run '--teach handleRetry'
 [[ "$(field .teach)" == "true" ]] || fail "--teach: $OUT"
-run '--teach --html'
-[[ "$RC" == "2" ]] || fail "--teach --html should exit 2, got $RC"
+run '--teach --print'
+[[ "$RC" == "2" ]] || fail "--teach --print should exit 2, got $RC"
 
 # 5. An unmatched quote is taken literally instead of failing.
 run '-f "oops docs/plan.md'
@@ -211,7 +209,7 @@ run '"what does grep -e do"'
 # 17. Removed 2.x flags fail loudly with the migration hint instead of becoming question text.
 run 'feat/auth -e html'
 [[ "$RC" == "2" ]] || fail "-e should exit 2, got $RC"
-grep -q -- '--html' "$TMP/err" || fail "-e error should point to --html: $(cat "$TMP/err")"
+grep -q 'default' "$TMP/err" && grep -q -- '--print' "$TMP/err" || fail "-e error should say HTML is the default and point to --print: $(cat "$TMP/err")"
 run '--export'
 [[ "$RC" == "2" ]] || fail "--export should exit 2, got $RC"
 
@@ -225,12 +223,8 @@ run '--as branch nosuchref'
 run 'feat/auth'
 [[ "$(field .print)" == "false" ]] || fail "print defaults to false: $OUT"
 run '--print feat/auth'
-[[ "$RC" == "0" && "$(field .print)" == "true" && "$(field .html)" == "false" && "$(field .target)" == "feat/auth" ]] \
+[[ "$RC" == "0" && "$(field .print)" == "true" && "$(field .target)" == "feat/auth" ]] \
   || fail "--print: rc=$RC $OUT"
-run '--html feat/auth'
-[[ "$(field .html)" == "true" && "$(field .print)" == "false" ]] || fail "--html stays an accepted explicit default: $OUT"
-run '--print --html'
-[[ "$RC" == "2" ]] || fail "--print --html should exit 2, got $RC"
 run '--print --teach'
 [[ "$RC" == "2" ]] || fail "--print --teach should exit 2, got $RC"
 run '-h'
@@ -241,22 +235,30 @@ run '-t handleRetry'
 [[ "$RC" == "0" && "$(field .teach)" == "true" && "$(field .target)" == "handleRetry" ]] || fail "-t: rc=$RC $OUT"
 run '-p feat/auth'
 [[ "$RC" == "0" && "$(field .print)" == "true" && "$(field .target)" == "feat/auth" ]] || fail "-p: rc=$RC $OUT"
-run '-H feat/auth'
-[[ "$RC" == "0" && "$(field .html)" == "true" && "$(field .target)" == "feat/auth" ]] || fail "-H: rc=$RC $OUT"
 run '-a symbol main'
 [[ "$RC" == "0" && "$(field .kind)" == "symbol" && "$(field .forced)" == "symbol" ]] || fail "-a: rc=$RC $OUT"
 run '-a branch handleRetry'
 [[ "$RC" == "2" ]] || fail "-a branch handleRetry should exit 2 like --as, got $RC"
 run '-t -p'
 [[ "$RC" == "2" ]] || fail "-t -p should exit 2, got $RC"
-run '-p -H'
-[[ "$RC" == "2" ]] || fail "-p -H should exit 2, got $RC"
 run '-f manager -p #42'
 [[ "$RC" == "0" && "$(field .audience)" == "manager" && "$(field .print)" == "true" && "$(field .kind)" == "pr" ]] \
   || fail "-f with -p: rc=$RC $OUT"
 run '-h'
-for s in '-t, --teach' '-p, --print' '-H, --html' '-a, --as'; do
+for s in '-t, --teach' '-p, --print' '-a, --as'; do
   [[ "$OUT" == *"$s"* ]] || fail "help must list '$s'"
 done
+[[ "$OUT" != *--html* && "$OUT" != *'-H,'* ]] || fail "help must not list the removed --html / -H"
+
+# 21. --html / -H were removed: HTML is the default, so they fail loudly with the way to the chat.
+for a in '--html feat/auth' '-H feat/auth' '--html'; do
+  run "$a"
+  [[ "$RC" == "2" ]] || fail "'$a' should exit 2, got $RC"
+  [[ -z "$OUT" ]] || fail "'$a' must print no JSON: $OUT"
+  grep -q 'default' "$TMP/err" && grep -q -- '-p' "$TMP/err" && grep -q -- '--print' "$TMP/err" \
+    || fail "'$a' error must say HTML is the default and point to -p/--print: $(cat "$TMP/err")"
+done
+run 'feat/auth'
+printf '%s' "$OUT" | jq -e 'has("html") | not' >/dev/null || fail "the html JSON field must be gone: $OUT"
 
 echo "ok: classify-target"

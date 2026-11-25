@@ -25,9 +25,8 @@ $explain src/ -f "new teammate"       # onboarding tour
 | Flag | Description |
 |------|-------------|
 | `-f, --for <audience>` | Tailor for an audience — free-form string (manager, non-technical, "new teammate", ...). Default: developer |
-| `-t, --teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--html` or `--print`) |
+| `-t, --teach` | Give a short, read-only explanation in chat instead of an HTML file (cannot be combined with `--print`) |
 | `-p, --print` | Answer in chat and write no file: a card for a change target, a concise answer for a state target |
-| `-H, --html` | Write the HTML explainer. This is the default for every target; the flag is accepted so 2.x habits keep working |
 | `-a, --as <kind>` | Force how the target is read: `file`, `pr`, `branch`, `symbol`, or `question` (`branch` also accepts a tag or a commit) |
 
 Every target defaults to a self-contained HTML explainer written to the project root (`explain-<slug>-<YYYY-MM-DD>.html`), plus a one-paragraph conclusion in the terminal. With `--print` nothing is written: a change target gets a card, a state target a concise answer.
@@ -42,7 +41,7 @@ When the user supplies `--teach`, use this mode before the HTML modes. Parse the
 
 ## Process
 
-1. **Classify the target with the script.** Run `../../scripts/classify-target.sh` (relative to this directory), feeding the raw arguments on stdin. It prints JSON (`audience`, `teach`, `html`, `print`, `forced`, `target`, `kind`, `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`). Never classify the target yourself. Its order is: existing path → file; `#N` → pr; local or remote-tracking branch → branch; identifier-like → symbol; anything else → question; nothing → empty. Say how the target was read by printing `resolved_line` first.
+1. **Classify the target with the script.** Run `../../scripts/classify-target.sh` (relative to this directory), feeding the raw arguments on stdin. It prints JSON (`audience`, `teach`, `print`, `forced`, `target`, `kind`, `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`). Never classify the target yourself. Its order is: existing path → file; `#N` → pr; local or remote-tracking branch → branch; identifier-like → symbol; anything else → question; nothing → empty. Say how the target was read by printing `resolved_line` first.
 2. **Empty target**, first match wins: the current conversation holds an investigation or finding → conversation mode (inline, no dispatch: read the visual spec at `../../templates/html-explainer.md`, assemble sections from the section library, write the file); else `on_base` is false, `base` is set and `diff_empty` is false → explain the current branch against its base as a change target; else print `Nothing to explain from this conversation yet. Pass a path, symbol, question, #PR, or branch: /digest:explain <target>` and stop.
 3. **`pr` with `gh_ok` false**: print `gh is unavailable or not logged in, so PR #<n> cannot be read. Pass the branch name instead: /digest:explain <branch>` and stop.
 4. **Otherwise dispatch the explain agent.** Output mode is `print` when `print` is true, else `html`.

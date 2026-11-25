@@ -51,15 +51,21 @@ for f in "$CMD" "$SKILL" "$AGENT" "$CODEX"; do
 done
 
 # 8. Every flag's short form is documented where the flags are listed.
-for s in '-t, --teach' '-p, --print' '-H, --html' '-a, --as'; do
+for s in '-t, --teach' '-p, --print' '-a, --as'; do
   for f in "$SCRIPT" "$SKILL"; do
     grep -q -- "$s" "$f" || fail "$f must list '$s'"
   done
 done
-for s in '-t|--teach' '-p|--print' '-H|--html' '-a|--as'; do
+for s in '-t|--teach' '-p|--print' '-a|--as'; do
   for f in "$CMD" "$README"; do
     grep -q -F -- "$s" "$f" || fail "$f must list '$s' in the usage line"
   done
 done
+
+# 9. --html / -H were removed: no file may list or praise them, and the README migration says why.
+grep -n -F -e '-H, --html' -e '-H|--html' "$CMD" "$SKILL" "$README" && fail "a file still lists the removed --html / -H flag"
+grep -n -i -E 'html. is accepted|--html. also works|accepted so 2\.x|means the same' "$CMD" "$SKILL" "$README" "$SCRIPT" \
+  && fail "a file still says --html is accepted"
+grep -q 'HTML is already the default' "$README" || fail "README migration must say HTML is already the default"
 
 echo "ok: explain-docs"

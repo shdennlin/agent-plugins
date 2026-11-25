@@ -9,14 +9,14 @@ allowed-tools:
   - Write
   - AskUserQuestion
 description: Explain what code is, how it works, or why it was designed this way, and summarize what a branch or pull request changes — from the current conversation or by investigating a path, symbol, question, #PR, or branch
-argument-hint: "[path|symbol|question|#PR|branch] [-f|--for <audience>] [-t|--teach] [-p|--print] [-H|--html] [-a|--as <kind>] [-h|--help]"
+argument-hint: "[path|symbol|question|#PR|branch] [-f|--for <audience>] [-t|--teach] [-p|--print] [-a|--as <kind>] [-h|--help]"
 ---
 
 # Explain Command
 
 Turn an investigation into understanding. `explain` covers **the current state** — what something is, how it works end-to-end, why it was designed this way, where a bug comes from — and **a change** — what a pull request, a branch, or the current branch does and why.
 
-- **Default, every target** (path, symbol, question, `#PR`, branch, current branch, the conversation's findings): a self-contained HTML explainer; the reply is a short conclusion plus the file path. `--html` means the same.
+- **Default, every target** (path, symbol, question, `#PR`, branch, current branch, the conversation's findings): a self-contained HTML explainer; the reply is a short conclusion plus the file path.
 - **`--print`**: the answer in the chat and no file: a card for a change target, a concise answer for a state target.
 - `--teach`: a short, read-only lesson in chat.
 
@@ -33,7 +33,7 @@ DIGEST_EXPLAIN_ARGS_9f3a
 **If the script exits non-zero**, show its stderr verbatim and stop.
 **If `--help` or `-h` was in the arguments**, the script prints the help text and exits 0. Show it verbatim and stop.
 
-The JSON has: `audience`, `teach`, `html`, `print`, `forced`, `target`, `kind` (`file | pr | branch | symbol | question | empty`), `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`.
+The JSON has: `audience`, `teach`, `print`, `forced`, `target`, `kind` (`file | pr | branch | symbol | question | empty`), `slug`, `resolved_line`, `branch`, `base`, `on_base`, `diff_empty`, `gh_ok`.
 
 ## Instructions
 
