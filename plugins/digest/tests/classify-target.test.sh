@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Regression test for scripts/classify-target.sh: argument parsing, target classification
+# (path > #N > branch > symbol > question), slug, base-branch detection and gh availability.
+# Raw argument text goes in on stdin; one JSON object comes out. No Claude, no network.
+#
+#   bash plugins/digest/tests/classify-target.test.sh
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$HERE/../scripts/classify-target.sh"
+command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed"; exit 0; }
+unset PROJECT_ROOT
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+REPO="$TMP/repo"
+mkdir -p "$REPO"
+cd "$REPO"
+
+fail() { echo "ASSERT FAIL: $*" >&2; exit 1; }
+
+g() { git -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+
+# run <raw-args>: sets OUT (stdout), RC (exit code); stderr goes to $TMP/err
+run() { OUT="$(printf '%s' "$1" | "$SCRIPT" 2>"$TMP/err")" && RC=0 || RC=$?; }
+
+# field <jq-filter> -> value from the last OUT
+field() { printf '%s' "$OUT" | jq -r "$1"; }
+
+# expect <raw-args> <kind> <target> [slug]
+expect() {
+  run "$1"
+  [[ "$RC" == "0" ]] || fail "'$1' exited $RC: $(cat "$TMP/err")"
+  [[ "$(field .kind)" == "$2" ]] || fail "'$1' kind: want $2, got $(field .kind)"
+  [[ "$(field .target)" == "$3" ]] || fail "'$1' target: want '$3', got '$(field .target)'"
+  if [[ $# -ge 4 ]]; then
+    [[ "$(field .slug)" == "$4" ]] || fail "'$1' slug: want $4, got $(field .slug)"
+  fi
+}
+
+# --- fixture repo ----------------------------------------------------------
+g init -q -b main
+mkdir -p docs src
+echo plan >docs/plan.md
+echo code >src/a.txt
+g add -A
+g commit -q -m "init"
+g branch feat/auth
+g branch src
+g tag v1
+g update-ref refs/remotes/origin/x HEAD
+SHORT="$(git rev-parse --short HEAD)"
+
+# 1. Classification order: path > #N > branch (heads, remotes) > symbol > question.
+expect '#42'                       pr       '#42'          pr-42
+expect 'feat/auth'                 branch   'feat/auth'    feat-auth
+expect 'main'                      branch   'main'         main
+expect 'origin/x'                  branch   'origin/x'     origin-x
+expect 'handleRetry'               symbol   'handleRetry'  handle-retry
+expect 'HEAD'                      symbol   'HEAD'         head
+expect 'v1'                        symbol   'v1'           v1
+expect "$SHORT"                    symbol   "$SHORT"
+expect 'src'                       file     'src'          src
+expect 'docs/plan.md'              file     'docs/plan.md' plan
+expect 'why does the queue retry?' question 'why does the queue retry?' why-does-the-queue-retry
+# A question with no ASCII word still needs a usable file slug.
+expect '為什麼重試' question '為什麼重試' topic
+# A token may start with a digit and still be a symbol (short hashes often do).
+expect '1a2b3c4' symbol '1a2b3c4' 1a2b3c4
+
+# 2. Resolved line: kind + target, and how to force another reading.
+run 'main'
+case "$(field .resolved_line)" in
+  "解析為:branch main"*"--as"*) ;;
+  *) fail "resolved_line for main: $(field .resolved_line)" ;;
+esac
+
+# 3. --as forces a reading; an impossible forced reading is rejected with exit 2.
+run '--as symbol main'
+[[ "$RC" == "0" && "$(field .kind)" == "symbol" && "$(field .forced)" == "symbol" ]] \
+  || fail "--as symbol main: rc=$RC $OUT"
+run '--as branch handleRetry'
+[[ "$RC" == "2" ]] || fail "--as branch handleRetry should exit 2, got $RC"
+[[ -s "$TMP/err" ]] || fail "--as branch handleRetry should explain itself on stderr"
+
+# 4. Flags: audience (quoted), html, teach; teach+html is mutually exclusive.
+run '-f "new teammate" docs/plan.md'
+[[ "$(field .audience)" == "new teammate" && "$(field .kind)" == "file" ]] || fail "quoted audience: $OUT"
+run 'docs/plan.md'
+[[ "$(field .audience)" == "developer" && "$(field .teach)" == "false" && "$(field .html)" == "false" ]] \
+  || fail "defaults: $OUT"
+run '--html feat/auth'
+[[ "$(field .html)" == "true" && "$(field .target)" == "feat/auth" ]] || fail "--html: $OUT"
+run '--teach handleRetry'
+[[ "$(field .teach)" == "true" ]] || fail "--teach: $OUT"
+run '--teach --html'
+[[ "$RC" == "2" ]] || fail "--teach --html should exit 2, got $RC"
+
+# 5. An unmatched quote is taken literally instead of failing.
+run '-f "oops docs/plan.md'
+[[ "$RC" == "0" && "$(field .audience)" == *oops* ]] || fail "unmatched quote: rc=$RC $OUT"
+
+# 6. Shell metacharacters in a question are data, never executed.
+run "why a;b \$(touch \"$TMP/pwned\") fail?"
+[[ "$RC" == "0" && "$(field .kind)" == "question" ]] || fail "metachar question: rc=$RC $OUT"
+[[ ! -e "$TMP/pwned" ]] || fail "argument text was executed by a shell"
+
+# 7. Help: text on stdout, exit 0, no JSON.
+run '-h'
+[[ "$RC" == "0" && "$OUT" == *Usage:* ]] || fail "-h: rc=$RC"
+printf '%s' "$OUT" | jq -e . >/dev/null 2>&1 && fail "-h printed JSON"
+
+# 8. Empty target on the base branch: nothing to diff.
+run ''
+[[ "$RC" == "0" && "$(field .kind)" == "empty" && "$(field .branch)" == "main" \
+  && "$(field .base)" == "main" && "$(field .on_base)" == "true" \
+  && "$(field .diff_empty)" == "true" && "$(field .resolved_line)" == "" ]] \
+  || fail "empty on main: $OUT"
+
+# 9. gh_ok: missing gh, logged-out gh, logged-in gh.
+BIN="$TMP/bin"; mkdir -p "$BIN"
+for t in git jq tr sed basename cat; do ln -s "$(command -v "$t")" "$BIN/$t"; done
+OUT="$(printf '%s' '#42' | env PATH="$BIN" "$SCRIPT" 2>"$TMP/err")" || fail "no-gh run failed: $(cat "$TMP/err")"
+[[ "$(field .gh_ok)" == "false" ]] || fail "gh missing should give gh_ok=false: $OUT"
+printf '#!/bin/sh\n[ "$1 $2" = "auth token" ] && exit "${FAKE_GH_AUTH:-0}"\nexit 0\n' >"$BIN/gh"
+chmod +x "$BIN/gh"
+OUT="$(printf '%s' '#42' | env PATH="$BIN" FAKE_GH_AUTH=1 "$SCRIPT" 2>"$TMP/err")" || fail "logged-out run failed"
+[[ "$(field .gh_ok)" == "false" ]] || fail "logged-out gh should give gh_ok=false: $OUT"
+OUT="$(printf '%s' '#42' | env PATH="$BIN" FAKE_GH_AUTH=0 "$SCRIPT" 2>"$TMP/err")" || fail "logged-in run failed"
+[[ "$(field .gh_ok)" == "true" ]] || fail "logged-in gh should give gh_ok=true: $OUT"
+
+# 10. Empty target on a feature branch with commits: there is a diff to explain.
+g checkout -q feat/auth
+echo more >>docs/plan.md
+g commit -q -am "more"
+run ''
+[[ "$(field .branch)" == "feat/auth" && "$(field .on_base)" == "false" \
+  && "$(field .diff_empty)" == "false" ]] || fail "empty on feat/auth: $OUT"
+
+# 11. Base detection: develop beats main.
+g branch develop main
+run ''
+[[ "$(field .base)" == "develop" ]] || fail "base should be develop: $OUT"
+
+# 12. No develop and no main: no base, and the empty diff is reported as empty.
+g checkout -q main
+g branch -D -q develop
+g branch -m main trunk
+run ''
+[[ "$(field .base)" == "" && "$(field .on_base)" == "false" && "$(field .diff_empty)" == "true" ]] \
+  || fail "no base: $OUT"
+
+# 13. Detached HEAD: no current branch name.
+g checkout -q --detach
+run ''
+[[ "$RC" == "0" && "$(field .branch)" == "" ]] || fail "detached: rc=$RC $OUT"
+
+echo "ok: classify-target"
